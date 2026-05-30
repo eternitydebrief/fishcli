@@ -188,19 +188,19 @@ impl<'a> Widget for WorldView<'a> {
                         (1, 0) => '>',
                         _ => '@',
                     };
-                    cell.set_char(g).set_style(with_dark_bg(player_style));
+                    cell.set_char(g).set_style(player_style);
                 } else {
                     let wx = self.player.0 - half_w + sx as i32;
                     let wy = self.player.1 - half_h + sy as i32;
                     if let Some(npc) = crate::npc::npc_at(wx, wy) {
-                        let s = Style::default()
-                            .fg(npc.render_color())
-                            .add_modifier(Modifier::BOLD);
-                        cell.set_char(npc.render_char())
-                            .set_style(with_dark_bg(s));
+                        cell.set_char(npc.render_char()).set_style(
+                            Style::default()
+                                .fg(npc.render_color())
+                                .add_modifier(Modifier::BOLD),
+                        );
                     } else {
                         let (g, s) = self.world.render_tile(wx, wy, self.tick);
-                        cell.set_char(g).set_style(with_dark_bg(s));
+                        cell.set_char(g).set_style(s);
                     }
                 }
             }
@@ -208,47 +208,6 @@ impl<'a> Widget for WorldView<'a> {
     }
 }
 
-/// If the style has no explicit bg, derive one from its fg scaled to <= 16/255 per channel.
-fn with_dark_bg(style: Style) -> Style {
-    if style.bg.is_some() {
-        return style;
-    }
-    let fg = style.fg.unwrap_or(Color::White);
-    style.bg(derive_dark(fg))
-}
-
-fn derive_dark(fg: Color) -> Color {
-    let (r, g, b) = color_to_rgb(fg);
-    // scale each channel down to at most 32
-    Color::Rgb(
-        ((r as u16 * 32) / 255) as u8,
-        ((g as u16 * 32) / 255) as u8,
-        ((b as u16 * 32) / 255) as u8,
-    )
-}
-
-fn color_to_rgb(c: Color) -> (u8, u8, u8) {
-    match c {
-        Color::Rgb(r, g, b) => (r, g, b),
-        Color::Reset | Color::Black => (0, 0, 0),
-        Color::Red => (200, 0, 0),
-        Color::Green => (0, 180, 0),
-        Color::Yellow => (200, 200, 0),
-        Color::Blue => (0, 0, 200),
-        Color::Magenta => (200, 0, 200),
-        Color::Cyan => (0, 200, 200),
-        Color::Gray => (180, 180, 180),
-        Color::DarkGray => (100, 100, 100),
-        Color::LightRed => (255, 100, 100),
-        Color::LightGreen => (140, 230, 140),
-        Color::LightYellow => (255, 255, 120),
-        Color::LightBlue => (140, 200, 255),
-        Color::LightMagenta => (255, 140, 255),
-        Color::LightCyan => (140, 240, 240),
-        Color::White => (255, 255, 255),
-        Color::Indexed(_) => (128, 128, 128),
-    }
-}
 
 impl World {
     pub fn new(seed: u32) -> Self {
