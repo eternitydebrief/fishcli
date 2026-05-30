@@ -401,7 +401,7 @@ fn is_tree_anchor(x: i32, y: i32, seed: u32, density: f32) -> bool {
     r < density
 }
 
-const WATER_CELL: i32 = 26;
+const WATER_CELL: i32 = 18;
 
 fn water_body_at(x: i32, y: i32, seed: u32) -> bool {
     if in_village_zone(x, y) {
@@ -417,8 +417,8 @@ fn water_body_at(x: i32, y: i32, seed: u32) -> bool {
             let ccx = cx + dcx;
             let ccy = cy + dcy;
             let h = hash2(ccx, ccy, seed.wrapping_add(0xF00D_BEEF));
-            // ~14% of coarse cells host a water body
-            if h % 7 != 0 {
+            // ~33% of coarse cells host a water body
+            if h % 3 != 0 {
                 continue;
             }
             // anchor offset inside the coarse cell
@@ -428,11 +428,11 @@ fn water_body_at(x: i32, y: i32, seed: u32) -> bool {
             let ay = ccy * WATER_CELL + oy;
             // size class
             let radius: i32 = match (h >> 20) % 10 {
-                0..=5 => 1, // puddle / tiny
-                6..=8 => 3, // pond
-                _ => 6,     // small lake
+                0..=4 => 1, // puddle / tiny
+                5..=7 => 3, // pond
+                8 => 5,     // small lake
+                _ => 8,     // larger lake
             };
-            // never place water body too close to the ocean shore (avoid touching y >= 5)
             if ay + radius >= 5 {
                 continue;
             }
