@@ -1,3 +1,4 @@
+use crate::fishing::Fishing;
 use crate::map::{Map, Tile};
 use crate::player::Player;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
@@ -12,7 +13,7 @@ pub enum Scene {
     Overworld,
     RodShop,
     FishingSchool,
-    Fishing,
+    Fishing(Fishing),
 }
 
 pub struct App {
@@ -32,13 +33,31 @@ impl App {
         }
     }
 
+    pub fn tick(&mut self) {
+        if let Scene::Fishing(g) = &mut self.scene {
+            g.tick();
+        }
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) {
         if key.kind != KeyEventKind::Press {
             return;
         }
-        match self.scene {
+        match &mut self.scene {
             Scene::Overworld => self.handle_overworld(key.code),
-            _ => {
+            Scene::Fishing(g) => {
+                let mut leave = false;
+                match key.code {
+                    KeyCode::Char('k') | KeyCode::Up => g.push_up(),
+                    KeyCode::Char('j') | KeyCode::Down => g.push_down(),
+                    KeyCode::Esc | KeyCode::Char('q') => leave = true,
+                    _ => {}
+                }
+                if leave {
+                    self.scene = Scene::Overworld;
+                }
+            }
+            Scene::RodShop | Scene::FishingSchool => {
                 if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
                     self.scene = Scene::Overworld;
                 }
@@ -67,7 +86,7 @@ impl App {
         match self.map.get(nx, ny) {
             Tile::DoorRod => self.scene = Scene::RodShop,
             Tile::DoorSchool => self.scene = Scene::FishingSchool,
-            Tile::Dock => self.scene = Scene::Fishing,
+            Tile::Dock => self.scene = Scene::Fishing(Fishing::new()),
             t if t.walkable() => {
                 self.player.x = nx;
                 self.player.y = ny;
@@ -77,7 +96,7 @@ impl App {
     }
 
     pub fn render(&self, frame: &mut Frame) {
-        match self.scene {
+        match &self.scene {
             Scene::Overworld => self.render_overworld(frame),
             Scene::RodShop => self.render_placeholder(
                 frame,
@@ -89,11 +108,7 @@ impl App {
                 " fishing school ",
                 "techniques coming soon\n\nesc/q: leave",
             ),
-            Scene::Fishing => self.render_placeholder(
-                frame,
-                " fishing ",
-                "minigame coming soon\n\nesc/q: leave",
-            ),
+            Scene::Fishing(g) => g.render(frame),
         }
     }
 
