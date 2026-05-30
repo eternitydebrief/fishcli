@@ -55,14 +55,21 @@ pub struct SaveData {
     pub skills: Skills,
 }
 
+/// Saves live in ./saves/ relative to the current working directory so they
+/// can be easily copied/exported to another machine. We also look in the
+/// historical XDG data dir on load for backward compatibility.
 fn save_path() -> Option<PathBuf> {
-    let dir = dirs::data_dir()?.join("fishcli");
-    Some(dir.join("save.dat"))
+    Some(PathBuf::from("saves").join("save.dat"))
 }
 
-fn legacy_save_path() -> Option<PathBuf> {
-    let dir = dirs::data_dir()?.join("fishcli");
-    Some(dir.join("save.json"))
+fn legacy_save_paths() -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    if let Some(dir) = dirs::data_dir() {
+        let base = dir.join("fishcli");
+        v.push(base.join("save.dat"));
+        v.push(base.join("save.json"));
+    }
+    v
 }
 
 /// Baked-in secret. Yes, anyone reading the source has it. See module docs.
@@ -151,18 +158,25 @@ pub fn save_to_disk(data: &SaveData) -> Result<()> {
 }
 
 pub fn load_from_disk() -> Option<SaveData> {
-    let path = save_path()?;
-    if let Ok(bytes) = std::fs::read(&path) {
-        if let Some(d) = decrypt_opaque(&bytes) {
-            return Some(d);
+    if let Some(path) = save_path() {
+        if let Ok(bytes) = std::fs::read(&path) {
+            if let Some(d) = decrypt_opaque(&bytes) {
+                return Some(d);
+            }
         }
     }
-    // legacy plaintext json - one-time migration for older installs
-    let lp = legacy_save_path()?;
-    if let Ok(json) = std::fs::read_to_string(&lp) {
-        if let Ok(d) = serde_json::from_str::<SaveData>(&json) {
-            let _ = save_to_disk(&d);
-            return Some(d);
+    for lp in legacy_save_paths() {
+        if let Ok(bytes) = std::fs::read(&lp) {
+            if let Some(d) = decrypt_opaque(&bytes) {
+                let _ = save_to_disk(&d);
+                return Some(d);
+            }
+            if let Ok(json) = std::str::from_utf8(&bytes) {
+                if let Ok(d) = serde_json::from_str::<SaveData>(json) {
+                    let _ = save_to_disk(&d);
+                    return Some(d);
+                }
+            }
         }
     }
     None
