@@ -152,7 +152,7 @@ impl World {
                         1 => '.',
                         _ => '`',
                     };
-                    (g, Style::default().fg(shade((220, 200, 130), x, y, 0x5A1D_5A1D, 20)))
+                    (g, Style::default().fg(shade((180, 165, 120), x, y, 0x5A1D_5A1D, 14)))
                 }
             }
             Tile::TreeTrunk | Tile::TreeCanopy => tree_render(x, y, self.seed),
@@ -315,7 +315,7 @@ fn tree_render(x: i32, y: i32, seed: u32) -> (char, Style) {
                     _ => '8',
                 },
             };
-            leaf_style(g, anchor_hash, (60, 95, 55), x, y)
+            leaf_style(g, anchor_hash, (55, 85, 50), x, y)
         }
         (TreeSpecies::Pine, TreePart::Trunk) => trunk_style(anchor_hash, 'I'),
         (TreeSpecies::Pine, TreePart::Canopy) => {
@@ -332,8 +332,7 @@ fn tree_render(x: i32, y: i32, seed: u32) -> (char, Style) {
             } else {
                 '/'
             };
-            // pine is darker / cooler
-            leaf_style(g, anchor_hash, (40, 80, 50), x, y)
+            leaf_style(g, anchor_hash, (40, 70, 45), x, y)
         }
         (TreeSpecies::Bush, _) => {
             let g = match anchor_hash % 3 {
@@ -341,53 +340,38 @@ fn tree_render(x: i32, y: i32, seed: u32) -> (char, Style) {
                 1 => '*',
                 _ => 'q',
             };
-            leaf_style(g, anchor_hash, (75, 100, 55), x, y)
+            leaf_style(g, anchor_hash, (70, 90, 55), x, y)
         }
     }
 }
 
 fn trunk_style(anchor_hash: u32, g: char) -> (char, Style) {
-    let r = 90 + (anchor_hash % 25) as u8;
-    let gc = 60 + (anchor_hash % 20) as u8;
-    let b = 35 + (anchor_hash % 15) as u8;
-    (
-        g,
-        Style::default()
-            .fg(Color::Rgb(r, gc, b))
-            .add_modifier(Modifier::BOLD),
-    )
+    let r = 80 + (anchor_hash % 20) as u8;
+    let gc = 55 + (anchor_hash % 15) as u8;
+    let b = 35 + (anchor_hash % 12) as u8;
+    (g, Style::default().fg(Color::Rgb(r, gc, b)))
 }
 
 fn leaf_style(g: char, anchor_hash: u32, base: (u8, u8, u8), x: i32, y: i32) -> (char, Style) {
-    let tint_r = (anchor_hash % 25) as i32 - 12;
-    let tint_g = ((anchor_hash >> 8) % 25) as i32 - 12;
-    let tint_b = ((anchor_hash >> 16) % 25) as i32 - 12;
+    let tint_r = (anchor_hash % 18) as i32 - 9;
+    let tint_g = ((anchor_hash >> 8) % 18) as i32 - 9;
+    let tint_b = ((anchor_hash >> 16) % 18) as i32 - 9;
     let base = (
         (base.0 as i32 + tint_r).clamp(0, 255) as u8,
         (base.1 as i32 + tint_g).clamp(0, 255) as u8,
         (base.2 as i32 + tint_b).clamp(0, 255) as u8,
     );
-    (
-        g,
-        Style::default()
-            .fg(shade(base, x, y, 0xAA55_AA56, 14))
-            .add_modifier(Modifier::BOLD),
-    )
+    (g, Style::default().fg(shade(base, x, y, 0xAA55_AA56, 10)))
 }
 
 fn rock_glyph(x: i32, y: i32) -> (char, Style) {
     let v = hash2(x, y, 0xF00D_F00D) % 3;
     let (g, base) = match v {
-        0 => ('o', (110, 110, 110)),
-        1 => ('O', (140, 140, 140)),
-        _ => ('@', (100, 100, 100)),
+        0 => ('o', (100, 100, 100)),
+        1 => ('O', (120, 120, 120)),
+        _ => ('@', (90, 90, 90)),
     };
-    (
-        g,
-        Style::default()
-            .fg(shade(base, x, y, 0xF00D_F00D, 18))
-            .add_modifier(Modifier::BOLD),
-    )
+    (g, Style::default().fg(shade(base, x, y, 0xF00D_F00D, 12)))
 }
 
 fn pebble_glyph(x: i32, y: i32) -> (char, Style) {
@@ -397,21 +381,21 @@ fn pebble_glyph(x: i32, y: i32) -> (char, Style) {
         1 => ',',
         _ => '`',
     };
-    (g, Style::default().fg(shade((130, 120, 100), x, y, 0xABCD_1234, 20)))
+    (g, Style::default().fg(shade((115, 105, 90), x, y, 0xABCD_1234, 15)))
 }
 
 fn flower_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0xFFEE_DD11) % 7;
     let color = match h {
-        0 => Color::Rgb(230, 80, 80),
-        1 => Color::Rgb(240, 180, 60),
-        2 => Color::Rgb(250, 240, 80),
-        3 => Color::Rgb(100, 220, 100),
-        4 => Color::Rgb(80, 160, 240),
-        5 => Color::Rgb(170, 100, 240),
-        _ => Color::Rgb(250, 130, 220),
+        0 => Color::Rgb(180, 90, 90),
+        1 => Color::Rgb(190, 150, 75),
+        2 => Color::Rgb(200, 190, 100),
+        3 => Color::Rgb(110, 170, 110),
+        4 => Color::Rgb(95, 135, 180),
+        5 => Color::Rgb(150, 110, 180),
+        _ => Color::Rgb(190, 130, 170),
     };
-    ('*', Style::default().fg(color).add_modifier(Modifier::BOLD))
+    ('*', Style::default().fg(color))
 }
 
 fn big_rock_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
@@ -499,12 +483,12 @@ fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
         _ => '~',
     };
     let base = match phase {
-        0..=2 => (20, 60, 160),
-        3..=5 => (40, 110, 200),
-        6..=8 => (60, 180, 220),
-        _ => (30, 80, 180),
+        0..=2 => (35, 60, 110),
+        3..=5 => (55, 90, 140),
+        6..=8 => (75, 115, 150),
+        _ => (40, 70, 120),
     };
-    (glyph, Style::default().fg(shade(base, x, y, 0xA11_BABE, 18)))
+    (glyph, Style::default().fg(shade(base, x, y, 0xA11_BABE, 14)))
 }
 
 fn grass_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
@@ -518,23 +502,18 @@ fn grass_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
         2 => '`',
         _ => '.',
     };
-    (g, Style::default().fg(shade((50, 130, 50), x, y, 0x6C00_6C00, 25)))
+    (g, Style::default().fg(shade((65, 105, 65), x, y, 0x6C00_6C00, 18)))
 }
 
 fn foam_anim(x: i32, tick: u64) -> (char, Style) {
     let phase = (x.unsigned_abs() as u64 * 3 + tick / 6) % 17;
     let (g, base) = match phase {
-        0 => ('*', (240, 240, 240)),
-        1 => ('o', (200, 200, 200)),
-        2 => ('.', (230, 230, 230)),
-        _ => (',', (210, 190, 130)),
+        0 => ('*', (200, 200, 200)),
+        1 => ('o', (170, 170, 170)),
+        2 => ('.', (190, 190, 190)),
+        _ => (',', (180, 165, 120)),
     };
-    (
-        g,
-        Style::default()
-            .fg(shade(base, x, 0, 0xF0AA_F0AA, 12))
-            .add_modifier(Modifier::BOLD),
-    )
+    (g, Style::default().fg(shade(base, x, 0, 0xF0AA_F0AA, 10)))
 }
 
 #[cfg(test)]
