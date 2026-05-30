@@ -17,6 +17,7 @@
 //!     but tedious enough to filter out 99% of casual editors.
 
 use crate::item::Item;
+use crate::rod::OwnedRods;
 use crate::stats::{Skills, Stats};
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
@@ -53,6 +54,8 @@ pub struct SaveData {
     pub stats: Stats,
     #[serde(default)]
     pub skills: Skills,
+    #[serde(default)]
+    pub rods: OwnedRods,
 }
 
 /// Saves live in ./saves/ relative to the current working directory so they

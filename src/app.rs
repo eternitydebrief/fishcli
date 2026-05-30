@@ -25,7 +25,7 @@ use ratatui::{
 
 pub enum Scene {
     Overworld,
-    RodShop,
+    RodShop { cursor: u32 },
     FishingSchool,
     Fishing(Fishing),
     Fishdex(Fishdex),
@@ -264,6 +264,11 @@ impl App {
         self.seen_cells = data.seen_cells.iter().copied().collect();
         self.stats = data.stats.clone();
         self.skills = data.skills.clone();
+        self.player.rods = if data.rods.max_owned == 0 {
+            crate::rod::OwnedRods { max_owned: 1, equipped: 1 }
+        } else {
+            data.rods
+        };
     }
 
     fn current_save(&self) -> SaveData {
@@ -294,6 +299,7 @@ impl App {
             seen_cells: self.seen_cells.iter().copied().collect(),
             stats: self.stats.clone(),
             skills: self.skills.clone(),
+            rods: self.player.rods,
         }
     }
 
@@ -499,7 +505,50 @@ impl App {
                 KeyCode::Char('q') | KeyCode::Char('e') => self.exit_subscene(),
                 _ => {}
             },
-            Scene::RodShop | Scene::FishingSchool => {
+            Scene::RodShop { cursor } => {
+                let owned = self.player.rods.max_owned;
+                let next = owned + 1;
+                match code {
+                    KeyCode::Char('q') | KeyCode::Esc => self.exit_subscene(),
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        *cursor = (*cursor + 1).min(199);
+                    }
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        *cursor = cursor.saturating_sub(1);
+                    }
+                    KeyCode::Enter | KeyCode::Char(' ') => {
+                        // buy the next rod if possible
+                        if let Some(rod) = crate::rod::get(next) {
+                            if self.player.valu >= rod.price() {
+                                self.player.valu -= rod.price();
+                                self.player.rods.max_owned = next;
+                                self.player.rods.equipped = next;
+                                self.narrator.say(format!(
+                                    "Bought rod #{next} - {} for {}$V",
+                                    rod.name,
+                                    rod.price()
+                                ));
+                            } else {
+                                self.narrator.say(format!(
+                                    "Need {}$V to buy {}.",
+                                    rod.price(),
+                                    rod.name
+                                ));
+                            }
+                        }
+                    }
+                    KeyCode::Char('e') => {
+                        // equip the selected if owned
+                        let tier = *cursor + 1;
+                        if tier <= owned {
+                            self.player.rods.equipped = tier;
+                            self.narrator.say(format!("Equipped tier {tier}."));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Scene::FishingSchool => {
                 if matches!(code, KeyCode::Char('q')) {
                     self.exit_subscene();
                 }
@@ -825,7 +874,7 @@ impl App {
                     self.narrator.say("You leave the line slack and step away.");
                 }
             }
-            Scene::RodShop | Scene::FishingSchool => {
+            Scene::RodShop { .. } | Scene::FishingSchool => {
                 self.narrator.say("You step back outside.");
             }
             _ => {}
@@ -927,7 +976,9 @@ impl App {
         match self.world.get(nx, ny) {
             Tile::DoorRod => {
                 self.narrator.say("You step into the rod shop.");
-                self.scene = Scene::RodShop;
+                let cursor = self.player.rods.max_owned.min(199);
+                self.scene = Scene::RodShop { cursor };
+                self.mode = Mode::Insert;
             }
             Tile::DoorSchool => {
                 self.narrator.say("You step into the fishing school.");
@@ -949,6 +1000,7 @@ impl App {
                     f,
                     self.rng_state,
                     self.skills.fishing_level(),
+                    self.player.rods.equipped,
                 ));
             }
             _ => self.narrator.say("Nothing to interact with."),
@@ -1008,10 +1060,12 @@ impl App {
                     inner,
                 );
             }
-            Scene::RodShop => render_placeholder(
+            Scene::RodShop { cursor } => render_rod_shop(
                 frame,
-                " rod shop ",
-                "rod upgrades coming soon\n\nq or esc: leave",
+                *cursor,
+                self.player.rods.max_owned,
+                self.player.rods.equipped,
+                self.player.valu,
             ),
             Scene::FishingSchool => render_placeholder(
                 frame,
@@ -1446,6 +1500,83 @@ fn render_quests(
         Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }),
         inner,
     );
+}
+
+fn render_rod_shop(
+    frame: &mut Frame,
+    cursor: u32,
+    owned: u32,
+    equipped: u32,
+    valu: u64,
+) {
+    use crate::rod::rods;
+    let area = frame.area();
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!(
+            " rod shop - {} owned, equipped #{equipped} - j/k browse, enter to buy next, e to equip, q to leave ",
+            owned
+        ))
+        .border_style(Style::default().fg(Color::Yellow));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let visible = inner.height as usize;
+    let total = rods().len();
+    // center cursor in view
+    let start = (cursor as usize).saturating_sub(visible / 2);
+    let start = start.min(total.saturating_sub(visible));
+    let mut lines: Vec<ratatui::text::Line> = Vec::with_capacity(visible);
+    for i in start..(start + visible).min(total) {
+        let rod = &rods()[i];
+        let tier = rod.tier;
+        let is_selected = tier == cursor + 1;
+        let is_owned = tier <= owned;
+        let is_equipped = tier == equipped;
+        let is_next = tier == owned + 1;
+        let prefix = if is_selected { "> " } else { "  " };
+        let status = if is_equipped {
+            "[E]"
+        } else if is_owned {
+            "[OWN]"
+        } else if is_next {
+            if valu >= rod.price() {
+                "[BUY]"
+            } else {
+                "[$$$]"
+            }
+        } else {
+            "[LCK]"
+        };
+        let color = if is_equipped {
+            Color::LightGreen
+        } else if is_owned {
+            Color::Green
+        } else if is_next && valu >= rod.price() {
+            Color::LightYellow
+        } else if is_next {
+            Color::Red
+        } else {
+            Color::DarkGray
+        };
+        let style = if is_selected {
+            Style::default().fg(color).add_modifier(Modifier::BOLD).bg(Color::Rgb(40, 40, 40))
+        } else {
+            Style::default().fg(color)
+        };
+        lines.push(ratatui::text::Line::from(vec![
+            ratatui::text::Span::styled(format!("{prefix}{status} "), style),
+            ratatui::text::Span::styled(
+                format!("#{tier:>3} {:<28}", rod.name),
+                style,
+            ),
+            ratatui::text::Span::styled(
+                format!("{}$V", rod.price()),
+                Style::default().fg(Color::Yellow),
+            ),
+        ]));
+    }
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 fn render_xp_popup(

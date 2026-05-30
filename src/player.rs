@@ -1,5 +1,6 @@
 use crate::fish::FishDef;
 use crate::item::Item;
+use crate::rod::OwnedRods;
 
 pub struct Player {
     pub x: i32,
@@ -10,6 +11,7 @@ pub struct Player {
     pub inventory: Vec<&'static FishDef>,
     pub items: Vec<Item>,
     pub facing: (i32, i32),
+    pub rods: OwnedRods,
 }
 
 impl Player {
@@ -22,6 +24,7 @@ impl Player {
             inventory: Vec::new(),
             items: Vec::new(),
             facing: (0, 1),
+            rods: OwnedRods { max_owned: 1, equipped: 1 },
         }
     }
 }

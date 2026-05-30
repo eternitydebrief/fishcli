@@ -20,6 +20,7 @@ mod notes;
 mod npc;
 mod player;
 mod quest;
+mod rod;
 mod save;
 mod stats;
 mod world;

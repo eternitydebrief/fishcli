@@ -38,6 +38,7 @@ fn scene_water(x: usize, y: usize, tick: u64) -> (char, Style) {
 pub struct Fishing {
     pub fish: &'static FishDef,
     pub fishing_level: u32,
+    pub rod_tier: u32,
     pub bar_h: usize,
     pub rect_h: f32,
     pub rect_y: f32,
@@ -57,21 +58,29 @@ pub struct Fishing {
 }
 
 impl Fishing {
-    pub fn new(fish: &'static FishDef, rng_seed: u32, fishing_level: u32) -> Self {
+    pub fn new(
+        fish: &'static FishDef,
+        rng_seed: u32,
+        fishing_level: u32,
+        rod_tier: u32,
+    ) -> Self {
         let bar_h = 22usize;
         let rect_h = fish.rect_h();
         let rect_y = (bar_h as f32 - rect_h) / 2.0;
         let mid = bar_h as f32 / 2.0;
+        // each rod tier shaves 1% off fish speed multiplicatively
+        let rod_mult = 0.99f32.powi(rod_tier as i32);
         Self {
             fish,
             fishing_level,
+            rod_tier,
             bar_h,
             rect_h,
             rect_y,
             rect_vy: 0.0,
             fish_y: mid,
             fish_target_y: mid,
-            fish_speed: fish.fish_speed(),
+            fish_speed: fish.fish_speed() * rod_mult,
             target_change_ticks: fish.target_change_ticks().max(1),
             progress: 50.0,
             finished: None,
