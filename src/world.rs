@@ -78,34 +78,28 @@ pub fn biome_at(x: i32, y: i32, seed: u32) -> Biome {
     let fy = y as f32 * 0.055;
     let s = (seed as f32) * 0.00007;
 
-    // domain warp so band boundaries become curvy blobs rather than straight lines
-    let warp_x =
-        (fx * 0.42 + fy * 0.31 + s).sin() * 3.5 + (fy * 0.27 - s * 0.7).sin() * 1.8;
-    let warp_y =
-        (fx * 0.33 - fy * 0.47 + s * 1.3).sin() * 3.5 + (fx * 0.19 + s * 0.5).sin() * 1.8;
+    // single domain-warp pair (2 sins) gives curvy boundaries
+    let warp_x = (fx * 0.42 + fy * 0.31 + s).sin() * 3.5;
+    let warp_y = (fx * 0.33 - fy * 0.47 + s * 1.3).sin() * 3.5;
     let wx = fx + warp_x;
     let wy = fy + warp_y;
 
-    // temperature: hot positive, cold negative
-    let temp = (wx * 0.18 + wy * 0.07 + s).sin() + (wx * 0.09 - wy * 0.13).sin() * 0.5;
-    // moisture: wet positive, dry negative
-    let moist =
-        (wx * 0.13 - wy * 0.21 + s * 1.7).sin() + (wx * 0.07 + wy * 0.11).sin() * 0.5;
-    // vegetation: high = forest-y
-    let veg =
-        (wx * 0.08 + wy * 0.06 - s * 0.9).sin() + (wx * 0.21 + wy * 0.09).sin() * 0.5;
+    // 3 noise channels (one sin each) drive biome selection
+    let temp = (wx * 0.18 + wy * 0.07 + s).sin();
+    let moist = (wx * 0.13 - wy * 0.21 + s * 1.7).sin();
+    let veg = (wx * 0.08 + wy * 0.06 - s * 0.9).sin();
 
-    if temp > 0.7 && moist < -0.2 {
+    if temp > 0.55 && moist < -0.1 {
         Biome::Desert
-    } else if temp < -0.7 {
+    } else if temp < -0.55 {
         Biome::Tundra
-    } else if moist > 0.8 {
+    } else if moist > 0.55 {
         Biome::Swamp
-    } else if veg > 0.6 {
+    } else if veg > 0.45 {
         Biome::Forest
-    } else if moist < -0.4 && veg < 0.0 {
+    } else if moist < -0.3 && veg < 0.0 {
         Biome::Scrub
-    } else if veg < -0.5 {
+    } else if veg < -0.4 {
         Biome::Rocky
     } else {
         Biome::Meadow
