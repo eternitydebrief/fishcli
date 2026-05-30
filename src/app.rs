@@ -108,6 +108,8 @@ pub struct App {
     pub current_biome: Option<Biome>,
     /// shown when biome changes, ticks down to 0
     pub biome_popup_ticks: u32,
+    /// xp gain popup: (skill_name, gained_xp, current_total_xp, level, ticks_remaining)
+    pub xp_popup: Option<(&'static str, u64, u64, u32, u32)>,
     /// total valu earned lifetime (sum of quest rewards + sales)
     pub lifetime_valu: u64,
     /// time when this session started (for play-time stat)
@@ -168,6 +170,7 @@ impl App {
             quest_done: Vec::new(),
             current_biome: None,
             biome_popup_ticks: 0,
+            xp_popup: None,
             lifetime_valu: 0,
             session_start: std::time::Instant::now(),
             saved_play_secs: 0,
@@ -307,6 +310,12 @@ impl App {
         }
     }
 
+    fn show_xp_gain(&mut self, skill: &'static str, gained: u64, total_xp: u64, level: u32) {
+        self.narrator.say(format!("+{gained} {skill} xp"));
+        // 5 seconds at 20fps -> 100 ticks
+        self.xp_popup = Some((skill, gained, total_xp, level, 100));
+    }
+
     fn maybe_autosave(&mut self) {
         // every ~5s, send a snapshot to the background thread, but only if
         // the save has actually changed since the last write.
@@ -329,6 +338,13 @@ impl App {
         self.anim_tick = self.anim_tick.wrapping_add(1);
         if self.biome_popup_ticks > 0 {
             self.biome_popup_ticks -= 1;
+        }
+        if let Some((_, _, _, _, ref mut t)) = self.xp_popup {
+            if *t > 0 {
+                *t -= 1;
+            } else {
+                self.xp_popup = None;
+            }
         }
         self.maybe_autosave();
 
@@ -792,6 +808,7 @@ impl App {
                     let before = self.skills.fishing_level();
                     self.skills.fishing_xp += gained;
                     let after = self.skills.fishing_level();
+                    self.show_xp_gain("Fishing", gained, self.skills.fishing_xp, after);
                     if after > before {
                         self.narrator
                             .say(format!("Fishing level up! Now level {after}."));
@@ -1083,6 +1100,10 @@ impl App {
             if let Some(b) = self.current_biome {
                 render_biome_popup(frame, b);
             }
+        }
+
+        if let Some((skill, gained, total_xp, level, _)) = self.xp_popup {
+            render_xp_popup(frame, skill, gained, total_xp, level);
         }
 
         if let Some(id) = self.pinned_quest.as_deref() {
@@ -1415,6 +1436,48 @@ fn render_quests(
         Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }),
         inner,
     );
+}
+
+fn render_xp_popup(
+    frame: &mut Frame,
+    skill: &str,
+    gained: u64,
+    total_xp: u64,
+    level: u32,
+) {
+    use crate::stats::level_to_xp;
+    let area = frame.area();
+    let w = 48u16.min(area.width);
+    let h = 4u16.min(area.height);
+    if w < 20 || h < 4 {
+        return;
+    }
+    let x = area.x + (area.width.saturating_sub(w)) / 2;
+    let y = area.y + 1;
+    let rect = Rect { x, y, width: w, height: h };
+    frame.render_widget(Clear, rect);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!(" +{gained} {skill} xp "))
+        .border_style(Style::default().fg(Color::LightGreen));
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+
+    let cur_floor = level_to_xp(level);
+    let next = level_to_xp(level + 1);
+    let span = (next - cur_floor).max(1);
+    let progress = total_xp.saturating_sub(cur_floor);
+    let bar_w = inner.width.saturating_sub(2) as usize;
+    let filled = ((progress as f32 / span as f32) * bar_w as f32) as usize;
+    let bar: String = std::iter::repeat('=')
+        .take(filled)
+        .chain(std::iter::repeat('-').take(bar_w.saturating_sub(filled)))
+        .collect();
+    let lines = vec![
+        ratatui::text::Line::from(format!("  Level {level}  ({progress}/{span} xp)")),
+        ratatui::text::Line::from(format!(" [{bar}]")),
+    ];
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 fn render_biome_popup(frame: &mut Frame, biome: Biome) {
