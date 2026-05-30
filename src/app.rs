@@ -289,6 +289,7 @@ impl App {
             }
         }
         self.world = World::new(data.world_seed);
+        self.world.dim = data.dim;
         if data.rng_state != 0 {
             self.rng_state = data.rng_state;
         }
@@ -340,6 +341,7 @@ impl App {
             rods: self.player.rods,
             caught_at: self.caught_at.clone(),
             buffs: self.buffs.clone(),
+            dim: self.world.dim,
         }
     }
 
@@ -1698,6 +1700,18 @@ fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
         Tile::Pebble => ('.', Color::Rgb(170, 160, 130)),
         Tile::Flower => ('*', Color::Rgb(210, 190, 180)),
         Tile::Grass => ('.', Color::Rgb(130, 175, 130)),
+        Tile::MineEntrance | Tile::MineFrame => ('#', Color::Rgb(120, 80, 45)),
+        Tile::CaveFloor | Tile::CaveWall | Tile::Stalactite | Tile::Stalagmite => {
+            ('#', Color::Rgb(90, 65, 45))
+        }
+        Tile::OreRock => ('*', Color::Rgb(220, 200, 90)),
+        Tile::MineralWater => ('~', Color::Rgb(120, 200, 240)),
+        Tile::MineExit => ('<', Color::LightYellow),
+        Tile::Seabed => (',', Color::Rgb(170, 190, 200)),
+        Tile::CoralTrunk | Tile::CoralCanopy => ('*', Color::Rgb(240, 130, 150)),
+        Tile::Kelp => ('i', Color::Rgb(80, 200, 130)),
+        Tile::DeepWater => ('~', Color::Rgb(80, 130, 200)),
+        Tile::Anemone => ('o', Color::Rgb(255, 150, 90)),
     };
     // water cells override the biome bg with deep blue
     let final_bg = if matches!(t, Tile::Water) {

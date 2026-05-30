@@ -61,6 +61,21 @@ fn cached_water_body_at(x: i32, y: i32, seed: u32) -> bool {
     cached_water_info(x, y, seed).in_water
 }
 
+/// Which plane of existence the player currently inhabits.
+/// Surface = Sentinel (the dry land + ocean). Mines = caverns under Sentinel.
+/// Atlantis = the underwater plane where the fish civilizations live.
+/// Same (x, y) maps to the same procedural cell in every dimension, so a
+/// mine entrance at (10, -3) on Surface drops you onto (10, -3) in Mines.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize,
+)]
+pub enum Dimension {
+    #[default]
+    Surface,
+    Mines,
+    Atlantis,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Biome {
     Meadow,
@@ -185,13 +200,51 @@ pub enum Tile {
     Path,
     Lamppost,
     Bench,
+    // --- mine entrances on the surface ---
+    /// the wooden A-frame entrance you interact with (`f`) to descend
+    MineEntrance,
+    /// 3-wide, 2-tall structural frame around a MineEntrance (visual only,
+    /// blocks movement). Glyph picked by render based on offset from anchor.
+    MineFrame,
+    // --- mines plane ---
+    CaveFloor,
+    CaveWall,
+    Stalactite,
+    Stalagmite,
+    OreRock,
+    /// an underground pond/lake inside the mines. fishing here yields the
+    /// mineral fish pool (when wired up).
+    MineralWater,
+    /// the way back to the surface from inside the mines, placed at the
+    /// same coord as the surface MineEntrance that brought you down.
+    MineExit,
+    // --- atlantis plane ---
+    Seabed,
+    /// trunk-equivalent for coral; pairs with CoralCanopy in a 4-cell shape
+    CoralTrunk,
+    CoralCanopy,
+    Kelp,
+    /// the dark deep-water background tiles you walk on in atlantis
+    DeepWater,
+    Anemone,
 }
 
 impl Tile {
     pub fn walkable(self) -> bool {
         matches!(
             self,
-            Tile::Grass | Tile::Sand | Tile::Pebble | Tile::Flower | Tile::Path | Tile::Dock
+            Tile::Grass
+                | Tile::Sand
+                | Tile::Pebble
+                | Tile::Flower
+                | Tile::Path
+                | Tile::Dock
+                | Tile::MineEntrance
+                | Tile::CaveFloor
+                | Tile::MineExit
+                | Tile::Seabed
+                | Tile::DeepWater
+                | Tile::Kelp
         )
     }
 
@@ -217,12 +270,28 @@ impl Tile {
             Tile::Path => "A trodden path of packed earth and gravel.",
             Tile::Lamppost => "An iron lamppost. A small flame warms the glass at dusk.",
             Tile::Bench => "A worn wooden bench. Carved initials beneath the seat.",
+            Tile::MineEntrance => "A mineshaft entrance. Wooden A-frame. Press f to descend.",
+            Tile::MineFrame => "Heavy timbers brace the shaft mouth.",
+            Tile::CaveFloor => "Packed earth, smelling of iron and old water.",
+            Tile::CaveWall => "Cold rock wall.",
+            Tile::Stalactite => "A stalactite. The cave's slow tooth, hanging.",
+            Tile::Stalagmite => "A stalagmite. Patient drips, stood up.",
+            Tile::OreRock => "An ore-bearing rock. A pickaxe would unlock it.",
+            Tile::MineralWater => "A pool of utterly still water. Something glints below.",
+            Tile::MineExit => "Wooden rungs up. Press f to climb back to the surface.",
+            Tile::Seabed => "Soft sand of the seabed. You breathe — somehow.",
+            Tile::CoralTrunk => "A coral pillar, layered with centuries.",
+            Tile::CoralCanopy => "A coral crown, full of small bright life.",
+            Tile::Kelp => "Tall kelp, swaying with the current.",
+            Tile::DeepWater => "The open deep. You can fish here, anywhere.",
+            Tile::Anemone => "An anemone, blooming and waiting.",
         }
     }
 }
 
 pub struct World {
     pub seed: u32,
+    pub dim: Dimension,
 }
 
 pub struct WorldView<'a> {
@@ -289,10 +358,21 @@ impl<'a> Widget for WorldView<'a> {
 
 impl World {
     pub fn new(seed: u32) -> Self {
-        Self { seed }
+        Self {
+            seed,
+            dim: Dimension::Surface,
+        }
     }
 
     pub fn get(&self, x: i32, y: i32) -> Tile {
+        match self.dim {
+            Dimension::Surface => self.surface_get(x, y),
+            Dimension::Mines => self.mines_get(x, y),
+            Dimension::Atlantis => self.atlantis_get(x, y),
+        }
+    }
+
+    fn surface_get(&self, x: i32, y: i32) -> Tile {
         if let Some(t) = village_tile(x, y) {
             return t;
         }
@@ -315,6 +395,11 @@ impl World {
         }
         if winfo.island_sand {
             return Tile::Sand;
+        }
+        // mine entrances anchor on rocky/rugged surface tiles; check before
+        // trees/rocks so the structure wins the cell.
+        if let Some(t) = mine_entrance_tile_at(x, y, self.seed) {
+            return t;
         }
         // trees first: shoreline trees can plant their roots in the very
         // edge of a lake, and their canopies project over the water
@@ -357,6 +442,66 @@ impl World {
             return Tile::Well;
         }
         Tile::Grass
+    }
+
+    /// Subterranean cave layer. Carved out by domain-warped noise: open cave
+    /// floor where the noise is above a threshold, solid rock otherwise.
+    /// Mine exits sit at the same (x, y) as the corresponding surface entrance.
+    fn mines_get(&self, x: i32, y: i32) -> Tile {
+        // The exit is wherever the surface had an entrance, so the player
+        // can always climb back the way they came.
+        if is_mine_entrance_anchor(x, y, self.seed) {
+            return Tile::MineExit;
+        }
+        let open = cave_open_at(x, y, self.seed);
+        let r = hash2(x, y, self.seed.wrapping_add(0xCAFE_C0DE)) % 1000;
+        if !open {
+            // solid walls with the occasional ore vein and stalactite
+            if r < 30 {
+                return Tile::OreRock;
+            }
+            if r < 55 {
+                return Tile::Stalactite;
+            }
+            return Tile::CaveWall;
+        }
+        // open floor: scattered decoration
+        if r < 25 {
+            return Tile::Stalagmite;
+        }
+        if r < 40 {
+            return Tile::Rock;
+        }
+        if r < 50 {
+            return Tile::Pebble;
+        }
+        // small underground pools — the mineral-fish pockets
+        if mineral_pool_at(x, y, self.seed) {
+            return Tile::MineralWater;
+        }
+        Tile::CaveFloor
+    }
+
+    /// Atlantis: the wet plane. Open deep water everywhere, with patches of
+    /// seabed, coral structures, and kelp forests. The player can fish from
+    /// any cell — there is no surface here.
+    fn atlantis_get(&self, x: i32, y: i32) -> Tile {
+        let r = hash2(x, y, self.seed.wrapping_add(0x0A71_A715)) % 1000;
+        // Coral "trees" — same 4-cell structure as surface trees, but coral.
+        if let Some(part) = coral_at(x, y, self.seed) {
+            return part;
+        }
+        // sand bars / seabed patches
+        if seabed_patch_at(x, y, self.seed) {
+            if r < 30 {
+                return Tile::Anemone;
+            }
+            return Tile::Seabed;
+        }
+        if r < 25 {
+            return Tile::Kelp;
+        }
+        Tile::DeepWater
     }
 
     #[allow(dead_code)]
@@ -444,8 +589,162 @@ impl World {
                     .fg(Color::Rgb(140, 95, 55))
                     .add_modifier(Modifier::BOLD),
             ),
+            Tile::MineEntrance => (
+                '#',
+                Style::default()
+                    .fg(Color::Rgb(40, 30, 20))
+                    .bg(Color::Rgb(20, 12, 8))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Tile::MineFrame => mine_frame_glyph(x, y, self.seed),
+            Tile::CaveFloor => {
+                let g = match hash2(x, y, 0xCA7E_F100) % 3 {
+                    0 => '.',
+                    1 => ',',
+                    _ => '`',
+                };
+                (
+                    g,
+                    Style::default().fg(Color::Rgb(110, 85, 65)).bg(Color::Rgb(30, 22, 18)),
+                )
+            }
+            Tile::CaveWall => {
+                let g = match hash2(x, y, 0xCAFE_5A1F) % 4 {
+                    0 => '#',
+                    1 => '%',
+                    2 => '&',
+                    _ => '#',
+                };
+                (
+                    g,
+                    Style::default().fg(Color::Rgb(70, 50, 35)).bg(Color::Rgb(28, 20, 14))
+                        .add_modifier(Modifier::BOLD),
+                )
+            }
+            Tile::Stalactite => (
+                'V',
+                Style::default()
+                    .fg(Color::Rgb(150, 130, 110))
+                    .bg(Color::Rgb(28, 20, 14)),
+            ),
+            Tile::Stalagmite => (
+                'A',
+                Style::default()
+                    .fg(Color::Rgb(150, 130, 110))
+                    .bg(Color::Rgb(30, 22, 18)),
+            ),
+            Tile::OreRock => {
+                let h = hash2(x, y, 0x09E_5EED);
+                let (fg, ch) = match h % 4 {
+                    0 => (Color::Rgb(230, 200, 90), '*'),
+                    1 => (Color::Rgb(200, 220, 240), '*'),
+                    2 => (Color::Rgb(220, 130, 90), '*'),
+                    _ => (Color::Rgb(180, 160, 220), '*'),
+                };
+                (
+                    ch,
+                    Style::default()
+                        .fg(fg)
+                        .bg(Color::Rgb(28, 20, 14))
+                        .add_modifier(Modifier::BOLD),
+                )
+            }
+            Tile::MineralWater => (
+                '~',
+                Style::default()
+                    .fg(Color::Rgb(120, 200, 240))
+                    .bg(Color::Rgb(8, 20, 40)),
+            ),
+            Tile::MineExit => (
+                '<',
+                Style::default()
+                    .fg(Color::LightYellow)
+                    .bg(Color::Rgb(30, 22, 18))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Tile::Seabed => {
+                let g = match hash2(x, y, 0x5EAB_ED01) % 3 {
+                    0 => '.',
+                    1 => ',',
+                    _ => '`',
+                };
+                (
+                    g,
+                    Style::default()
+                        .fg(Color::Rgb(170, 190, 200))
+                        .bg(Color::Rgb(20, 50, 90)),
+                )
+            }
+            Tile::CoralTrunk => (
+                'Y',
+                Style::default()
+                    .fg(Color::Rgb(240, 130, 150))
+                    .bg(Color::Rgb(10, 30, 70))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Tile::CoralCanopy => (
+                '*',
+                Style::default()
+                    .fg(Color::Rgb(255, 170, 200))
+                    .bg(Color::Rgb(10, 30, 70))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Tile::Kelp => (
+                'i',
+                Style::default()
+                    .fg(Color::Rgb(80, 200, 130))
+                    .bg(Color::Rgb(10, 30, 70)),
+            ),
+            Tile::DeepWater => {
+                // animated faint ripples on the open deep
+                let phase = ((tick / 4) as i32 + x + y) % 11;
+                let g = if phase == 0 { '~' } else { ' ' };
+                (
+                    g,
+                    Style::default()
+                        .fg(Color::Rgb(80, 130, 200))
+                        .bg(Color::Rgb(6, 22, 60)),
+                )
+            }
+            Tile::Anemone => (
+                'o',
+                Style::default()
+                    .fg(Color::Rgb(255, 150, 90))
+                    .bg(Color::Rgb(20, 50, 90))
+                    .add_modifier(Modifier::BOLD),
+            ),
         }
     }
+}
+
+fn mine_frame_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
+    // figure out which neighbor cell is the anchor
+    for dx in -1..=1i32 {
+        for dy in -1..=0i32 {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            let ax = x - dx;
+            let ay = y - dy;
+            if is_mine_entrance_anchor(ax, ay, seed) {
+                let glyph = match (dx, dy) {
+                    (-1, -1) => '/',
+                    (0, -1) => '=',
+                    (1, -1) => '\\',
+                    (-1, 0) | (1, 0) => '|',
+                    _ => '#',
+                };
+                return (
+                    glyph,
+                    Style::default()
+                        .fg(Color::Rgb(120, 80, 45))
+                        .bg(Color::Rgb(40, 28, 18))
+                        .add_modifier(Modifier::BOLD),
+                );
+            }
+        }
+    }
+    ('#', Style::default().fg(Color::Rgb(60, 45, 30)))
 }
 
 fn is_big_rock_anchor(x: i32, y: i32, seed: u32, density: f32) -> bool {
@@ -1022,6 +1321,119 @@ fn hash2(x: i32, y: i32, seed: u32) -> u32 {
     h ^= h >> 13;
     h = h.wrapping_mul(1_274_126_177);
     h ^ (h >> 16)
+}
+
+// --- multi-dimension helpers ---------------------------------------------
+
+/// Sparse hash-noise: about one mine entrance per ~3000 surface tiles, only
+/// outside the village zone and never inside water. The anchor cell becomes
+/// the interactable MineEntrance; the 5 surrounding cells render as MineFrame.
+fn is_mine_entrance_anchor(x: i32, y: i32, seed: u32) -> bool {
+    // keep entrances on dry, dry-ish land — never under the ocean or in the village
+    if y >= 4 {
+        return false;
+    }
+    if in_village_zone(x, y) {
+        return false;
+    }
+    if cached_water_body_at(x, y, seed) {
+        return false;
+    }
+    // about 1 per 3000 cells: tunable. Density is small so they feel like
+    // hidden landmarks rather than every-other-screen clutter.
+    let h = hash2(x, y, seed.wrapping_add(0xE17E_ED01));
+    h % 3000 == 7
+}
+
+fn mine_entrance_tile_at(x: i32, y: i32, seed: u32) -> Option<Tile> {
+    if is_mine_entrance_anchor(x, y, seed) {
+        return Some(Tile::MineEntrance);
+    }
+    // frame cells: anchor is at (ax, ay) with frame at the 5 cells of the
+    // 3-wide, 2-tall box (excluding the anchor itself which is the opening).
+    for dx in -1..=1i32 {
+        for dy in -1..=0i32 {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            if is_mine_entrance_anchor(x - dx, y - dy, seed) {
+                return Some(Tile::MineFrame);
+            }
+        }
+    }
+    None
+}
+
+/// Cellular cave noise: combines two coarse sines + jitter to carve organic
+/// open/closed patches in the mines.
+fn cave_open_at(x: i32, y: i32, seed: u32) -> bool {
+    let fx = x as f32;
+    let fy = y as f32;
+    let s1 = (fx * 0.12 + fy * 0.09 + (seed as f32 * 0.0001)).sin();
+    let s2 = (fx * 0.07 - fy * 0.11 + (seed as f32 * 0.0003)).sin();
+    let s3 = (fx * 0.21 + fy * 0.17 + (seed as f32 * 0.0007)).sin();
+    let v = s1 + s2 * 0.7 + s3 * 0.4;
+    let jitter = (hash2(x, y, seed.wrapping_add(0xCAFE_5A1A)) as f32 / u32::MAX as f32) * 0.6
+        - 0.3;
+    v + jitter > -0.2
+}
+
+fn mineral_pool_at(x: i32, y: i32, seed: u32) -> bool {
+    let fx = x as f32;
+    let fy = y as f32;
+    let s = (fx * 0.18 + fy * 0.15 + (seed as f32 * 0.0011)).sin();
+    let t = (fx * 0.09 - fy * 0.22 + (seed as f32 * 0.0013)).cos();
+    s + t > 1.4
+}
+
+/// Sand bars under the ocean — rounded patches of light seabed in the deep.
+fn seabed_patch_at(x: i32, y: i32, seed: u32) -> bool {
+    let fx = x as f32;
+    let fy = y as f32;
+    let s = (fx * 0.04 + fy * 0.05 + (seed as f32 * 0.0017)).sin();
+    let t = (fx * 0.08 - fy * 0.03 + (seed as f32 * 0.0021)).cos();
+    s * 0.7 + t * 0.6 > 0.4
+}
+
+/// Coral: same 4-cell anchor system as trees, but on the seabed.
+fn coral_at(x: i32, y: i32, seed: u32) -> Option<Tile> {
+    for dx in -1..=1i32 {
+        for dy in 0..=1i32 {
+            let ax = x - dx;
+            let ay = y - dy;
+            if !is_coral_anchor(ax, ay, seed) {
+                continue;
+            }
+            // anchor (dx=0, dy=0) is the trunk; dy=1 above is canopy
+            if dx == 0 && dy == 0 {
+                return Some(Tile::CoralTrunk);
+            }
+            if dy == 1 && dx.abs() <= 1 {
+                return Some(Tile::CoralCanopy);
+            }
+        }
+    }
+    None
+}
+
+fn is_coral_anchor(x: i32, y: i32, seed: u32) -> bool {
+    // grid-based winner-takes-cell selection so coral never overlaps.
+    let gx = x.div_euclid(5);
+    let gy = y.div_euclid(3);
+    let base = gx * 5;
+    let base_y = gy * 3;
+    let mut best = u32::MAX;
+    let mut best_xy = (base, base_y);
+    for cx in base..base + 5 {
+        for cy in base_y..base_y + 3 {
+            let h = hash2(cx, cy, seed.wrapping_add(0xC0_5A_1A_1A));
+            if h < best {
+                best = h;
+                best_xy = (cx, cy);
+            }
+        }
+    }
+    best_xy == (x, y) && (best % 100) < 65
 }
 
 fn village_oak_glyph(x: i32, y: i32) -> Option<(char, Style)> {

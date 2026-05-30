@@ -20,6 +20,7 @@ use crate::buffs::Buffs;
 use crate::item::Item;
 use crate::rod::OwnedRods;
 use crate::stats::{Skills, Stats};
+use crate::world::Dimension;
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
     AeadCore, Aes256Gcm, Key, Nonce,
@@ -64,6 +65,8 @@ pub struct SaveData {
     pub caught_at: Vec<Option<(String, String)>>,
     #[serde(default)]
     pub buffs: Buffs,
+    #[serde(default)]
+    pub dim: Dimension,
 }
 
 /// Saves live in ./saves/ relative to the current working directory so they
