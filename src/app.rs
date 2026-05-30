@@ -1,16 +1,15 @@
-use crate::fish;
+use crate::fish::FishDef;
 use crate::fishdex::Fishdex;
 use crate::fishing::{Fishing, FishingResult};
 use crate::fishlist;
-use crate::narrator::Narrator;
-use crate::fish::FishDef;
 use crate::item::{Category, Item};
+use crate::narrator::Narrator;
 use crate::notes;
 use crate::npc::{self, Npc};
 use crate::player::Player;
 use crate::quest;
 use crate::save::{self, SaveData};
-use crate::stats::{fish_catch_xp, level_to_xp, Skills, Stats};
+use crate::stats::{fish_catch_xp, Skills, Stats};
 use std::collections::HashMap;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -1443,10 +1442,16 @@ impl App {
                     && self.world.dim == crate::world::Dimension::Surface
                 {
                     self.stats.well_casts = self.stats.well_casts.saturating_add(1);
-                    if self.stats.well_casts >= 100 {
+                    // Only the *first* time well_casts crosses 100 do we
+                    // teleport. Subsequent well casts still fish normally.
+                    if self.stats.well_casts == 100 {
                         self.narrator
                             .say("*** The well's bottom opens. You fall into the Inferno. ***");
                         self.world.dim = crate::world::Dimension::Inferno;
+                        self.player.x = 0;
+                        self.player.y = 7;
+                        self.narrator
+                            .say("To the north: the Fallen Fish waits in his keep.");
                         return;
                     }
                 }
@@ -1520,14 +1525,16 @@ impl App {
             return;
         }
         self.world.dim = crate::world::Dimension::Atlantis;
-        // spawn the player at a fixed Atlantis arrival point so they don't
-        // appear inside a coral wall
+        // spawn the player just south of the Elders' castle so they walk up
+        // through the door to enter the throne room
         self.player.x = 0;
-        self.player.y = 0;
+        self.player.y = 7;
         self.narrator
             .say("Sailor: \"Hold your breath. Or don't.\"");
         self.narrator
             .say("*** You dive. Khei opens. Atlantis spreads below you. ***");
+        self.narrator
+            .say("To the north: the Five Elders' castle. Walk in.");
     }
 
     fn mark_seen_around_player(&mut self) {
