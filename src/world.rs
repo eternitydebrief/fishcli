@@ -543,25 +543,24 @@ fn shade(base: (u8, u8, u8), x: i32, y: i32, salt: u32, range: i32) -> Color {
 }
 
 fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
-    let t = tick as f32 * 0.06;
+    let t = tick as f32 * 0.035;
     let fx = x as f32;
     let fy = y as f32;
-    // two interfering wave trains travelling in non-axis-aligned directions
-    let w1 = (fx * 0.35 + fy * 0.55 + t * 1.2).sin();
-    let w2 = (fx * 0.62 - fy * 0.27 + t * 0.85).sin() * 0.75;
-    let h = w1 + w2; // ~ -1.75 .. 1.75
-    let (glyph, base) = if h > 0.95 {
-        ('~', (95, 140, 175))
-    } else if h > 0.25 {
-        ('~', (70, 110, 155))
-    } else if h > -0.25 {
-        ('-', (50, 85, 135))
-    } else if h > -0.95 {
-        ('.', (35, 65, 115))
+    // a dominant long-period swell rolls toward the shore (+y),
+    // plus a small lateral ripple that keeps each crest from being a straight line.
+    let swell = (fy * 0.28 + fx * 0.05 + t * 0.9).sin();
+    let ripple = (fx * 0.13 - t * 0.5).sin() * 0.18;
+    let h = swell + ripple;
+    let (glyph, base) = if h > 0.65 {
+        ('~', (90, 130, 170))
+    } else if h > 0.05 {
+        ('-', (60, 95, 145))
+    } else if h > -0.55 {
+        ('-', (45, 75, 130))
     } else {
-        ('.', (25, 50, 100))
+        ('.', (30, 55, 110))
     };
-    (glyph, Style::default().fg(shade(base, x, y, 0xA11_BABE, 8)))
+    (glyph, Style::default().fg(shade(base, x, y, 0xA11_BABE, 6)))
 }
 
 fn grass_anim(x: i32, y: i32, tick: u64, biome: Biome) -> (char, Style) {
