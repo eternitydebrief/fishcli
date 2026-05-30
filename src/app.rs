@@ -39,7 +39,7 @@ pub enum Scene {
     Stats,
     Settings,
     Quests { cursor: usize },
-    Map,
+    Map { offset: (i32, i32) },
 }
 
 #[derive(Clone, Copy)]
@@ -449,11 +449,19 @@ impl App {
                     self.exit_subscene();
                 }
             }
-            Scene::Help(_) | Scene::Stats | Scene::Settings | Scene::Map => {
+            Scene::Help(_) | Scene::Stats | Scene::Settings => {
                 if matches!(code, KeyCode::Esc | KeyCode::Char('q')) {
                     self.scene = Scene::Overworld;
                 }
             }
+            Scene::Map { offset } => match code {
+                KeyCode::Esc | KeyCode::Char('q') => self.scene = Scene::Overworld,
+                KeyCode::Left | KeyCode::Char('h') => offset.0 -= 1,
+                KeyCode::Right | KeyCode::Char('l') => offset.0 += 1,
+                KeyCode::Up | KeyCode::Char('k') => offset.1 -= 1,
+                KeyCode::Down | KeyCode::Char('j') => offset.1 += 1,
+                _ => {}
+            },
             Scene::Quests { cursor } => {
                 let active = active_quest_ids(&self.quest_done);
                 match code {
@@ -689,7 +697,7 @@ impl App {
             }
             "m" | "map" => {
                 self.mark_seen_around_player();
-                self.scene = Scene::Map;
+                self.scene = Scene::Map { offset: (0, 0) };
                 self.mode = Mode::Insert;
             }
             "o" | "options" | "settings" => {
@@ -955,10 +963,11 @@ impl App {
                 &self.quest_done,
                 self.pinned_quest.as_deref(),
             ),
-            Scene::Map => render_map(
+            Scene::Map { offset } => render_map(
                 frame,
                 &self.world,
                 (self.player.x, self.player.y),
+                *offset,
                 &self.seen_cells,
             ),
         }
@@ -1048,6 +1057,7 @@ fn render_map(
     frame: &mut Frame,
     world: &World,
     player: (i32, i32),
+    offset: (i32, i32),
     seen: &std::collections::HashSet<(i32, i32)>,
 ) {
     use ratatui::buffer::Buffer;
@@ -1055,12 +1065,17 @@ fn render_map(
     struct MapView<'a> {
         world: &'a World,
         player: (i32, i32),
+        offset: (i32, i32),
         seen: &'a std::collections::HashSet<(i32, i32)>,
     }
     impl<'a> Widget for MapView<'a> {
         fn render(self, area: Rect, buf: &mut Buffer) {
-            let pcx = self.player.0.div_euclid(MAP_CELL_W);
-            let pcy = self.player.1.div_euclid(MAP_CELL_H);
+            let pcx = self.player.0.div_euclid(MAP_CELL_W) + self.offset.0;
+            let pcy = self.player.1.div_euclid(MAP_CELL_H) + self.offset.1;
+            let player_coarse = (
+                self.player.0.div_euclid(MAP_CELL_W),
+                self.player.1.div_euclid(MAP_CELL_H),
+            );
             let half_w = (area.width as i32) / 2;
             let half_h = (area.height as i32) / 2;
             for sy in 0..area.height {
@@ -1068,18 +1083,19 @@ fn render_map(
                     let cx = area.x + sx;
                     let cy = area.y + sy;
                     let cell = &mut buf[(cx, cy)];
-                    if sx as i32 == half_w && sy as i32 == half_h {
+                    let mcx = pcx - half_w + sx as i32;
+                    let mcy = pcy - half_h + sy as i32;
+                    if (mcx, mcy) == player_coarse {
                         cell.set_char('@').set_style(
                             Style::default()
                                 .fg(Color::White)
-                                .add_modifier(Modifier::BOLD),
+                                .add_modifier(Modifier::BOLD)
+                                .bg(Color::Rgb(40, 40, 40)),
                         );
                         continue;
                     }
-                    let mcx = pcx - half_w + sx as i32;
-                    let mcy = pcy - half_h + sy as i32;
                     if !self.seen.contains(&(mcx, mcy)) {
-                        cell.set_char(' ').set_style(Style::default().fg(Color::Black));
+                        cell.set_char(' ').set_style(Style::default().bg(Color::Rgb(8, 8, 12)));
                         continue;
                     }
                     let wx = mcx * MAP_CELL_W + MAP_CELL_W / 2;
@@ -1093,7 +1109,7 @@ fn render_map(
     let area = frame.area();
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" map (q/esc to close) ")
+        .title(" map (arrows or hjkl to pan, q/esc to close) ")
         .border_style(Style::default().fg(Color::Cyan));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -1101,35 +1117,54 @@ fn render_map(
         MapView {
             world,
             player,
+            offset,
             seen,
         },
         inner,
     );
 }
 
-fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
-    let t = world.get(x, y);
-    match t {
-        Tile::Water => ('~', Style::default().fg(Color::Rgb(60, 100, 160))),
-        Tile::Sand => (',', Style::default().fg(Color::Rgb(190, 175, 120))),
-        Tile::Dock => ('=', Style::default().fg(Color::Rgb(190, 160, 100))),
-        Tile::Well => ('O', Style::default().fg(Color::Rgb(170, 170, 180))),
-        Tile::Wall => ('#', Style::default().fg(Color::Rgb(160, 130, 90))),
-        Tile::Roof => ('#', Style::default().fg(Color::Rgb(170, 80, 60))),
-        Tile::DoorRod | Tile::DoorSchool => ('D', Style::default().fg(Color::Yellow)),
-        Tile::TreeCanopy | Tile::TreeTrunk => ('#', Style::default().fg(Color::Rgb(80, 140, 70))),
-        Tile::BigRock | Tile::MediumRock | Tile::Rock => {
-            ('#', Style::default().fg(Color::Rgb(130, 130, 130)))
-        }
-        Tile::Path => ('.', Style::default().fg(Color::Rgb(160, 140, 110))),
-        Tile::Lamppost => ('i', Style::default().fg(Color::Rgb(220, 200, 120))),
-        Tile::Bench => ('=', Style::default().fg(Color::Rgb(140, 95, 55))),
-        Tile::Cactus => ('Y', Style::default().fg(Color::Rgb(90, 130, 70))),
-        Tile::Pebble | Tile::Flower | Tile::Grass => (
-            '.',
-            Style::default().fg(Color::Rgb(80, 120, 80)),
-        ),
+fn biome_map_bg(b: crate::world::Biome) -> Color {
+    use crate::world::Biome;
+    match b {
+        Biome::Meadow => Color::Rgb(40, 70, 40),
+        Biome::Forest => Color::Rgb(25, 50, 28),
+        Biome::Rocky => Color::Rgb(75, 70, 55),
+        Biome::Scrub => Color::Rgb(85, 78, 55),
+        Biome::Desert => Color::Rgb(115, 90, 55),
+        Biome::Tundra => Color::Rgb(110, 115, 120),
+        Biome::Swamp => Color::Rgb(35, 50, 30),
     }
+}
+
+fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
+    let bg = biome_map_bg(world.biome(x, y));
+    let t = world.get(x, y);
+    let (g, fg) = match t {
+        Tile::Water => ('~', Color::Rgb(120, 170, 220)),
+        Tile::Sand => (',', Color::Rgb(220, 200, 145)),
+        Tile::Dock => ('=', Color::Rgb(210, 175, 110)),
+        Tile::Well => ('O', Color::Rgb(200, 200, 215)),
+        Tile::Wall => ('#', Color::Rgb(180, 145, 95)),
+        Tile::Roof => ('#', Color::Rgb(200, 100, 70)),
+        Tile::DoorRod | Tile::DoorSchool => ('D', Color::Rgb(245, 215, 90)),
+        Tile::TreeCanopy | Tile::TreeTrunk => ('T', Color::Rgb(110, 200, 95)),
+        Tile::BigRock | Tile::MediumRock | Tile::Rock => ('#', Color::Rgb(170, 170, 170)),
+        Tile::Path => ('.', Color::Rgb(195, 170, 130)),
+        Tile::Lamppost => ('i', Color::Rgb(240, 215, 130)),
+        Tile::Bench => ('=', Color::Rgb(170, 115, 70)),
+        Tile::Cactus => ('Y', Color::Rgb(130, 180, 100)),
+        Tile::Pebble => ('.', Color::Rgb(170, 160, 130)),
+        Tile::Flower => ('*', Color::Rgb(210, 190, 180)),
+        Tile::Grass => ('.', Color::Rgb(130, 175, 130)),
+    };
+    // water cells override the biome bg with deep blue
+    let final_bg = if matches!(t, Tile::Water) {
+        Color::Rgb(10, 25, 65)
+    } else {
+        bg
+    };
+    (g, Style::default().fg(fg).bg(final_bg).add_modifier(Modifier::BOLD))
 }
 
 fn render_pinned_task(frame: &mut Frame, q: &quest::QuestDef, progress: u32) {
