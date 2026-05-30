@@ -502,7 +502,7 @@ fn find_tree_anchor(x: i32, y: i32, seed: u32) -> Option<(i32, i32, TreeSpecies,
 }
 
 fn in_village_zone(x: i32, y: i32) -> bool {
-    x.abs() <= 32 && (-8..=4).contains(&y)
+    x.abs() <= 32 && (-9..=5).contains(&y)
 }
 
 fn hash2(x: i32, y: i32, seed: u32) -> u32 {
@@ -760,48 +760,76 @@ fn village_tile(x: i32, y: i32) -> Option<Tile> {
     None
 }
 
-/// 2-thick perimeter fence around the village with stylized corners.
-/// Bottom is open between x=-6..=5 so the player can walk to the dock.
-fn village_perimeter(x: i32, y: i32) -> Option<Tile> {
-    let on_top_band = (-31..=31).contains(&x) && (-7..=-6).contains(&y);
-    let on_left_band = (-31..=-30).contains(&x) && (-7..=4).contains(&y);
-    let on_right_band = (30..=31).contains(&x) && (-7..=4).contains(&y);
-    let dock_gap = (-6..=5).contains(&x);
-    let on_bottom_band = (-31..=31).contains(&x) && y == 4 && !dock_gap;
-    if on_top_band || on_left_band || on_right_band || on_bottom_band {
-        Some(Tile::Wall)
-    } else {
-        None
-    }
+// village wall geometry (matches the user's model):
+//   y = -9       shadow row of underscores (no corners)
+//   y = -8       top edge: / _____ \
+//   y = -7..=3   side columns: || on each side, interior empty
+//   y =  4       bottom cap row: || ___ ||
+//   y =  5       bottom edge: \ _____ /
+// dock gap punches a hole in the bottom two rows for x in [-6, 5]
+const WALL_L_OUT: i32 = -32;
+const WALL_L_IN: i32 = -31;
+const WALL_R_IN: i32 = 31;
+const WALL_R_OUT: i32 = 32;
+const WALL_TOP_SHADOW: i32 = -9;
+const WALL_TOP_EDGE: i32 = -8;
+const WALL_BOT_CAP: i32 = 4;
+const WALL_BOT_EDGE: i32 = 5;
+
+fn dock_gap_x(x: i32) -> bool {
+    (-6..=5).contains(&x)
 }
 
-/// Render glyph for a perimeter wall cell. Returns None if not on perimeter.
+fn village_perimeter(x: i32, y: i32) -> Option<Tile> {
+    let in_box_x = x >= WALL_L_OUT && x <= WALL_R_OUT;
+    let in_side_y = y >= WALL_TOP_EDGE && y <= WALL_BOT_CAP;
+
+    // top shadow row (no corners, narrower than the full width)
+    if y == WALL_TOP_SHADOW && x >= WALL_L_IN && x <= WALL_R_IN {
+        return Some(Tile::Wall);
+    }
+    // top edge row (full width with /\ corners)
+    if y == WALL_TOP_EDGE && in_box_x {
+        return Some(Tile::Wall);
+    }
+    // side columns
+    if in_side_y && (x == WALL_L_OUT || x == WALL_L_IN || x == WALL_R_IN || x == WALL_R_OUT) {
+        return Some(Tile::Wall);
+    }
+    // bottom cap row (skip dock gap)
+    if y == WALL_BOT_CAP && in_box_x && !dock_gap_x(x) {
+        return Some(Tile::Wall);
+    }
+    // bottom edge row (skip dock gap)
+    if y == WALL_BOT_EDGE && in_box_x && !dock_gap_x(x) {
+        return Some(Tile::Wall);
+    }
+    None
+}
+
 fn perimeter_glyph(x: i32, y: i32) -> Option<(char, Style)> {
     let style = || {
         Style::default()
             .fg(Color::Rgb(160, 130, 90))
             .add_modifier(Modifier::BOLD)
     };
-    // corners (2x2 top, 1-row bottom corners)
     let g = match (x, y) {
-        // top-left
-        (-31, -7) | (-30, -7) => '|',
-        (-31, -6) => '\\',
-        (-30, -6) => '_',
-        // top-right
-        (30, -7) | (31, -7) => '|',
-        (31, -6) => '/',
-        (30, -6) => '_',
-        // bottom-left
-        (-31, 4) => '\\',
-        (-30, 4) => '_',
-        // bottom-right
-        (31, 4) => '/',
-        (30, 4) => '_',
-        // straight edges
-        _ if y == -7 || y == -6 || y == 4 => '_',
-        _ if x == -31 || x == -30 || x == 30 || x == 31 => '|',
-        _ => return None,
+        // top shadow row: only underscores
+        (_, WALL_TOP_SHADOW) => '_',
+        // top edge corners
+        (WALL_L_OUT, WALL_TOP_EDGE) => '/',
+        (WALL_R_OUT, WALL_TOP_EDGE) => '\\',
+        (_, WALL_TOP_EDGE) => '_',
+        // bottom cap: pipes in the wall-thickness columns, underscores between
+        (WALL_L_OUT, WALL_BOT_CAP) | (WALL_L_IN, WALL_BOT_CAP) => '|',
+        (WALL_R_IN, WALL_BOT_CAP) | (WALL_R_OUT, WALL_BOT_CAP) => '|',
+        (_, WALL_BOT_CAP) => '_',
+        // bottom edge corners
+        (WALL_L_OUT, WALL_BOT_EDGE) => '\\',
+        (WALL_R_OUT, WALL_BOT_EDGE) => '/',
+        (_, WALL_BOT_EDGE) => '_',
+        // side columns (everything else under perimeter)
+        _ => '|',
     };
     Some((g, style()))
 }
