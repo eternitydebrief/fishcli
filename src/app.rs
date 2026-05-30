@@ -30,7 +30,6 @@ pub struct App {
     pub rng_state: u32,
     pub caught: Vec<bool>,
     pub narrator: Narrator,
-    pub valu: u64,
 }
 
 impl App {
@@ -47,7 +46,6 @@ impl App {
             rng_state: 0xC0FF_EE42,
             caught: vec![false; FISH.len()],
             narrator,
-            valu: 0,
         }
     }
 
@@ -71,17 +69,20 @@ impl App {
                     _ => {}
                 }
                 if leave {
-                    let fish_name = g.fish.name;
+                    let fish_ref: &'static crate::fish::FishDef = g.fish;
                     let caught = matches!(g.finished, Some(FishingResult::Caught));
                     if caught {
-                        if let Some(i) = FISH.iter().position(|f| std::ptr::eq(f, g.fish)) {
+                        if let Some(i) = FISH.iter().position(|f| std::ptr::eq(f, fish_ref)) {
                             self.caught[i] = true;
                         }
+                        self.player.inventory.push(fish_ref);
                         self.narrator
-                            .say(format!("You reel in a {}!", fish_name));
+                            .say(format!("You reel in a {}!", fish_ref.name));
+                        self.narrator
+                            .say(format!("Added to your basket ({} fish).", self.player.inventory.len()));
                     } else if matches!(g.finished, Some(FishingResult::Escaped)) {
                         self.narrator
-                            .say(format!("The {} slips away.", fish_name));
+                            .say(format!("The {} slips away.", fish_ref.name));
                     } else {
                         self.narrator.say("You leave the line slack and step away.");
                     }
@@ -210,7 +211,7 @@ impl App {
         }
         let full = frame.area();
 
-        let valu_str = format_valu(self.valu);
+        let valu_str = format_valu(self.player.valu);
         let valu_w = (valu_str.len() as u16 + 4).max(14).min(full.width);
         let valu_h = 3u16.min(full.height);
         if valu_w >= 8 && valu_h >= 3 {
