@@ -3,7 +3,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 use std::collections::VecDeque;
 
@@ -64,8 +64,19 @@ impl Narrator {
             let style = Style::default().fg(Color::Rgb(gray, gray, gray));
             lines.push(Line::from(Span::styled(format!("> {m}"), style)));
         }
-        // no wrap - one message per row, so newest never gets pushed off-screen
-        let p = Paragraph::new(lines);
+        // wrap enabled, but scroll so the bottom of the wrapped content always
+        // sits at the bottom of the panel. estimate wrapped-row count per line.
+        let inner_w = inner.width.max(1) as usize;
+        let mut total_rows: u16 = 0;
+        for line in &lines {
+            let w = line.width();
+            let rows = ((w + inner_w - 1) / inner_w).max(1) as u16;
+            total_rows = total_rows.saturating_add(rows);
+        }
+        let scroll_y = total_rows.saturating_sub(inner.height);
+        let p = Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .scroll((scroll_y, 0));
         frame.render_widget(p, inner);
     }
 }
