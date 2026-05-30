@@ -15,11 +15,17 @@ pub enum Tile {
     TreeTrunk,
     TreeCanopy,
     Rock,
+    BigRock,
+    Pebble,
+    Flower,
 }
 
 impl Tile {
     pub fn walkable(self) -> bool {
-        matches!(self, Tile::Grass | Tile::Sand)
+        matches!(
+            self,
+            Tile::Grass | Tile::Sand | Tile::Pebble | Tile::Flower
+        )
     }
 }
 
@@ -46,9 +52,18 @@ impl World {
             if let Some(part) = tree_at(x, y, self.seed) {
                 return part;
             }
+            if big_rock_at(x, y, self.seed) {
+                return Tile::BigRock;
+            }
             let r = hash2(x, y, self.seed.wrapping_add(0x1234_5678)) as f32 / u32::MAX as f32;
-            if r < 0.03 {
+            if r < 0.015 {
                 return Tile::Rock;
+            }
+            if r < 0.055 {
+                return Tile::Pebble;
+            }
+            if r < 0.085 {
+                return Tile::Flower;
             }
         }
         Tile::Grass
@@ -120,8 +135,35 @@ impl World {
             Tile::TreeTrunk => trunk_glyph(x, y),
             Tile::TreeCanopy => canopy_glyph(x, y, self.seed),
             Tile::Rock => rock_glyph(x, y),
+            Tile::BigRock => big_rock_glyph(x, y, self.seed),
+            Tile::Pebble => pebble_glyph(x, y),
+            Tile::Flower => flower_glyph(x, y),
         }
     }
+}
+
+fn is_big_rock_anchor(x: i32, y: i32, seed: u32) -> bool {
+    if in_village_zone(x, y) {
+        return false;
+    }
+    if y >= 4 {
+        return false;
+    }
+    let r = hash2(x, y, seed.wrapping_add(0xBEEF_FACE)) as f32 / u32::MAX as f32;
+    r < 0.004
+}
+
+fn big_rock_at(x: i32, y: i32, seed: u32) -> bool {
+    for dx in 0..2i32 {
+        for dy in 0..2i32 {
+            let ax = x - dx;
+            let ay = y - dy;
+            if is_big_rock_anchor(ax, ay, seed) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn is_tree_anchor(x: i32, y: i32, seed: u32) -> bool {
@@ -193,11 +235,71 @@ fn canopy_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
 fn rock_glyph(x: i32, y: i32) -> (char, Style) {
     let v = hash2(x, y, 0xF00D_F00D) % 3;
     let (g, c) = match v {
-        0 => ('o', Color::DarkGray),
-        1 => ('O', Color::Gray),
-        _ => ('.', Color::DarkGray),
+        0 => ('o', Color::Rgb(110, 110, 110)),
+        1 => ('O', Color::Rgb(140, 140, 140)),
+        _ => ('@', Color::Rgb(100, 100, 100)),
     };
-    (g, Style::default().fg(c))
+    (g, Style::default().fg(c).add_modifier(Modifier::BOLD))
+}
+
+fn pebble_glyph(x: i32, y: i32) -> (char, Style) {
+    let v = hash2(x, y, 0xABCD_1234) % 3;
+    let g = match v {
+        0 => '.',
+        1 => ',',
+        _ => '`',
+    };
+    (g, Style::default().fg(Color::Rgb(130, 120, 100)))
+}
+
+fn flower_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0xFFEE_DD11) % 7;
+    let color = match h {
+        0 => Color::Rgb(230, 80, 80),
+        1 => Color::Rgb(240, 180, 60),
+        2 => Color::Rgb(250, 240, 80),
+        3 => Color::Rgb(100, 220, 100),
+        4 => Color::Rgb(80, 160, 240),
+        5 => Color::Rgb(170, 100, 240),
+        _ => Color::Rgb(250, 130, 220),
+    };
+    ('*', Style::default().fg(color).add_modifier(Modifier::BOLD))
+}
+
+fn big_rock_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
+    let mut anchor = (0, 0);
+    let mut found = false;
+    'find: for dy in 0..2i32 {
+        for dx in 0..2i32 {
+            let ax = x - dx;
+            let ay = y - dy;
+            if is_big_rock_anchor(ax, ay, seed) {
+                anchor = (ax, ay);
+                found = true;
+                break 'find;
+            }
+        }
+    }
+    if !found {
+        return ('#', Style::default().fg(Color::Rgb(120, 120, 120)));
+    }
+    let dx = x - anchor.0;
+    let dy = y - anchor.1;
+    let g = match (dx, dy) {
+        (0, 0) => '/',
+        (1, 0) => '\\',
+        (0, 1) => '\\',
+        (1, 1) => '/',
+        _ => '#',
+    };
+    let shade = hash2(anchor.0, anchor.1, 0xCAFE_BABE) % 40;
+    let base = 110 + shade as u8;
+    (
+        g,
+        Style::default()
+            .fg(Color::Rgb(base, base, base))
+            .add_modifier(Modifier::BOLD),
+    )
 }
 
 fn village_tile(x: i32, y: i32) -> Option<Tile> {
