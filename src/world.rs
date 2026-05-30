@@ -43,31 +43,31 @@ struct BiomeParams {
 fn biome_params(b: Biome) -> BiomeParams {
     match b {
         Biome::Meadow => BiomeParams {
-            tree: 0.025, big_rock: 0.002, rock: 0.010, pebble: 0.040, flower: 0.012,
+            tree: 0.025, big_rock: 0.003, rock: 0.0015, pebble: 0.040, flower: 0.012,
             cactus: 0.0, puddle_bonus: 0.0,
         },
         Biome::Forest => BiomeParams {
-            tree: 0.090, big_rock: 0.002, rock: 0.008, pebble: 0.020, flower: 0.003,
+            tree: 0.090, big_rock: 0.003, rock: 0.0010, pebble: 0.020, flower: 0.003,
             cactus: 0.0, puddle_bonus: 0.0,
         },
         Biome::Rocky => BiomeParams {
-            tree: 0.008, big_rock: 0.012, rock: 0.045, pebble: 0.120, flower: 0.001,
+            tree: 0.008, big_rock: 0.018, rock: 0.0080, pebble: 0.120, flower: 0.001,
             cactus: 0.0, puddle_bonus: 0.0,
         },
         Biome::Scrub => BiomeParams {
-            tree: 0.005, big_rock: 0.001, rock: 0.006, pebble: 0.020, flower: 0.002,
+            tree: 0.005, big_rock: 0.002, rock: 0.0010, pebble: 0.020, flower: 0.002,
             cactus: 0.0, puddle_bonus: 0.0,
         },
         Biome::Desert => BiomeParams {
-            tree: 0.0, big_rock: 0.004, rock: 0.020, pebble: 0.110, flower: 0.0,
+            tree: 0.0, big_rock: 0.006, rock: 0.0035, pebble: 0.110, flower: 0.0,
             cactus: 0.012, puddle_bonus: 0.0,
         },
         Biome::Tundra => BiomeParams {
-            tree: 0.012, big_rock: 0.005, rock: 0.025, pebble: 0.080, flower: 0.001,
+            tree: 0.012, big_rock: 0.007, rock: 0.0040, pebble: 0.080, flower: 0.001,
             cactus: 0.0, puddle_bonus: 0.0,
         },
         Biome::Swamp => BiomeParams {
-            tree: 0.050, big_rock: 0.001, rock: 0.004, pebble: 0.015, flower: 0.006,
+            tree: 0.050, big_rock: 0.002, rock: 0.0005, pebble: 0.015, flower: 0.006,
             cactus: 0.0, puddle_bonus: 0.18,
         },
     }
@@ -571,11 +571,16 @@ fn leaf_style(g: char, anchor_hash: u32, base: (u8, u8, u8), x: i32, y: i32) -> 
 fn rock_glyph(x: i32, y: i32) -> (char, Style) {
     let v = hash2(x, y, 0xF00D_F00D) % 3;
     let (g, base) = match v {
-        0 => ('o', (100, 100, 100)),
-        1 => ('O', (120, 120, 120)),
-        _ => ('@', (90, 90, 90)),
+        0 => ('#', (110, 110, 110)),
+        1 => ('%', (130, 130, 130)),
+        _ => ('&', (100, 100, 100)),
     };
-    (g, Style::default().fg(shade(base, x, y, 0xF00D_F00D, 12)))
+    (
+        g,
+        Style::default()
+            .fg(shade(base, x, y, 0xF00D_F00D, 12))
+            .add_modifier(Modifier::BOLD),
+    )
 }
 
 fn pebble_glyph(x: i32, y: i32) -> (char, Style) {
@@ -618,11 +623,14 @@ fn big_rock_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
     }
     let dx = x - anchor.0;
     let dy = y - anchor.1;
-    let g = match (dx, dy) {
-        (0, 0) => '/',
-        (1, 0) => '\\',
-        (0, 1) => '\\',
-        (1, 1) => '/',
+    let pattern = hash2(anchor.0, anchor.1, 0x9999_AAAA) % 3;
+    let g = match (pattern, dx, dy) {
+        (0, 0, 0) => '#', (0, 1, 0) => '%',
+        (0, 0, 1) => '&', (0, 1, 1) => '#',
+        (1, 0, 0) => '%', (1, 1, 0) => '#',
+        (1, 0, 1) => '#', (1, 1, 1) => '&',
+        (_, 0, 0) => '&', (_, 1, 0) => '#',
+        (_, 0, 1) => '#', (_, 1, 1) => '%',
         _ => '#',
     };
     let shade = hash2(anchor.0, anchor.1, 0xCAFE_BABE) % 40;
