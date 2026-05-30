@@ -301,7 +301,7 @@ impl World {
                         1 => '.',
                         _ => '`',
                     };
-                    (g, Style::default().fg(shade((180, 165, 120), x, y, 0x5A1D_5A1D, 14)))
+                    (g, Style::default().fg(shade((198, 182, 132), x, y, 0x5A1D_5A1D, 14)))
                 }
             }
             Tile::TreeTrunk | Tile::TreeCanopy => tree_render(x, y, self.seed),
@@ -529,7 +529,7 @@ fn tree_render(x: i32, y: i32, seed: u32) -> (char, Style) {
                     _ => '8',
                 },
             };
-            leaf_style(g, anchor_hash, (55, 85, 50), x, y)
+            leaf_style(g, anchor_hash, (60, 94, 55), x, y)
         }
         (TreeSpecies::Pine, TreePart::Trunk) => trunk_style(anchor_hash, 'I'),
         (TreeSpecies::Pine, TreePart::Canopy) => {
@@ -546,7 +546,7 @@ fn tree_render(x: i32, y: i32, seed: u32) -> (char, Style) {
             } else {
                 '/'
             };
-            leaf_style(g, anchor_hash, (40, 70, 45), x, y)
+            leaf_style(g, anchor_hash, (44, 77, 50), x, y)
         }
         (TreeSpecies::Bush, _) => {
             let g = match anchor_hash % 3 {
@@ -554,15 +554,15 @@ fn tree_render(x: i32, y: i32, seed: u32) -> (char, Style) {
                 1 => '*',
                 _ => 'q',
             };
-            leaf_style(g, anchor_hash, (70, 90, 55), x, y)
+            leaf_style(g, anchor_hash, (77, 99, 60), x, y)
         }
     }
 }
 
 fn trunk_style(anchor_hash: u32, g: char) -> (char, Style) {
-    let r = 80 + (anchor_hash % 20) as u8;
-    let gc = 55 + (anchor_hash % 15) as u8;
-    let b = 35 + (anchor_hash % 12) as u8;
+    let r = 88 + (anchor_hash % 22) as u8;
+    let gc = 60 + (anchor_hash % 16) as u8;
+    let b = 38 + (anchor_hash % 13) as u8;
     (g, Style::default().fg(Color::Rgb(r, gc, b)))
 }
 
@@ -581,10 +581,10 @@ fn leaf_style(g: char, anchor_hash: u32, base: (u8, u8, u8), x: i32, y: i32) -> 
 fn rock_glyph(x: i32, y: i32) -> (char, Style) {
     let v = hash2(x, y, 0xF00D_F00D) % 4;
     let (g, base) = match v {
-        0 => ('[', (110, 110, 110)),
-        1 => (']', (110, 110, 110)),
-        2 => ('/', (130, 130, 130)),
-        _ => ('\\', (130, 130, 130)),
+        0 => ('[', (121, 121, 121)),
+        1 => (']', (121, 121, 121)),
+        2 => ('/', (143, 143, 143)),
+        _ => ('\\', (143, 143, 143)),
     };
     (g, Style::default().fg(shade(base, x, y, 0xF00D_F00D, 12)))
 }
@@ -596,15 +596,15 @@ fn pebble_glyph(x: i32, y: i32) -> (char, Style) {
         1 => ',',
         _ => '`',
     };
-    (g, Style::default().fg(shade((115, 105, 90), x, y, 0xABCD_1234, 15)))
+    (g, Style::default().fg(shade((127, 116, 99), x, y, 0xABCD_1234, 15)))
 }
 
 fn flower_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0xFFEE_DD11) % 3;
     let color = match h {
-        0 => Color::Rgb(180, 175, 150),
-        1 => Color::Rgb(170, 150, 130),
-        _ => Color::Rgb(160, 140, 150),
+        0 => Color::Rgb(198, 193, 165),
+        1 => Color::Rgb(187, 165, 143),
+        _ => Color::Rgb(176, 154, 165),
     };
     ('*', Style::default().fg(color))
 }
@@ -630,7 +630,7 @@ fn big_rock_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
     let _ = (x, y);
     let g = '#';
     let shade = hash2(anchor.0, anchor.1, 0xCAFE_BABE) % 40;
-    let base = 110 + shade as u8;
+    let base = 121 + shade as u8;
     (
         g,
         Style::default()
@@ -754,13 +754,13 @@ fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
 
 fn grass_anim(x: i32, y: i32, _tick: u64, biome: Biome) -> (char, Style) {
     let base = match biome {
-        Biome::Meadow => (65, 105, 65),
-        Biome::Forest => (45, 80, 50),
-        Biome::Rocky => (95, 100, 70),
-        Biome::Scrub => (110, 105, 75),
-        Biome::Desert => (170, 145, 95),
-        Biome::Tundra => (170, 175, 175),
-        Biome::Swamp => (60, 75, 50),
+        Biome::Meadow => (72, 116, 72),
+        Biome::Forest => (50, 88, 55),
+        Biome::Rocky => (105, 110, 77),
+        Biome::Scrub => (121, 116, 83),
+        Biome::Desert => (187, 160, 105),
+        Biome::Tundra => (187, 193, 193),
+        Biome::Swamp => (66, 83, 55),
     };
     ('.', Style::default().fg(shade(base, x, y, 0x6C00_6C00, 14)))
 }
@@ -806,7 +806,7 @@ fn cactus_glyph(x: i32, y: i32) -> (char, Style) {
     (
         g,
         Style::default()
-            .fg(shade((85, 120, 65), x, y, 0xCAC7_F00D, 10))
+            .fg(shade((94, 132, 72), x, y, 0xCAC7_F00D, 10))
             .add_modifier(Modifier::BOLD),
     )
 }
