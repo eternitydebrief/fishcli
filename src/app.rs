@@ -70,6 +70,7 @@ impl App {
         let mut narrator = Narrator::new();
         narrator.say("You arrive at the village.");
         narrator.say("Yellow D west = rod shop. Pink D east = fishing school. Dock is south.");
+        narrator.say("hjkl/arrows: move    x: inspect    e: fishdex    esc: normal");
         Self {
             world: World::new(0xDEAD_BEEF),
             player: Player::spawn(),
@@ -462,10 +463,6 @@ impl App {
         match &mut self.scene {
             Scene::Overworld => {
                 let area = frame.area();
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([Constraint::Min(1), Constraint::Length(3)])
-                    .split(area);
                 let block = Block::default()
                     .borders(Borders::ALL)
                     .title(format!(
@@ -473,7 +470,7 @@ impl App {
                         self.player.x, self.player.y
                     ))
                     .border_style(Style::default().fg(Color::Cyan));
-                let inner = block.inner(chunks[0]);
+                let inner = block.inner(area);
                 let lines = self.world.render_viewport(
                     (self.player.x, self.player.y),
                     inner.width as usize,
@@ -481,16 +478,7 @@ impl App {
                     anim_tick,
                 );
                 let map_widget = Paragraph::new(lines).block(block);
-                frame.render_widget(map_widget, chunks[0]);
-                let help = Paragraph::new(
-                    "hjkl/arrows: move    e: fishdex    walk into door/dock to enter    esc: normal mode",
-                )
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::DarkGray)),
-                );
-                frame.render_widget(help, chunks[1]);
+                frame.render_widget(map_widget, area);
             }
             Scene::RodShop => render_placeholder(
                 frame,
