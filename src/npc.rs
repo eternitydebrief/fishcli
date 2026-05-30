@@ -1,3 +1,4 @@
+use crate::world::Dimension;
 use ratatui::style::Color;
 use serde::Deserialize;
 use std::sync::OnceLock;
@@ -17,6 +18,10 @@ pub struct Npc {
     pub color: String,
     #[serde(default)]
     pub dialogue: Vec<String>,
+    /// Which plane this NPC lives in. Defaults to the Surface for
+    /// back-compat with the original village NPCs.
+    #[serde(default)]
+    pub dim: Dimension,
 }
 
 fn default_glyph() -> String {
@@ -66,5 +71,10 @@ pub fn npcs() -> &'static [Npc] {
 }
 
 pub fn npc_at(x: i32, y: i32) -> Option<&'static Npc> {
-    npcs().iter().find(|n| n.x == x && n.y == y)
+    npcs().iter().find(|n| n.x == x && n.y == y && n.dim == Dimension::Surface)
+}
+
+/// Dim-aware lookup. Use this from any caller that knows the current dim.
+pub fn npc_at_dim(x: i32, y: i32, dim: Dimension) -> Option<&'static Npc> {
+    npcs().iter().find(|n| n.x == x && n.y == y && n.dim == dim)
 }

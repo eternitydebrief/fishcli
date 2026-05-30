@@ -1333,11 +1333,9 @@ impl App {
         let (dx, dy) = self.player.facing;
         let tx = self.player.x + dx;
         let ty = self.player.y + dy;
-        if self.world.dim == crate::world::Dimension::Surface {
-            if let Some(npc) = npc::npc_at(tx, ty) {
-                self.narrator.say(format!("{}: {}", npc.name, "An ordinary villager. Press f to talk."));
-                return;
-            }
+        if let Some(npc) = npc::npc_at_dim(tx, ty, self.world.dim) {
+            self.narrator.say(format!("{}: press f to talk.", npc.name));
+            return;
         }
         let t = self.world.get(tx, ty);
         self.narrator.say(t.describe());
@@ -1347,9 +1345,7 @@ impl App {
         self.player.facing = (dx, dy);
         let nx = self.player.x + dx;
         let ny = self.player.y + dy;
-        if self.world.dim == crate::world::Dimension::Surface
-            && npc::npc_at(nx, ny).is_some()
-        {
+        if npc::npc_at_dim(nx, ny, self.world.dim).is_some() {
             return; // blocked by NPC; press f to interact
         }
         let t = self.world.get(nx, ny);
@@ -1402,21 +1398,17 @@ impl App {
         let (dx, dy) = self.player.facing;
         let nx = self.player.x + dx;
         let ny = self.player.y + dy;
-        // NPCs only live on the Surface; below ground or underwater the npc
-        // table is irrelevant.
-        if self.world.dim == crate::world::Dimension::Surface {
-            if let Some(npc) = npc::npc_at(nx, ny) {
-                if npc.id == "sailor" {
-                    self.interact_sailor();
-                    return;
-                }
-                self.narrator.say(format!("You greet {}.", npc.name));
-                let id = npc.id.clone();
-                self.scene = Scene::Dialogue { npc, line: 0 };
-                self.quest_progress("talk", &id);
-                self.stats.npcs_talked += 1;
+        if let Some(npc) = npc::npc_at_dim(nx, ny, self.world.dim) {
+            if npc.id == "sailor" {
+                self.interact_sailor();
                 return;
             }
+            self.narrator.say(format!("You greet {}.", npc.name));
+            let id = npc.id.clone();
+            self.scene = Scene::Dialogue { npc, line: 0 };
+            self.quest_progress("talk", &id);
+            self.stats.npcs_talked += 1;
+            return;
         }
         match self.world.get(nx, ny) {
             Tile::DoorRod => {
@@ -1966,6 +1958,9 @@ fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
         Tile::Anemone => ('o', Color::Rgb(255, 150, 90)),
         Tile::InfernoWall | Tile::InfernoFloor => ('#', Color::Rgb(180, 70, 30)),
         Tile::Lava => ('~', Color::Rgb(255, 110, 30)),
+        Tile::LandmarkWall => ('H', Color::Rgb(220, 220, 220)),
+        Tile::LandmarkDoor => ('D', Color::LightYellow),
+        Tile::Tombstone => ('T', Color::Rgb(180, 180, 190)),
     };
     // water cells override the biome bg with deep blue
     let final_bg = if matches!(t, Tile::Water) {

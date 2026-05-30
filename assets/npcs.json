@@ -74,5 +74,206 @@
       "The Sailor stares past you, at the horizon.",
       "\"You need a thousand fish before you'll survive what's down there. Come back when you have them.\""
     ]
+  },
+
+  { "_comment": "ATLANTIS - centered around (0, 0) in the Atlantis dim. Five Elders in their throne room; Bluefin Celestial Dragons flank them; guards with golden Y tridents on the walls; citizens around the city." },
+
+  {
+    "id": "elder-1",
+    "name": "Elder of the First Depth",
+    "x": -2, "y": -2, "glyph": "E", "color": "lightyellow", "dim": "Atlantis",
+    "dialogue": [
+      "The Elder regards you with a coelacanth's slow attention.",
+      "\"Walker on legs. You stand in the throne room of the Five. Khei made the water; Fish made us; we made the cities.\"",
+      "\"Choose your words. We have been here longer than your speech.\""
+    ]
+  },
+  {
+    "id": "elder-2",
+    "name": "Elder of the Second Depth",
+    "x": -1, "y": -2, "glyph": "E", "color": "lightyellow", "dim": "Atlantis",
+    "dialogue": [
+      "The Elder's eye does not blink.",
+      "\"The Pantheon split itself into four. We hold its order. You are the test of whether it holds.\""
+    ]
+  },
+  {
+    "id": "elder-3",
+    "name": "Elder of the Third Depth",
+    "x": 0, "y": -2, "glyph": "E", "color": "lightyellow", "dim": "Atlantis",
+    "dialogue": [
+      "The Eldest of the Five.",
+      "\"You came down to see if we were real. We came up to see if you were.\""
+    ]
+  },
+  {
+    "id": "elder-4",
+    "name": "Elder of the Fourth Depth",
+    "x": 1, "y": -2, "glyph": "E", "color": "lightyellow", "dim": "Atlantis",
+    "dialogue": [
+      "The Elder, watchful.",
+      "\"You eat us. We forgive only the careful eaters. Are you a careful eater?\""
+    ]
+  },
+  {
+    "id": "elder-5",
+    "name": "Elder of the Fifth Depth",
+    "x": 2, "y": -2, "glyph": "E", "color": "lightyellow", "dim": "Atlantis",
+    "dialogue": [
+      "The youngest Elder.",
+      "\"The Fallen Fish writes to us still. We do not answer.\""
+    ]
+  },
+  {
+    "id": "dragon-1",
+    "name": "Bluefin Celestial Dragon",
+    "x": -4, "y": 0, "glyph": "D", "color": "lightblue", "dim": "Atlantis",
+    "dialogue": [
+      "The Celestial Dragon coils, slow and immense.",
+      "\"Royal blood of Coelacanth. The Five made us their hands and their teeth.\""
+    ]
+  },
+  {
+    "id": "dragon-2",
+    "name": "Bluefin Celestial Dragon",
+    "x": 4, "y": 0, "glyph": "D", "color": "lightblue", "dim": "Atlantis",
+    "dialogue": [
+      "Another dragon. Iridescent and patient.",
+      "\"We do not patrol. We are.\""
+    ]
+  },
+  {
+    "id": "guard-1",
+    "name": "Atlantean Guard",
+    "x": -5, "y": -2, "glyph": "Y", "color": "yellow", "dim": "Atlantis",
+    "dialogue": [
+      "The guard's trident gleams gold.",
+      "\"Walker. Stay within the city. The deep beyond is not yours.\""
+    ]
+  },
+  {
+    "id": "guard-2",
+    "name": "Atlantean Guard",
+    "x": 5, "y": -2, "glyph": "Y", "color": "yellow", "dim": "Atlantis",
+    "dialogue": [
+      "Another guard, trident raised in salute.",
+      "\"Pass.\""
+    ]
+  },
+  {
+    "id": "guard-3",
+    "name": "Atlantean Guard",
+    "x": -5, "y": 2, "glyph": "Y", "color": "yellow", "dim": "Atlantis",
+    "dialogue": [ "The guard does not turn.", "\"Move along.\"" ]
+  },
+  {
+    "id": "guard-4",
+    "name": "Atlantean Guard",
+    "x": 5, "y": 2, "glyph": "Y", "color": "yellow", "dim": "Atlantis",
+    "dialogue": [ "The guard's trident points at the sky.", "\"Move along.\"" ]
+  },
+  {
+    "id": "citizen-1",
+    "name": "Atlantean Citizen",
+    "x": -8, "y": 4, "glyph": "a", "color": "lightcyan", "dim": "Atlantis",
+    "dialogue": [
+      "An ordinary fish citizen, wrapped in current.",
+      "\"You came from the dry place. What is it like up there? I cannot imagine.\""
+    ]
+  },
+  {
+    "id": "citizen-2",
+    "name": "Atlantean Citizen",
+    "x": 7, "y": 5, "glyph": "a", "color": "lightcyan", "dim": "Atlantis",
+    "dialogue": [
+      "Another citizen, going about its day.",
+      "\"My grandfather was eaten by your grandfather. We're past it.\""
+    ]
+  },
+
+  { "_comment": "MINES - the crypt. Eerie graveyard, ghouls, ghosts. No castle here, just an old necropolis." },
+
+  {
+    "id": "ghoul-1",
+    "name": "Crypt Ghoul",
+    "x": 0, "y": 0, "glyph": "g", "color": "darkgray", "dim": "Mines",
+    "dialogue": [
+      "The ghoul's jaw works without sound.",
+      "\"the stone... the stone remembers... the stone remembers...\""
+    ]
+  },
+  {
+    "id": "ghost-1",
+    "name": "Crypt Ghost",
+    "x": -2, "y": -1, "glyph": "%", "color": "lightcyan", "dim": "Mines",
+    "dialogue": [
+      "The ghost flickers like a missed footstep.",
+      "\"I dug down looking for ore. The ore looked back. Do not look back.\""
+    ]
+  },
+  {
+    "id": "ghost-2",
+    "name": "Crypt Ghost",
+    "x": 2, "y": 1, "glyph": "%", "color": "lightcyan", "dim": "Mines",
+    "dialogue": [
+      "Another ghost.",
+      "\"They buried us with our picks. The picks rusted. We did not.\""
+    ]
+  },
+  {
+    "id": "crypt-keeper",
+    "name": "Crypt Keeper",
+    "x": 0, "y": -3, "glyph": "k", "color": "gray", "dim": "Mines",
+    "dialogue": [
+      "The Keeper stands in the doorway, hands folded.",
+      "\"All who descend rest here eventually. Welcome.\""
+    ]
+  },
+
+  { "_comment": "INFERNO - The Fallen Fish in his castle, surrounded by infernal subjects." },
+
+  {
+    "id": "fallen-fish",
+    "name": "The Fallen Fish",
+    "x": 0, "y": 0, "glyph": "F", "color": "red", "dim": "Inferno",
+    "dialogue": [
+      "The Fallen Fish does not move.",
+      "\"Grandfather to all standing things. You are mine, in a sense. Sit, walker.\"",
+      "\"Fish bound me here. I have made this place mine. The fire is mine. The court is mine.\"",
+      "\"You may fish my waters. Take what burns easiest.\""
+    ]
+  },
+  {
+    "id": "imp-1",
+    "name": "Infernal Imp",
+    "x": -3, "y": -1, "glyph": "i", "color": "red", "dim": "Inferno",
+    "dialogue": [
+      "The imp grins.",
+      "\"He fell upward, walker. Upward. You fell down. Funny, isn't it.\""
+    ]
+  },
+  {
+    "id": "imp-2",
+    "name": "Infernal Imp",
+    "x": 3, "y": 1, "glyph": "i", "color": "red", "dim": "Inferno",
+    "dialogue": [
+      "Another imp, cackling.",
+      "\"You will go back up. We will be here when you come back down. We are patient.\""
+    ]
+  },
+  {
+    "id": "infernal-guard",
+    "name": "Infernal Guard",
+    "x": -2, "y": 2, "glyph": "Y", "color": "red", "dim": "Inferno",
+    "dialogue": [
+      "The guard's pitchfork glows.",
+      "\"The court sits. Do not interrupt.\""
+    ]
+  },
+  {
+    "id": "infernal-guard-2",
+    "name": "Infernal Guard",
+    "x": 2, "y": 2, "glyph": "Y", "color": "red", "dim": "Inferno",
+    "dialogue": [ "The guard's pitchfork drips.", "\"Move along.\"" ]
   }
 ]

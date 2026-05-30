@@ -227,6 +227,13 @@ pub enum Tile {
     InfernoFloor,
     /// lava pool — fishable like MineralWater but in the inferno dim
     Lava,
+    /// generic landmark wall (Atlantean castle, Crypt, Fallen Fish's keep).
+    /// Coloring is dim-specific in render_tile.
+    LandmarkWall,
+    /// generic landmark door — walkable, no scene transition.
+    LandmarkDoor,
+    /// tombstone (mines crypt)
+    Tombstone,
     // --- atlantis plane ---
     Seabed,
     /// trunk-equivalent for coral; pairs with CoralCanopy in a 4-cell shape
@@ -255,6 +262,7 @@ impl Tile {
                 | Tile::DeepWater
                 | Tile::Kelp
                 | Tile::InfernoFloor
+                | Tile::LandmarkDoor
         )
     }
 
@@ -298,6 +306,9 @@ impl Tile {
             Tile::InfernoWall => "Basalt, hot to the touch. The deeper rock remembers the fire.",
             Tile::InfernoFloor => "Cracked ground, glowing dimly between the seams.",
             Tile::Lava => "Lava. Something black drifts under the surface. You can fish it.",
+            Tile::LandmarkWall => "A wall of the landmark before you.",
+            Tile::LandmarkDoor => "An open archway. Step through.",
+            Tile::Tombstone => "A weathered tombstone. Names worn off. You feel watched.",
         }
     }
 }
@@ -345,17 +356,15 @@ impl<'a> Widget for WorldView<'a> {
                 }
                 let wx = self.player.0 - half_w + sx;
                 let wy = self.player.1 - half_h + sy;
-                // NPCs only render on the Surface; mines and atlantis are
-                // unpopulated for now.
-                if self.world.dim == Dimension::Surface {
-                    if let Some(npc) = crate::npc::npc_at(wx, wy) {
-                        return (
-                            npc.render_char(),
-                            Style::default()
-                                .fg(npc.render_color())
-                                .add_modifier(Modifier::BOLD),
-                        );
-                    }
+                // NPCs are per-dim now (atlantean citizens, crypt ghouls,
+                // infernal imps each live only in their own dim).
+                if let Some(npc) = crate::npc::npc_at_dim(wx, wy, self.world.dim) {
+                    return (
+                        npc.render_char(),
+                        Style::default()
+                            .fg(npc.render_color())
+                            .add_modifier(Modifier::BOLD),
+                    );
                 }
                 self.world.render_tile(wx, wy, self.tick)
             })
@@ -466,6 +475,10 @@ impl World {
     /// floor where the noise is above a threshold, solid rock otherwise.
     /// Mine exits sit at the same (x, y) as the corresponding surface entrance.
     fn mines_get(&self, x: i32, y: i32) -> Tile {
+        // The Crypt occupies a small area around (0, 0) in the mines.
+        if let Some(t) = mines_crypt_at(x, y) {
+            return t;
+        }
         // The exit is wherever the surface had an entrance, so the player
         // can always climb back the way they came.
         if is_mine_entrance_anchor(x, y, self.seed) {
@@ -504,6 +517,10 @@ impl World {
     /// seabed, coral structures, and kelp forests. The player can fish from
     /// any cell — there is no surface here.
     fn atlantis_get(&self, x: i32, y: i32) -> Tile {
+        // The Five Elders' castle anchored at (0, 0)
+        if let Some(t) = atlantis_castle_at(x, y) {
+            return t;
+        }
         let r = hash2(x, y, self.seed.wrapping_add(0x0A71_A715)) % 1000;
         // Coral "trees" — same 4-cell structure as surface trees, but coral.
         if let Some(part) = coral_at(x, y, self.seed) {
@@ -526,6 +543,10 @@ impl World {
     /// pools, and a much higher density of fishable lava. Reached after
     /// 100 lifetime well casts.
     fn inferno_get(&self, x: i32, y: i32) -> Tile {
+        // The Fallen Fish's castle at (0, 0)
+        if let Some(t) = inferno_castle_at(x, y) {
+            return t;
+        }
         // The exit mirrors the mines: same anchor positions act as exits.
         if is_mine_entrance_anchor(x, y, self.seed) {
             return Tile::MineExit;
@@ -699,6 +720,16 @@ impl World {
             Tile::InfernoWall => inferno_wall_glyph(x, y),
             Tile::InfernoFloor => inferno_floor_glyph(x, y),
             Tile::Lava => lava_glyph(x, y, tick),
+            Tile::LandmarkWall => landmark_wall_glyph(x, y, self.dim),
+            Tile::LandmarkDoor => landmark_door_glyph(self.dim),
+            Tile::Tombstone => {
+                let g = match hash2(x, y, 0x7070_85_70) % 3 {
+                    0 => 'T',
+                    1 => '|',
+                    _ => '+',
+                };
+                (g, Style::default().fg(Color::Rgb(170, 170, 180)).add_modifier(Modifier::BOLD))
+            }
         }
     }
 }
@@ -915,6 +946,99 @@ fn deep_water_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
         ' '
     };
     (g, Style::default().fg(Color::Rgb(60, 110, 180)))
+}
+
+/// The Five Elders' castle in Atlantis. 16-wide x 9-tall rectangle around
+/// (0, 0). Interior is open seabed. Door at south-center (0, 4).
+fn atlantis_castle_at(x: i32, y: i32) -> Option<Tile> {
+    let in_x = (-8..=8).contains(&x);
+    let in_y = (-4..=4).contains(&y);
+    if !in_x || !in_y {
+        return None;
+    }
+    let is_perim = x == -8 || x == 8 || y == -4 || y == 4;
+    let is_door = (x == 0 || x == -1 || x == 1) && y == 4;
+    if is_door {
+        return Some(Tile::LandmarkDoor);
+    }
+    if is_perim {
+        return Some(Tile::LandmarkWall);
+    }
+    Some(Tile::Seabed)
+}
+
+/// The Crypt in the Mines. 11x7 rectangle around (0, 0), interior dotted
+/// with tombstones. Door at south.
+fn mines_crypt_at(x: i32, y: i32) -> Option<Tile> {
+    let in_x = (-5..=5).contains(&x);
+    let in_y = (-3..=3).contains(&y);
+    if !in_x || !in_y {
+        return None;
+    }
+    let is_perim = x == -5 || x == 5 || y == -3 || y == 3;
+    let is_door = x == 0 && y == 3;
+    if is_door {
+        return Some(Tile::LandmarkDoor);
+    }
+    if is_perim {
+        return Some(Tile::LandmarkWall);
+    }
+    // tombstones on a sparse pattern inside, avoiding the central row
+    // where NPCs stand
+    if (x % 2 == 0) && y == 1 && x != 0 {
+        return Some(Tile::Tombstone);
+    }
+    if (x % 2 != 0) && y == -1 && x != 0 {
+        return Some(Tile::Tombstone);
+    }
+    Some(Tile::CaveFloor)
+}
+
+/// The Fallen Fish's keep in the Inferno. Larger castle than the Crypt,
+/// smaller than the Atlantean palace. Door at south.
+fn inferno_castle_at(x: i32, y: i32) -> Option<Tile> {
+    let in_x = (-7..=7).contains(&x);
+    let in_y = (-4..=4).contains(&y);
+    if !in_x || !in_y {
+        return None;
+    }
+    let is_perim = x == -7 || x == 7 || y == -4 || y == 4;
+    let is_door = x == 0 && y == 4;
+    if is_door {
+        return Some(Tile::LandmarkDoor);
+    }
+    if is_perim {
+        return Some(Tile::LandmarkWall);
+    }
+    Some(Tile::InfernoFloor)
+}
+
+fn landmark_wall_glyph(x: i32, y: i32, dim: Dimension) -> (char, Style) {
+    let h = hash2(x, y, 0x1A0D_F00D);
+    let g = match h % 5 {
+        0 => '#',
+        1 => 'H',
+        2 => '%',
+        3 => '@',
+        _ => '8',
+    };
+    let fg = match dim {
+        Dimension::Atlantis => Color::Rgb(200, 230, 255), // bone-white pearl
+        Dimension::Mines => Color::Rgb(140, 130, 120),    // crypt granite
+        Dimension::Inferno => Color::Rgb(200, 70, 40),    // basalt + ember
+        Dimension::Surface => Color::Rgb(180, 145, 95),
+    };
+    (g, Style::default().fg(fg).add_modifier(Modifier::BOLD))
+}
+
+fn landmark_door_glyph(dim: Dimension) -> (char, Style) {
+    let fg = match dim {
+        Dimension::Atlantis => Color::Rgb(255, 230, 130),
+        Dimension::Mines => Color::Rgb(110, 100, 90),
+        Dimension::Inferno => Color::Rgb(255, 130, 50),
+        Dimension::Surface => Color::Rgb(210, 175, 110),
+    };
+    ('D', Style::default().fg(fg).add_modifier(Modifier::BOLD))
 }
 
 fn inferno_floor_glyph(x: i32, y: i32) -> (char, Style) {
