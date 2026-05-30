@@ -15,6 +15,7 @@ mod fishdex;
 mod fishing;
 mod fishlist;
 mod narrator;
+mod notes;
 mod npc;
 mod player;
 mod quest;

@@ -3,6 +3,7 @@ use crate::fishdex::Fishdex;
 use crate::fishing::{Fishing, FishingResult};
 use crate::fishlist;
 use crate::narrator::Narrator;
+use crate::notes;
 use crate::npc::{self, Npc};
 use crate::player::Player;
 use crate::quest;
@@ -28,6 +29,35 @@ pub enum Scene {
         npc: &'static Npc,
         line: usize,
     },
+    Notes(NotesBuf),
+}
+
+pub struct NotesBuf {
+    /// each line as its own String
+    pub lines: Vec<String>,
+    pub cursor_row: usize,
+    pub cursor_col: usize,
+}
+
+impl NotesBuf {
+    pub fn from_text(t: &str) -> Self {
+        let lines: Vec<String> = if t.is_empty() {
+            vec![String::new()]
+        } else {
+            t.split('\n').map(String::from).collect()
+        };
+        let last_row = lines.len().saturating_sub(1);
+        let last_col = lines[last_row].chars().count();
+        Self {
+            lines,
+            cursor_row: last_row,
+            cursor_col: last_col,
+        }
+    }
+
+    pub fn to_text(&self) -> String {
+        self.lines.join("\n")
+    }
 }
 
 pub enum Mode {
@@ -336,6 +366,98 @@ impl App {
                     self.exit_subscene();
                 }
             }
+            Scene::Notes(buf) => {
+                match code {
+                    KeyCode::Esc => {
+                        // save and leave
+                        let txt = buf.to_text();
+                        match notes::save(&txt) {
+                            Ok(()) => self.narrator.say("Notebook saved."),
+                            Err(e) => self.narrator.say(format!("Note save failed: {e}")),
+                        }
+                        self.scene = Scene::Overworld;
+                    }
+                    KeyCode::Enter => {
+                        let row = buf.cursor_row;
+                        let split_at = {
+                            let line = &buf.lines[row];
+                            line.char_indices()
+                                .nth(buf.cursor_col)
+                                .map(|(i, _)| i)
+                                .unwrap_or(line.len())
+                        };
+                        let rest = buf.lines[row].split_off(split_at);
+                        buf.lines.insert(row + 1, rest);
+                        buf.cursor_row += 1;
+                        buf.cursor_col = 0;
+                    }
+                    KeyCode::Backspace => {
+                        if buf.cursor_col > 0 {
+                            let byte = buf.lines[buf.cursor_row]
+                                .char_indices()
+                                .nth(buf.cursor_col - 1)
+                                .map(|(i, _)| i);
+                            if let Some(b) = byte {
+                                let end = buf.lines[buf.cursor_row]
+                                    .char_indices()
+                                    .nth(buf.cursor_col)
+                                    .map(|(i, _)| i)
+                                    .unwrap_or(buf.lines[buf.cursor_row].len());
+                                buf.lines[buf.cursor_row].replace_range(b..end, "");
+                                buf.cursor_col -= 1;
+                            }
+                        } else if buf.cursor_row > 0 {
+                            let cur = buf.lines.remove(buf.cursor_row);
+                            buf.cursor_row -= 1;
+                            buf.cursor_col = buf.lines[buf.cursor_row].chars().count();
+                            buf.lines[buf.cursor_row].push_str(&cur);
+                        }
+                    }
+                    KeyCode::Left => {
+                        if buf.cursor_col > 0 {
+                            buf.cursor_col -= 1;
+                        } else if buf.cursor_row > 0 {
+                            buf.cursor_row -= 1;
+                            buf.cursor_col = buf.lines[buf.cursor_row].chars().count();
+                        }
+                    }
+                    KeyCode::Right => {
+                        let len = buf.lines[buf.cursor_row].chars().count();
+                        if buf.cursor_col < len {
+                            buf.cursor_col += 1;
+                        } else if buf.cursor_row + 1 < buf.lines.len() {
+                            buf.cursor_row += 1;
+                            buf.cursor_col = 0;
+                        }
+                    }
+                    KeyCode::Up => {
+                        if buf.cursor_row > 0 {
+                            buf.cursor_row -= 1;
+                            buf.cursor_col = buf
+                                .cursor_col
+                                .min(buf.lines[buf.cursor_row].chars().count());
+                        }
+                    }
+                    KeyCode::Down => {
+                        if buf.cursor_row + 1 < buf.lines.len() {
+                            buf.cursor_row += 1;
+                            buf.cursor_col = buf
+                                .cursor_col
+                                .min(buf.lines[buf.cursor_row].chars().count());
+                        }
+                    }
+                    KeyCode::Char(c) => {
+                        let byte = buf.lines[buf.cursor_row]
+                            .char_indices()
+                            .nth(buf.cursor_col)
+                            .map(|(i, _)| i)
+                            .unwrap_or(buf.lines[buf.cursor_row].len());
+                        buf.lines[buf.cursor_row].insert(byte, c);
+                        buf.cursor_col += 1;
+                    }
+                    _ => {}
+                }
+            }
             Scene::Dialogue { npc, line } => {
                 let total = npc.dialogue.len();
                 match code {
@@ -414,6 +536,10 @@ impl App {
             "e" => {
                 self.narrator.say("You leaf through the fishdex.");
                 self.scene = Scene::Fishdex(Fishdex::new());
+            }
+            "n" | "notes" => {
+                self.narrator.say("You open your notebook.");
+                self.scene = Scene::Notes(NotesBuf::from_text(&notes::load()));
             }
             "h" | "help" => self
                 .narrator
@@ -593,6 +719,7 @@ impl App {
             Scene::Fishdex(d) => d.render(frame, &caught_snapshot),
             Scene::NamePrompt(buf) => render_name_prompt(frame, buf),
             Scene::Dialogue { npc, line } => render_dialogue(frame, npc, *line),
+            Scene::Notes(buf) => render_notes(frame, buf),
         }
 
         if matches!(self.scene, Scene::NamePrompt(_)) {
@@ -650,6 +777,47 @@ fn direction_for(code: KeyCode) -> Option<(i32, i32)> {
         KeyCode::Char('l') | KeyCode::Right => Some((1, 0)),
         _ => None,
     }
+}
+
+fn render_notes(frame: &mut Frame, buf: &NotesBuf) {
+    let area = frame.area();
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" notebook (esc to save & leave) ")
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let lines: Vec<ratatui::text::Line> = buf
+        .lines
+        .iter()
+        .enumerate()
+        .map(|(i, l)| {
+            if i == buf.cursor_row {
+                let col = buf.cursor_col.min(l.chars().count());
+                let mut chars: Vec<char> = l.chars().collect();
+                if col >= chars.len() {
+                    chars.push(' ');
+                }
+                let pre: String = chars[..col].iter().collect();
+                let at = chars[col];
+                let post: String = chars[col + 1..].iter().collect();
+                ratatui::text::Line::from(vec![
+                    ratatui::text::Span::raw(pre),
+                    ratatui::text::Span::styled(
+                        at.to_string(),
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::White),
+                    ),
+                    ratatui::text::Span::raw(post),
+                ])
+            } else {
+                ratatui::text::Line::from(l.as_str())
+            }
+        })
+        .collect();
+    let p = Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false });
+    frame.render_widget(p, inner);
 }
 
 fn render_dialogue(frame: &mut Frame, npc: &Npc, line: usize) {
