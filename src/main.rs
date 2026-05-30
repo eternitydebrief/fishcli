@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 mod app;
 mod fish;
+mod fishdex;
 mod fishing;
 mod fishlist;
 mod map;
@@ -40,6 +41,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
     let mut last_tick = Instant::now();
     while app.running {
         terminal.draw(|frame| app.render(frame))?;
+
         let timeout = TICK_RATE
             .checked_sub(last_tick.elapsed())
             .unwrap_or(Duration::ZERO);

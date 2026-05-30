@@ -1,5 +1,7 @@
 use crate::fish;
-use crate::fishing::Fishing;
+use crate::fishdex::Fishdex;
+use crate::fishing::{Fishing, FishingResult};
+use crate::fishlist::FISH;
 use crate::map::{Map, Tile};
 use crate::player::Player;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
@@ -15,6 +17,7 @@ pub enum Scene {
     RodShop,
     FishingSchool,
     Fishing(Fishing),
+    Fishdex(Fishdex),
 }
 
 pub struct App {
@@ -24,6 +27,7 @@ pub struct App {
     pub running: bool,
     pub anim_tick: u64,
     pub rng_state: u32,
+    pub caught: Vec<bool>,
 }
 
 impl App {
@@ -35,6 +39,7 @@ impl App {
             running: true,
             anim_tick: 0,
             rng_state: 0xC0FF_EE42,
+            caught: vec![false; FISH.len()],
         }
     }
 
@@ -58,7 +63,25 @@ impl App {
                     _ => {}
                 }
                 if leave {
+                    if matches!(g.finished, Some(FishingResult::Caught)) {
+                        if let Some(i) = FISH.iter().position(|f| std::ptr::eq(f, g.fish)) {
+                            self.caught[i] = true;
+                        }
+                    }
                     self.scene = Scene::Overworld;
+                }
+            }
+            Scene::Fishdex(d) => {
+                if key.kind != KeyEventKind::Press && key.kind != KeyEventKind::Repeat {
+                    return;
+                }
+                match key.code {
+                    KeyCode::Char('j') | KeyCode::Down => d.cursor_down(),
+                    KeyCode::Char('k') | KeyCode::Up => d.cursor_up(),
+                    KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('e') => {
+                        self.scene = Scene::Overworld;
+                    }
+                    _ => {}
                 }
             }
             Scene::Overworld => {
@@ -79,6 +102,7 @@ impl App {
     fn handle_overworld(&mut self, code: KeyCode) {
         match code {
             KeyCode::Char('q') => self.running = false,
+            KeyCode::Char('e') => self.scene = Scene::Fishdex(Fishdex::new()),
             KeyCode::Char('h') | KeyCode::Left => self.step(-1, 0),
             KeyCode::Char('j') | KeyCode::Down => self.step(0, 1),
             KeyCode::Char('k') | KeyCode::Up => self.step(0, -1),
@@ -109,60 +133,60 @@ impl App {
         }
     }
 
-    pub fn render(&self, frame: &mut Frame) {
-        match &self.scene {
-            Scene::Overworld => self.render_overworld(frame),
-            Scene::RodShop => self.render_placeholder(
+    pub fn render(&mut self, frame: &mut Frame) {
+        let anim_tick = self.anim_tick;
+        let caught_snapshot = self.caught.clone();
+        match &mut self.scene {
+            Scene::Overworld => {
+                let lines = self
+                    .map
+                    .render_lines(Some((self.player.x, self.player.y)), anim_tick);
+                let area = frame.area();
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Min(1), Constraint::Length(3)])
+                    .split(area);
+                let map_widget = Paragraph::new(lines).block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(" fishcli ")
+                        .border_style(Style::default().fg(Color::Cyan)),
+                );
+                frame.render_widget(map_widget, chunks[0]);
+                let help = Paragraph::new(
+                    "hjkl/arrows: move    e: fishdex    walk into door/dock to enter    q: quit",
+                )
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::DarkGray)),
+                );
+                frame.render_widget(help, chunks[1]);
+            }
+            Scene::RodShop => render_placeholder(
                 frame,
                 " rod shop ",
                 "rod upgrades coming soon\n\nesc/q: leave",
             ),
-            Scene::FishingSchool => self.render_placeholder(
+            Scene::FishingSchool => render_placeholder(
                 frame,
                 " fishing school ",
                 "techniques coming soon\n\nesc/q: leave",
             ),
-            Scene::Fishing(g) => g.render(frame, self.anim_tick),
+            Scene::Fishing(g) => g.render(frame, anim_tick),
+            Scene::Fishdex(d) => d.render(frame, &caught_snapshot),
         }
     }
 
-    fn render_overworld(&self, frame: &mut Frame) {
-        let area = frame.area();
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(1), Constraint::Length(3)])
-            .split(area);
+}
 
-        let lines = self
-            .map
-            .render_lines(Some((self.player.x, self.player.y)), self.anim_tick);
-        let map_widget = Paragraph::new(lines).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" fishcli ")
-                .border_style(Style::default().fg(Color::Cyan)),
-        );
-        frame.render_widget(map_widget, chunks[0]);
-
-        let help = Paragraph::new(
-            "hjkl/arrows: move    walk into a door or dock to enter    q: quit",
-        )
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray)),
-        );
-        frame.render_widget(help, chunks[1]);
-    }
-
-    fn render_placeholder(&self, frame: &mut Frame, title: &str, body: &str) {
-        let area = frame.area();
-        let widget = Paragraph::new(body.to_owned()).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(title.to_owned())
-                .border_style(Style::default().fg(Color::Cyan)),
-        );
-        frame.render_widget(widget, area);
-    }
+fn render_placeholder(frame: &mut Frame, title: &str, body: &str) {
+    let area = frame.area();
+    let widget = Paragraph::new(body.to_owned()).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(title.to_owned())
+            .border_style(Style::default().fg(Color::Cyan)),
+    );
+    frame.render_widget(widget, area);
 }
