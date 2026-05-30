@@ -12,6 +12,8 @@ use crate::quest;
 use crate::save::{self, SaveData};
 use crate::stats::{fish_catch_xp, level_to_xp, Skills, Stats};
 use std::collections::HashMap;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 use crate::world::{biome_at, Biome, Tile, World, WorldView};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
@@ -118,6 +120,10 @@ pub struct App {
     pub seen_cells: std::collections::HashSet<(i32, i32)>,
     pub stats: Stats,
     pub skills: Skills,
+    /// background autosave channel - thread coalesces and writes.
+    autosave_tx: mpsc::Sender<SaveData>,
+    last_autosave_at: Instant,
+    last_autosave_hash: u64,
     held_dir: Option<(i32, i32)>,
     held_until_tick: u64,
     last_step_tick: u64,
@@ -169,6 +175,9 @@ impl App {
             seen_cells: std::collections::HashSet::new(),
             stats: Stats::default(),
             skills: Skills::default(),
+            autosave_tx: spawn_autosaver(),
+            last_autosave_at: Instant::now(),
+            last_autosave_hash: 0,
             held_dir: None,
             held_until_tick: 0,
             last_step_tick: 0,
@@ -284,6 +293,8 @@ impl App {
 
     pub fn do_save(&mut self) -> bool {
         let data = self.current_save();
+        self.last_autosave_hash = save_hash(&data);
+        self.last_autosave_at = Instant::now();
         match save::save_to_disk(&data) {
             Ok(()) => {
                 self.narrator.say("Saved.");
@@ -296,11 +307,30 @@ impl App {
         }
     }
 
+    fn maybe_autosave(&mut self) {
+        // every ~5s, send a snapshot to the background thread, but only if
+        // the save has actually changed since the last write.
+        if self.last_autosave_at.elapsed() < Duration::from_secs(5) {
+            return;
+        }
+        let snapshot = self.current_save();
+        let h = save_hash(&snapshot);
+        if h == self.last_autosave_hash {
+            self.last_autosave_at = Instant::now();
+            return;
+        }
+        if self.autosave_tx.send(snapshot).is_ok() {
+            self.last_autosave_hash = h;
+        }
+        self.last_autosave_at = Instant::now();
+    }
+
     pub fn tick(&mut self) {
         self.anim_tick = self.anim_tick.wrapping_add(1);
         if self.biome_popup_ticks > 0 {
             self.biome_popup_ticks -= 1;
         }
+        self.maybe_autosave();
 
         let movement_allowed =
             matches!(self.mode, Mode::Insert) && matches!(self.scene, Scene::Overworld);
@@ -1076,6 +1106,32 @@ fn active_quest_ids(done: &[String]) -> Vec<String> {
         .filter(|q| !done.contains(&q.id))
         .map(|q| q.id.clone())
         .collect()
+}
+
+/// Spawn a worker thread that drains autosave snapshots and writes them
+/// to disk. Coalesces: if multiple snapshots are pending, only the newest
+/// is written. Thread exits cleanly when the sender (App) is dropped.
+fn spawn_autosaver() -> mpsc::Sender<SaveData> {
+    let (tx, rx) = mpsc::channel::<SaveData>();
+    std::thread::spawn(move || {
+        while let Ok(mut latest) = rx.recv() {
+            // coalesce additional pending snapshots
+            while let Ok(d) = rx.try_recv() {
+                latest = d;
+            }
+            let _ = save::save_to_disk(&latest);
+        }
+    });
+    tx
+}
+
+fn save_hash(data: &SaveData) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hasher;
+    let bytes = serde_json::to_vec(data).unwrap_or_default();
+    let mut h = DefaultHasher::new();
+    h.write(&bytes);
+    h.finish()
 }
 
 pub const MAP_CELL_W: i32 = 4;
