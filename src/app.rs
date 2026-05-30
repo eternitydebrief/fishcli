@@ -396,7 +396,36 @@ impl App {
                 self.narrator.say("You leaf through the fishdex.");
                 self.scene = Scene::Fishdex(Fishdex::new());
             }
+            KeyCode::Char('x') => self.inspect_surroundings(),
             _ => {}
+        }
+    }
+
+    fn inspect_surroundings(&mut self) {
+        let here = self.world.get(self.player.x, self.player.y);
+        let mut described = false;
+        for (dx, dy, label) in [
+            (0, 0, "Here"),
+            (0, -1, "North"),
+            (0, 1, "South"),
+            (-1, 0, "West"),
+            (1, 0, "East"),
+        ] {
+            let t = self.world.get(self.player.x + dx, self.player.y + dy);
+            if (dx, dy) == (0, 0) {
+                // skip if the player stands on plain grass / sand alone
+                if matches!(here, Tile::Grass) {
+                    continue;
+                }
+            } else if matches!(t, Tile::Grass) {
+                continue;
+            }
+            self.narrator
+                .say(format!("{label}: {}", t.describe()));
+            described = true;
+        }
+        if !described {
+            self.narrator.say("Nothing noteworthy nearby.");
         }
     }
 

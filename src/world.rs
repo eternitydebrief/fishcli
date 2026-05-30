@@ -27,6 +27,24 @@ impl Tile {
             Tile::Grass | Tile::Sand | Tile::Pebble | Tile::Flower
         )
     }
+
+    pub fn describe(self) -> &'static str {
+        match self {
+            Tile::Grass => "Grass. Soft and quiet underfoot.",
+            Tile::Wall => "A timber wall, weathered by salt air.",
+            Tile::DoorRod => "A creaky door. The Rod Shop sign hangs above it.",
+            Tile::DoorSchool => "A formal door. The Fishing School's crest is painted on the lintel.",
+            Tile::Water => "Dark water. Something moves below.",
+            Tile::Dock => "Worn planks of the village dock.",
+            Tile::Sand => "Damp sand. Bits of shell, gull tracks.",
+            Tile::TreeTrunk => "A sturdy trunk. Bark rough under your fingers.",
+            Tile::TreeCanopy => "Dense foliage. Birds rustle inside.",
+            Tile::Rock => "A boulder, half-buried. Lichen patches one side.",
+            Tile::BigRock => "A massive outcrop of weather-worn stone.",
+            Tile::Pebble => "Small stones. They click underfoot.",
+            Tile::Flower => "A wildflower, swaying. You feel a little better just looking.",
+        }
+    }
 }
 
 pub struct World {
