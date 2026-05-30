@@ -66,7 +66,7 @@ impl Fishing {
         fishing_level: u32,
         rod_tier: u32,
     ) -> Self {
-        let bar_h = 22usize;
+        let bar_h = 20usize;
         let rect_h = fish.rect_h();
         let rect_y = (bar_h as f32 - rect_h) / 2.0;
         let mid = bar_h as f32 / 2.0;
@@ -211,11 +211,11 @@ impl Fishing {
         let constraints: Vec<Constraint> = if show_scene {
             vec![
                 Constraint::Length(22),
-                Constraint::Length(5),
+                Constraint::Length(9),
                 Constraint::Min(15),
             ]
         } else {
-            vec![Constraint::Length(5), Constraint::Min(15)]
+            vec![Constraint::Length(9), Constraint::Min(15)]
         };
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
@@ -279,6 +279,64 @@ impl Fishing {
             Block::default().borders(Borders::ALL).title(" status "),
         );
         frame.render_widget(status, right[1]);
+
+        // bottom-right info pane: rod, fishing level, fish info
+        let rod_name = crate::rod::get(self.rod_tier)
+            .map(|r| r.name.as_str())
+            .unwrap_or("?");
+        let stars = "*".repeat(self.fish.difficulty as usize);
+        let info_lines = vec![
+            Line::from(vec![
+                Span::styled(
+                    "  rod: ",
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(
+                    format!("#{} {}", self.rod_tier, rod_name),
+                    Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    "  fishing lv: ",
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(
+                    format!("{}", self.fishing_level),
+                    Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(
+                    "  fish: ",
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(
+                    self.fish.name.clone(),
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    "  difficulty: ",
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(
+                    stars,
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("  {}", self.fish.description),
+                Style::default().fg(Color::Gray),
+            )),
+        ];
+        let info = Paragraph::new(info_lines)
+            .wrap(ratatui::widgets::Wrap { trim: false })
+            .block(Block::default().borders(Borders::ALL).title(" details "));
+        frame.render_widget(info, right[2]);
     }
 
     fn render_rod_panel(&self, anim_tick: u64) -> Vec<Line<'static>> {

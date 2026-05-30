@@ -385,8 +385,8 @@ impl App {
         match c.phase {
             CastPhase::Casting => {
                 c.cast_strength = c.cast_pos.clamp(0.0, 1.0);
-                // bobber distance: 1..=5 cells based on strength
-                let max_d = 1 + (c.cast_strength * 4.0).round() as i32;
+                // bobber distance: 1..=3 cells based on strength
+                let max_d = 1 + (c.cast_strength * 2.0).round() as i32;
                 let (fx, fy) = self.player.facing;
                 let mut bd = 1;
                 for d in 1..=max_d {
@@ -1197,18 +1197,8 @@ impl App {
                 "techniques coming soon\n\nq or esc: leave",
             ),
             Scene::Fishing(g) => {
-                // carve out the space the log/valu/cmdline overlays will use
-                // so the fishing UI doesn't get covered
-                let full = frame.area();
-                let cmd = 1u16;
-                let log_h = 10u16.min(full.height.saturating_sub(cmd));
-                let fishing_area = Rect {
-                    x: full.x,
-                    y: full.y,
-                    width: full.width,
-                    height: full.height.saturating_sub(log_h + cmd),
-                };
-                g.render(frame, fishing_area, anim_tick);
+                // fishing scene gets the whole frame; log is hidden during reel
+                g.render(frame, frame.area(), anim_tick);
             }
             Scene::Fishdex(d) => d.render(frame, &caught_snapshot),
             Scene::NamePrompt(buf) => render_name_prompt(frame, buf),
@@ -1259,6 +1249,21 @@ impl App {
         let full = frame.area();
         let cmdline_h = 1u16;
         let effective_h = full.height.saturating_sub(cmdline_h);
+        // hide log/valu inside the fishing reel scene
+        let in_fishing = matches!(self.scene, Scene::Fishing(_));
+        if in_fishing {
+            // only render cmdline at the very bottom
+            if cmdline_h > 0 && full.height >= cmdline_h {
+                let cmd_area = Rect {
+                    x: full.x,
+                    y: full.y + full.height - cmdline_h,
+                    width: full.width,
+                    height: cmdline_h,
+                };
+                render_cmdline(frame, cmd_area, &self.mode);
+            }
+            return;
+        }
 
         let valu_str = format_valu(self.player.valu);
         let valu_w = (valu_str.len() as u16 + 4).max(14).min(full.width);
@@ -1653,19 +1658,59 @@ fn render_cast_overlay(
 
     match c.phase {
         CastPhase::Casting => {
-            // single cell moving up/down above the player, color goes from
-            // red (bottom) to green (top), background fills the cell
+            // bordered cast meter above the player. Inside the box a 2-tall
+            // single-column cell slides up/down, bg color is the strength.
             let bar_h = 8i32;
-            let marker_row = ((1.0 - c.cast_pos) * (bar_h - 1) as f32).round() as i32;
-            let sy = player_sy - bar_h + marker_row;
-            let sx = player_sx;
-            if sy >= area.y as i32
-                && sy < (area.y + area.height) as i32
-                && sx >= area.x as i32
-                && sx < (area.x + area.width) as i32
-            {
-                let color = lerp_red_green(c.cast_pos);
-                frame.buffer_mut()[(sx as u16, sy as u16)]
+            let box_top = player_sy - bar_h - 3;
+            let box_bot = player_sy - 2;
+            let box_x_left = player_sx - 1;
+            let box_x_right = player_sx + 1;
+            let buf = frame.buffer_mut();
+            // borders
+            for sy in box_top..=box_bot {
+                if sy < area.y as i32 || sy >= (area.y + area.height) as i32 {
+                    continue;
+                }
+                if box_x_left >= area.x as i32 {
+                    buf[(box_x_left as u16, sy as u16)]
+                        .set_char('|')
+                        .set_style(Style::default().fg(Color::Yellow));
+                }
+                if box_x_right < (area.x + area.width) as i32 {
+                    buf[(box_x_right as u16, sy as u16)]
+                        .set_char('|')
+                        .set_style(Style::default().fg(Color::Yellow));
+                }
+            }
+            for sx in box_x_left..=box_x_right {
+                if sx < area.x as i32 || sx >= (area.x + area.width) as i32 {
+                    continue;
+                }
+                if box_top >= area.y as i32 {
+                    buf[(sx as u16, box_top as u16)]
+                        .set_char('-')
+                        .set_style(Style::default().fg(Color::Yellow));
+                }
+                if box_bot < (area.y + area.height) as i32 {
+                    buf[(sx as u16, box_bot as u16)]
+                        .set_char('-')
+                        .set_style(Style::default().fg(Color::Yellow));
+                }
+            }
+            // 2-tall moving cell inside the box (range: box_top+1..=box_bot-1, with size 2)
+            let inner_h = bar_h;
+            let marker_top = box_top + 1 + ((1.0 - c.cast_pos) * (inner_h - 2) as f32).round() as i32;
+            let marker_bot = marker_top + 1;
+            let color = lerp_red_green(c.cast_pos);
+            for sy in [marker_top, marker_bot] {
+                if sy < area.y as i32 || sy >= (area.y + area.height) as i32 {
+                    continue;
+                }
+                let sx = player_sx;
+                if sx < area.x as i32 || sx >= (area.x + area.width) as i32 {
+                    continue;
+                }
+                buf[(sx as u16, sy as u16)]
                     .set_char(' ')
                     .set_style(Style::default().bg(color));
             }
