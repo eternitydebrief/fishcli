@@ -9,6 +9,7 @@ pub struct Player {
     pub valu: u64,
     pub inventory: Vec<&'static FishDef>,
     pub items: Vec<Item>,
+    pub facing: (i32, i32),
 }
 
 impl Player {
@@ -20,6 +21,7 @@ impl Player {
             valu: 0,
             inventory: Vec::new(),
             items: Vec::new(),
+            facing: (0, 1),
         }
     }
 }

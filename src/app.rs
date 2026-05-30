@@ -120,7 +120,7 @@ impl App {
         let mut narrator = Narrator::new();
         narrator.say("You arrive at the village.");
         narrator.say("Yellow D west = rod shop. Pink D east = fishing school. Dock is south.");
-        narrator.say("hjkl/arrows: move    x: inspect    e: fishdex    esc: normal");
+        narrator.say("hjkl/arrows: move    f: interact    g: pick up    x: inspect    e: fishdex    esc: normal");
         Self {
             world: World::new(0xDEAD_BEEF),
             player: Player::spawn(),
@@ -640,6 +640,8 @@ impl App {
                 self.scene = Scene::Fishdex(Fishdex::new());
             }
             KeyCode::Char('x') => self.inspect_surroundings(),
+            KeyCode::Char('g') => self.pickup_here(),
+            KeyCode::Char('f') => self.interact_facing(),
             _ => {}
         }
     }
@@ -673,6 +675,49 @@ impl App {
     }
 
     fn step(&mut self, dx: i32, dy: i32) {
+        self.player.facing = (dx, dy);
+        let nx = self.player.x + dx;
+        let ny = self.player.y + dy;
+        if npc::npc_at(nx, ny).is_some() {
+            return; // blocked by NPC; press f to interact
+        }
+        let t = self.world.get(nx, ny);
+        if t.walkable() {
+            self.player.x = nx;
+            self.player.y = ny;
+            self.check_biome_change();
+        }
+    }
+
+    fn pickup_here(&mut self) {
+        let candidates = [(0, 0), (0, -1), (0, 1), (-1, 0), (1, 0)];
+        for (dx, dy) in candidates {
+            let (tx, ty) = (self.player.x + dx, self.player.y + dy);
+            let t = self.world.get(tx, ty);
+            let item = match t {
+                Tile::Flower => Some(Item {
+                    name: "wildflower".into(),
+                    category: Category::Plant,
+                    description: "A small, soft-petalled wildflower.".into(),
+                }),
+                Tile::Pebble => Some(Item {
+                    name: "pebble".into(),
+                    category: Category::Mineral,
+                    description: "A smooth pebble worth nothing in particular.".into(),
+                }),
+                _ => None,
+            };
+            if let Some(it) = item {
+                self.narrator.say(format!("You pick up a {}.", it.name));
+                self.player.items.push(it);
+                return;
+            }
+        }
+        self.narrator.say("Nothing to pick up here.");
+    }
+
+    fn interact_facing(&mut self) {
+        let (dx, dy) = self.player.facing;
         let nx = self.player.x + dx;
         let ny = self.player.y + dy;
         if let Some(npc) = npc::npc_at(nx, ny) {
@@ -704,12 +749,7 @@ impl App {
                     .say(format!("Something tugs the line - a {}!", f.name));
                 self.scene = Scene::Fishing(Fishing::new(f, self.rng_state));
             }
-            t if t.walkable() => {
-                self.player.x = nx;
-                self.player.y = ny;
-                self.check_biome_change();
-            }
-            _ => {}
+            _ => self.narrator.say("Nothing to interact with."),
         }
     }
 
