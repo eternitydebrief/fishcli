@@ -1456,7 +1456,11 @@ impl App {
                     }
                 }
                 let (water_kind, biome) = fishing_context(&self.world, nx, ny);
-                let pool_override = self.current_pool_override.clone();
+                let dim_pool = dim_default_pool(self.world.dim, self.world.get(nx, ny));
+                let pool_override = self
+                    .current_pool_override
+                    .clone()
+                    .or_else(|| dim_pool.map(|s| s.to_string()));
                 let f = crate::fish::pick_fish_with_pool(
                     &mut self.rng_state,
                     fishlist::fish(),
@@ -2705,6 +2709,23 @@ fn water_kind_at(world: &World, x: i32, y: i32) -> &'static str {
 /// Derive (water_kind, biome_label) for a fishing cast at (x, y) in the
 /// current dimension. Surface uses real biome+water. Mines and Atlantis
 /// short-circuit to their own pseudo-biome labels.
+/// Default pool to draw from based on the dim + tile being fished, before
+/// any explicit pool override the player set via The Rod. Mines mineral
+/// water yields mineral variants; lava in the Inferno yields infernal.
+fn dim_default_pool(dim: crate::world::Dimension, tile: Tile) -> Option<&'static str> {
+    match dim {
+        crate::world::Dimension::Mines => match tile {
+            Tile::MineralWater => Some("mineral"),
+            _ => None,
+        },
+        crate::world::Dimension::Inferno => match tile {
+            Tile::Lava => Some("infernal"),
+            _ => Some("infernal"),
+        },
+        _ => None,
+    }
+}
+
 fn fishing_context(world: &World, x: i32, y: i32) -> (&'static str, String) {
     match world.dim {
         crate::world::Dimension::Surface => {

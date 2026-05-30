@@ -1726,10 +1726,9 @@ fn is_mine_entrance_anchor(x: i32, y: i32, seed: u32) -> bool {
     if cached_water_body_at(x, y, seed) {
         return false;
     }
-    // about 1 per 3000 cells: tunable. Density is small so they feel like
-    // hidden landmarks rather than every-other-screen clutter.
+    // about 1 per 900 cells: visible-ish landmarks. Tune as needed.
     let h = hash2(x, y, seed.wrapping_add(0xE17E_ED01));
-    h % 3000 == 7
+    h % 900 == 7
 }
 
 fn mine_entrance_tile_at(x: i32, y: i32, seed: u32) -> Option<Tile> {
