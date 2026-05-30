@@ -127,6 +127,8 @@ pub enum Tile {
     Cactus,
     Well,
     Path,
+    Lamppost,
+    Bench,
 }
 
 impl Tile {
@@ -157,6 +159,8 @@ impl Tile {
             Tile::Cactus => "A wary cactus, spines dry and bristling.",
             Tile::Well => "An old stone well. The bottom is darker than dark. You hear faint splashing.",
             Tile::Path => "A trodden path of packed earth and gravel.",
+            Tile::Lamppost => "An iron lamppost. A small flame warms the glass at dusk.",
+            Tile::Bench => "A worn wooden bench. Carved initials beneath the seat.",
         }
     }
 }
@@ -312,7 +316,13 @@ impl World {
                     (g, Style::default().fg(shade((198, 182, 132), x, y, 0x5A1D_5A1D, 14)))
                 }
             }
-            Tile::TreeTrunk | Tile::TreeCanopy => tree_render(x, y, self.seed),
+            Tile::TreeTrunk | Tile::TreeCanopy => {
+                if let Some(g) = village_oak_glyph(x, y) {
+                    g
+                } else {
+                    tree_render(x, y, self.seed)
+                }
+            }
             Tile::Rock => rock_glyph(x, y),
             Tile::MediumRock => medium_rock_glyph(x, y, self.seed),
             Tile::BigRock => big_rock_glyph(x, y, self.seed),
@@ -334,6 +344,18 @@ impl World {
                 };
                 (g, Style::default().fg(Color::Rgb(150, 135, 105)))
             }
+            Tile::Lamppost => (
+                'i',
+                Style::default()
+                    .fg(Color::Rgb(220, 200, 120))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Tile::Bench => (
+                '=',
+                Style::default()
+                    .fg(Color::Rgb(140, 95, 55))
+                    .add_modifier(Modifier::BOLD),
+            ),
         }
     }
 }
@@ -521,6 +543,46 @@ fn hash2(x: i32, y: i32, seed: u32) -> u32 {
     h ^= h >> 13;
     h = h.wrapping_mul(1_274_126_177);
     h ^ (h >> 16)
+}
+
+fn village_oak_glyph(x: i32, y: i32) -> Option<(char, Style)> {
+    for &(ax, ay) in VILLAGE_OAKS {
+        let dx = x - ax;
+        let dy = y - ay;
+        let anchor_hash = hash2(ax, ay, 0xCACE_F00D);
+        // trunk
+        if (dy == 0 || dy == -1) && (dx == 0 || dx == 1) {
+            let r = 145 + (anchor_hash % 25) as u8;
+            let gc = 100 + (anchor_hash % 22) as u8;
+            let b = 60 + (anchor_hash % 18) as u8;
+            return Some((
+                '#',
+                Style::default()
+                    .fg(Color::Rgb(r, gc, b))
+                    .add_modifier(Modifier::BOLD),
+            ));
+        }
+        // wide canopy
+        if (dy == -2 || dy == -3) && (-2..=3).contains(&dx) {
+            let g = match ((dx + 2 + dy * 5).rem_euclid(4) as u32) % 4 {
+                0 => '%',
+                1 => '@',
+                2 => '#',
+                _ => '&',
+            };
+            return Some(leaf_style(g, anchor_hash, (95, 160, 85), x, y));
+        }
+        // top canopy
+        if dy == -4 && (-1..=2).contains(&dx) {
+            let g = match dx {
+                -1 => '/',
+                2 => '\\',
+                _ => '#',
+            };
+            return Some(leaf_style(g, anchor_hash, (115, 170, 95), x, y));
+        }
+    }
+    None
 }
 
 fn tree_render(x: i32, y: i32, seed: u32) -> (char, Style) {
@@ -736,9 +798,69 @@ fn village_tile(x: i32, y: i32) -> Option<Tile> {
     if (x, y) == (0, -1) {
         return Some(Tile::Well);
     }
+    // hand-placed oaks
+    if let Some(t) = village_oak_at(x, y) {
+        return Some(t);
+    }
+    // lampposts and benches
+    if let Some(t) = village_decor(x, y) {
+        return Some(t);
+    }
     // pathways inside the walls
     if village_path(x, y) {
         return Some(Tile::Path);
+    }
+    None
+}
+
+const VILLAGE_OAKS: &[(i32, i32)] = &[
+    (-44, 2), (44, 2),
+    (-30, 3), (30, 3),
+    (-14, 3), (14, 3),
+    (-40, -12), (40, -12),
+    (-12, -13), (12, -13),
+];
+
+fn village_oak_at(x: i32, y: i32) -> Option<Tile> {
+    for &(ax, ay) in VILLAGE_OAKS {
+        let dx = x - ax;
+        let dy = y - ay;
+        // trunk: 2 wide, 2 tall (rows 0 and -1)
+        if (dy == 0 || dy == -1) && (dx == 0 || dx == 1) {
+            return Some(Tile::TreeTrunk);
+        }
+        // wide canopy: 5 wide, rows -2 and -3
+        if (dy == -2 || dy == -3) && (-2..=3).contains(&dx) {
+            return Some(Tile::TreeCanopy);
+        }
+        // top canopy: 3 wide, row -4
+        if dy == -4 && (-1..=2).contains(&dx) {
+            return Some(Tile::TreeCanopy);
+        }
+    }
+    None
+}
+
+const VILLAGE_LAMPS: &[(i32, i32)] = &[
+    (-3, -5), (3, -5),
+    (-3, 3), (3, 3),
+    (-15, -2), (15, -2),
+    (-15, 2), (15, 2),
+    (-30, -2), (30, -2),
+    (-30, 2), (30, 2),
+];
+
+const VILLAGE_BENCHES: &[(i32, i32)] = &[
+    (-4, 0), (4, 0),
+    (-4, 1), (4, 1),
+];
+
+fn village_decor(x: i32, y: i32) -> Option<Tile> {
+    if VILLAGE_LAMPS.contains(&(x, y)) {
+        return Some(Tile::Lamppost);
+    }
+    if VILLAGE_BENCHES.contains(&(x, y)) {
+        return Some(Tile::Bench);
     }
     None
 }
