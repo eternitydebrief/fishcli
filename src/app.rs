@@ -442,9 +442,14 @@ impl App {
                 self.narrator.say("You step into the fishing school.");
                 self.scene = Scene::FishingSchool;
             }
-            Tile::Dock => {
+            Tile::Dock | Tile::Water => {
                 let f = fish::pick_fish(&mut self.rng_state, fishlist::fish());
-                self.narrator.say("You cast your line.");
+                let spot = match self.world.get(nx, ny) {
+                    Tile::Dock => "off the dock",
+                    Tile::Water => "into the water",
+                    _ => "out",
+                };
+                self.narrator.say(format!("You cast {spot}."));
                 self.narrator
                     .say(format!("Something tugs the line - a {}!", f.name));
                 self.scene = Scene::Fishing(Fishing::new(f, self.rng_state));
