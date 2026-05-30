@@ -453,5 +453,6 @@
   { "name": "Quickfish", "description": "MYTHIC: leaps faster than you can blink. +5% movement speed.", "rarity": 0.00003, "difficulty": 10, "effect": "walk_speed:0.05" },
   { "name": "Luckyfish", "description": "MYTHIC: fortune incarnate. +5% rare catch chance.", "rarity": 0.00001, "difficulty": 10, "effect": "luck:0.05" },
   { "name": "Gilded Goldfish", "description": "LEGENDARY: a goldfish of solid gold. +50% valu per catch.", "rarity": 0.0001, "difficulty": 9, "price": 20000 },
-  { "name": "Patience Fish", "description": "MYTHIC: shortens every future bite-wait. -10% wait time.", "rarity": 0.00003, "difficulty": 10, "effect": "wait_mult:-0.10" }
+  { "name": "Patience Fish", "description": "MYTHIC: shortens every future bite-wait. -10% wait time.", "rarity": 0.00003, "difficulty": 10, "effect": "wait_mult:-0.10" },
+  { "name": "Fish", "description": "THE FISH. Ineffable, irreducible, simply Fish. You cannot sell it, trade it, or discard it. It is yours forever. A Master Rodsmith could craft The Fishing Rod from it.", "rarity": 0.00008, "difficulty": 10, "unique": true }
 ]

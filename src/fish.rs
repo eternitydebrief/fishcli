@@ -22,6 +22,10 @@ pub struct FishDef {
     pub effect: Option<String>,
     /// If true, this is a joke pickup (boot, tire, etc.) not a real fish.
     pub joke: bool,
+    /// If true, this entry is one-of-a-kind: it goes in the Misc inventory
+    /// tab (never the Fish tab), cannot be sold, cannot be discarded, and
+    /// catching it twice has no effect.
+    pub unique: bool,
 }
 
 impl Default for FishDef {
@@ -36,6 +40,7 @@ impl Default for FishDef {
             price: 0,
             effect: None,
             joke: false,
+            unique: false,
         }
     }
 }

@@ -651,7 +651,8 @@ impl App {
                 match code {
                     KeyCode::Char('q') | KeyCode::Esc => self.exit_subscene(),
                     KeyCode::Char('j') | KeyCode::Down => {
-                        *cursor = (*cursor + 1).min(199);
+                        let last = (crate::rod::rods().len() as u32).saturating_sub(1);
+                        *cursor = (*cursor + 1).min(last);
                     }
                     KeyCode::Char('k') | KeyCode::Up => {
                         *cursor = cursor.saturating_sub(1);
@@ -659,7 +660,32 @@ impl App {
                     KeyCode::Enter | KeyCode::Char(' ') => {
                         // buy the next rod if possible
                         if let Some(rod) = crate::rod::get(next) {
-                            if self.buffs.free_rods > 0 {
+                            // tier 201 = The Fishing Rod: requires the Fish + 1M valu.
+                            // Fish is NOT consumed; you keep it forever.
+                            if next == 201 {
+                                let has_fish = fishlist::fish()
+                                    .iter()
+                                    .position(|f| f.unique && f.name == "Fish")
+                                    .and_then(|i| self.caught.get(i).copied())
+                                    .unwrap_or(false);
+                                const CRAFT_COST: u64 = 1_000_000;
+                                if !has_fish {
+                                    self.narrator
+                                        .say("The Fishing Rod requires THE FISH. You haven't caught it.");
+                                } else if self.player.valu < CRAFT_COST {
+                                    self.narrator.say(format!(
+                                        "Crafting The Fishing Rod costs {CRAFT_COST}$V."
+                                    ));
+                                } else {
+                                    self.player.valu -= CRAFT_COST;
+                                    self.player.rods.max_owned = next;
+                                    self.player.rods.equipped = next;
+                                    self.narrator.say(format!(
+                                        "*** CRAFTED {} for {CRAFT_COST}$V. The Fish stays with you. ***",
+                                        rod.name
+                                    ));
+                                }
+                            } else if self.buffs.free_rods > 0 {
                                 self.buffs.free_rods -= 1;
                                 self.player.rods.max_owned = next;
                                 self.player.rods.equipped = next;
@@ -992,7 +1018,11 @@ impl App {
                 let caught = matches!(g.finished, Some(FishingResult::Caught));
                 let escaped = matches!(g.finished, Some(FishingResult::Escaped));
                 if caught {
+                    let mut already_had_unique = false;
                     if let Some(i) = fishlist::fish().iter().position(|f| std::ptr::eq(f, fish_ref)) {
+                        if fish_ref.unique && self.caught.get(i).copied().unwrap_or(false) {
+                            already_had_unique = true;
+                        }
                         self.caught[i] = true;
                         if let Some(slot) = self.caught_at.get_mut(i) {
                             if slot.is_none() {
@@ -1000,14 +1030,26 @@ impl App {
                             }
                         }
                     }
-                    self.player.inventory.push(fish_ref);
-                    let name = fish_ref.name.clone();
-                    self.narrator
-                        .say(format!("You reel in a {}!", name));
-                    self.narrator.say(format!(
-                        "Added to your basket ({} fish).",
-                        self.player.inventory.len()
-                    ));
+                    if fish_ref.unique && already_had_unique {
+                        self.narrator.say(format!(
+                            "You see the {} again but you already have it. It slips back into the deep.",
+                            fish_ref.name
+                        ));
+                    } else {
+                        self.player.inventory.push(fish_ref);
+                        let name = fish_ref.name.clone();
+                        if fish_ref.unique {
+                            self.narrator
+                                .say(format!("*** YOU REEL IN THE {}! ***", name.to_uppercase()));
+                        } else {
+                            self.narrator
+                                .say(format!("You reel in a {}!", name));
+                        }
+                        self.narrator.say(format!(
+                            "Added to your basket ({} fish).",
+                            self.player.inventory.len()
+                        ));
+                    }
                     let gained = fish_catch_xp(fish_ref.difficulty);
                     self.stats.fish_caught += 1;
                     let before = self.skills.fishing_level();
@@ -1039,7 +1081,7 @@ impl App {
                             }
                         }
                     }
-                    self.quest_progress("catch", &name);
+                    self.quest_progress("catch", &fish_ref.name);
                 } else if escaped {
                     self.narrator
                         .say(format!("The {} slips away.", fish_ref.name));
@@ -1159,7 +1201,8 @@ impl App {
         match self.world.get(nx, ny) {
             Tile::DoorRod => {
                 self.narrator.say("You step into the rod shop.");
-                let cursor = self.player.rods.max_owned.min(199);
+                let last = (crate::rod::rods().len() as u32).saturating_sub(1);
+                let cursor = self.player.rods.max_owned.min(last);
                 self.scene = Scene::RodShop { cursor };
                 self.mode = Mode::Insert;
             }
@@ -1886,6 +1929,11 @@ fn render_rod_shop(
         } else {
             Style::default().fg(color)
         };
+        let price_label = if tier == 201 {
+            "1000000$V + THE FISH".to_string()
+        } else {
+            format!("{}$V", rod.price())
+        };
         lines.push(ratatui::text::Line::from(vec![
             ratatui::text::Span::styled(format!("{prefix}{status} "), style),
             ratatui::text::Span::styled(
@@ -1893,7 +1941,7 @@ fn render_rod_shop(
                 style,
             ),
             ratatui::text::Span::styled(
-                format!("{}$V", rod.price()),
+                price_label,
                 Style::default().fg(Color::Yellow),
             ),
         ]));
@@ -2292,11 +2340,32 @@ fn render_inventory(
     let lines: Vec<ratatui::text::Line> = match cat {
         Category::Fish => {
             let mut grouped: Vec<(&str, &str, usize)> = Vec::new();
-            for f in fish_inv {
+            for f in fish_inv.iter().filter(|f| !f.unique) {
                 if let Some((_, _, n)) = grouped.iter_mut().find(|(n, _, _)| *n == f.name.as_str()) {
                     *n += 1;
                 } else {
                     grouped.push((f.name.as_str(), f.description.as_str(), 1));
+                }
+            }
+            grouped
+                .into_iter()
+                .map(|(name, desc, n)| group_line(name, desc, n))
+                .collect()
+        }
+        Category::Misc => {
+            // Unique fish like THE FISH live in Misc so they can't be sold or
+            // accidentally treated as catch. Show them first, deduplicated.
+            let mut grouped: Vec<(&str, &str, usize)> = Vec::new();
+            for f in fish_inv.iter().filter(|f| f.unique) {
+                if !grouped.iter().any(|(n, _, _)| *n == f.name.as_str()) {
+                    grouped.push((f.name.as_str(), f.description.as_str(), 1));
+                }
+            }
+            for it in items.iter().filter(|it| it.category == Category::Misc) {
+                if let Some((_, _, n)) = grouped.iter_mut().find(|(n, _, _)| *n == it.name.as_str()) {
+                    *n += 1;
+                } else {
+                    grouped.push((it.name.as_str(), it.description.as_str(), 1));
                 }
             }
             grouped
