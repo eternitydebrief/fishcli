@@ -33,6 +33,7 @@ impl Biome {
 struct BiomeParams {
     tree: f32,
     big_rock: f32,
+    medium_rock: f32,
     rock: f32,
     pebble: f32,
     flower: f32,
@@ -43,32 +44,32 @@ struct BiomeParams {
 fn biome_params(b: Biome) -> BiomeParams {
     match b {
         Biome::Meadow => BiomeParams {
-            tree: 0.025, big_rock: 0.0008, rock: 0.0015, pebble: 0.040, flower: 0.012,
-            cactus: 0.0, puddle_bonus: 0.0,
+            tree: 0.025, big_rock: 0.0008, medium_rock: 0.0020, rock: 0.0015,
+            pebble: 0.040, flower: 0.012, cactus: 0.0, puddle_bonus: 0.0,
         },
         Biome::Forest => BiomeParams {
-            tree: 0.090, big_rock: 0.0008, rock: 0.0010, pebble: 0.020, flower: 0.003,
-            cactus: 0.0, puddle_bonus: 0.0,
+            tree: 0.090, big_rock: 0.0008, medium_rock: 0.0015, rock: 0.0010,
+            pebble: 0.020, flower: 0.003, cactus: 0.0, puddle_bonus: 0.0,
         },
         Biome::Rocky => BiomeParams {
-            tree: 0.008, big_rock: 0.0060, rock: 0.0080, pebble: 0.120, flower: 0.001,
-            cactus: 0.0, puddle_bonus: 0.0,
+            tree: 0.008, big_rock: 0.0060, medium_rock: 0.0140, rock: 0.0080,
+            pebble: 0.120, flower: 0.001, cactus: 0.0, puddle_bonus: 0.0,
         },
         Biome::Scrub => BiomeParams {
-            tree: 0.005, big_rock: 0.0006, rock: 0.0010, pebble: 0.020, flower: 0.002,
-            cactus: 0.0, puddle_bonus: 0.0,
+            tree: 0.005, big_rock: 0.0006, medium_rock: 0.0015, rock: 0.0010,
+            pebble: 0.020, flower: 0.002, cactus: 0.0, puddle_bonus: 0.0,
         },
         Biome::Desert => BiomeParams {
-            tree: 0.0, big_rock: 0.0020, rock: 0.0035, pebble: 0.110, flower: 0.0,
-            cactus: 0.012, puddle_bonus: 0.0,
+            tree: 0.0, big_rock: 0.0020, medium_rock: 0.0050, rock: 0.0035,
+            pebble: 0.110, flower: 0.0, cactus: 0.012, puddle_bonus: 0.0,
         },
         Biome::Tundra => BiomeParams {
-            tree: 0.012, big_rock: 0.0025, rock: 0.0040, pebble: 0.080, flower: 0.001,
-            cactus: 0.0, puddle_bonus: 0.0,
+            tree: 0.012, big_rock: 0.0025, medium_rock: 0.0060, rock: 0.0040,
+            pebble: 0.080, flower: 0.001, cactus: 0.0, puddle_bonus: 0.0,
         },
         Biome::Swamp => BiomeParams {
-            tree: 0.050, big_rock: 0.0006, rock: 0.0005, pebble: 0.015, flower: 0.006,
-            cactus: 0.0, puddle_bonus: 0.18,
+            tree: 0.050, big_rock: 0.0006, medium_rock: 0.0010, rock: 0.0005,
+            pebble: 0.015, flower: 0.006, cactus: 0.0, puddle_bonus: 0.18,
         },
     }
 }
@@ -119,6 +120,7 @@ pub enum Tile {
     TreeTrunk,
     TreeCanopy,
     Rock,
+    MediumRock,
     BigRock,
     Pebble,
     Flower,
@@ -146,7 +148,8 @@ impl Tile {
             Tile::Sand => "Damp sand. Bits of shell, gull tracks.",
             Tile::TreeTrunk => "A sturdy trunk. Bark rough under your fingers.",
             Tile::TreeCanopy => "Dense foliage. Birds rustle inside.",
-            Tile::Rock => "A boulder, half-buried. Lichen patches one side.",
+            Tile::Rock => "A stone, knee-high. Easy to step around.",
+            Tile::MediumRock => "A pair of split boulders pressed shoulder to shoulder.",
             Tile::BigRock => "A massive outcrop of weather-worn stone.",
             Tile::Pebble => "Small stones. They click underfoot.",
             Tile::Flower => "A wildflower, swaying. You feel a little better just looking.",
@@ -245,6 +248,9 @@ impl World {
             if big_rock_at(x, y, self.seed, p.big_rock) {
                 return Tile::BigRock;
             }
+            if medium_rock_at(x, y, self.seed, p.medium_rock) {
+                return Tile::MediumRock;
+            }
             let r = hash2(x, y, self.seed.wrapping_add(0x1234_5678)) as f32 / u32::MAX as f32;
             if r < p.rock {
                 return Tile::Rock;
@@ -306,6 +312,7 @@ impl World {
             }
             Tile::TreeTrunk | Tile::TreeCanopy => tree_render(x, y, self.seed),
             Tile::Rock => rock_glyph(x, y),
+            Tile::MediumRock => medium_rock_glyph(x, y, self.seed),
             Tile::BigRock => big_rock_glyph(x, y, self.seed),
             Tile::Pebble => pebble_glyph(x, y),
             Tile::Flower => flower_glyph(x, y),
@@ -579,14 +586,51 @@ fn leaf_style(g: char, anchor_hash: u32, base: (u8, u8, u8), x: i32, y: i32) -> 
 }
 
 fn rock_glyph(x: i32, y: i32) -> (char, Style) {
-    let v = hash2(x, y, 0xF00D_F00D) % 4;
+    let v = hash2(x, y, 0xF00D_F00D) % 2;
     let (g, base) = match v {
-        0 => ('[', (121, 121, 121)),
-        1 => (']', (121, 121, 121)),
-        2 => ('/', (143, 143, 143)),
-        _ => ('\\', (143, 143, 143)),
+        0 => ('o', (121, 121, 121)),
+        _ => ('O', (143, 143, 143)),
     };
     (g, Style::default().fg(shade(base, x, y, 0xF00D_F00D, 12)))
+}
+
+fn is_medium_rock_anchor(x: i32, y: i32, seed: u32, density: f32) -> bool {
+    if in_village_zone(x, y) {
+        return false;
+    }
+    if y >= 4 {
+        return false;
+    }
+    if water_body_at(x, y, seed) {
+        return false;
+    }
+    let h = hash2(x, y, seed.wrapping_add(0xDEAF_BEAD)) as f32 / u32::MAX as f32;
+    h < density
+}
+
+fn medium_rock_at(x: i32, y: i32, seed: u32, density: f32) -> bool {
+    is_medium_rock_anchor(x, y, seed, density)
+        || is_medium_rock_anchor(x - 1, y, seed, density)
+}
+
+fn medium_rock_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
+    let p = biome_params(biome_at(x, y, seed));
+    let density = p.medium_rock;
+    let (anchor_x, _) = if is_medium_rock_anchor(x, y, seed, density) {
+        (x, y)
+    } else {
+        (x - 1, y)
+    };
+    let dx = x - anchor_x;
+    let template = hash2(anchor_x, y, 0xC0DE_BABE) % 2;
+    let g = match (template, dx) {
+        (0, 0) => '[',
+        (0, _) => ']',
+        (_, 0) => '/',
+        (_, _) => '\\',
+    };
+    let base = (130, 130, 130);
+    (g, Style::default().fg(shade(base, anchor_x, y, 0xDEAF_BEAD, 10)))
 }
 
 fn pebble_glyph(x: i32, y: i32) -> (char, Style) {
