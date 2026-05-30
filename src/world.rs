@@ -92,15 +92,17 @@ impl World {
         match self.get(x, y) {
             Tile::Wall => ('#', Style::default().fg(Color::Gray)),
             Tile::DoorRod => (
-                'R',
+                'D',
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(Color::Black)
+                    .bg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             ),
             Tile::DoorSchool => (
-                'S',
+                'D',
                 Style::default()
-                    .fg(Color::Magenta)
+                    .fg(Color::Black)
+                    .bg(Color::Magenta)
                     .add_modifier(Modifier::BOLD),
             ),
             Tile::Dock => ('=', Style::default().fg(Color::LightYellow)),

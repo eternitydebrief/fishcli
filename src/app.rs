@@ -36,6 +36,7 @@ impl App {
     pub fn new() -> Self {
         let mut narrator = Narrator::new();
         narrator.say("You arrive at the village.");
+        narrator.say("Yellow D west = rod shop. Pink D east = fishing school. Dock is south.");
         Self {
             world: World::new(0xDEAD_BEEF),
             player: Player::spawn(),

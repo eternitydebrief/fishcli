@@ -5,6 +5,6 @@ pub struct Player {
 
 impl Player {
     pub fn spawn() -> Self {
-        Self { x: 0, y: 0 }
+        Self { x: 0, y: 2 }
     }
 }
