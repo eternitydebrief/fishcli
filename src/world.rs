@@ -163,6 +163,9 @@ impl World {
         if y == 5 {
             return Tile::Sand;
         }
+        if water_body_at(x, y, self.seed) {
+            return Tile::Water;
+        }
         if !in_village_zone(x, y) {
             let biome = biome_at(x, y, self.seed);
             let p = biome_params(biome);
@@ -240,6 +243,9 @@ fn is_big_rock_anchor(x: i32, y: i32, seed: u32, density: f32) -> bool {
     if y >= 4 {
         return false;
     }
+    if water_body_at(x, y, seed) {
+        return false;
+    }
     let r = hash2(x, y, seed.wrapping_add(0xBEEF_FACE)) as f32 / u32::MAX as f32;
     r < density
 }
@@ -304,8 +310,56 @@ fn is_tree_anchor(x: i32, y: i32, seed: u32, density: f32) -> bool {
     if y >= 4 || y <= -1000 {
         return false;
     }
+    if water_body_at(x, y, seed) {
+        return false;
+    }
     let r = hash2(x, y, seed.wrapping_add(0xC0DE_C0DE)) as f32 / u32::MAX as f32;
     r < density
+}
+
+const WATER_CELL: i32 = 26;
+
+fn water_body_at(x: i32, y: i32, seed: u32) -> bool {
+    if in_village_zone(x, y) {
+        return false;
+    }
+    if y >= 5 {
+        return false; // ocean strip handled elsewhere
+    }
+    let cx = x.div_euclid(WATER_CELL);
+    let cy = y.div_euclid(WATER_CELL);
+    for dcy in -1..=1 {
+        for dcx in -1..=1 {
+            let ccx = cx + dcx;
+            let ccy = cy + dcy;
+            let h = hash2(ccx, ccy, seed.wrapping_add(0xF00D_BEEF));
+            // ~14% of coarse cells host a water body
+            if h % 7 != 0 {
+                continue;
+            }
+            // anchor offset inside the coarse cell
+            let ox = ((h >> 4) as i32).rem_euclid(WATER_CELL);
+            let oy = ((h >> 12) as i32).rem_euclid(WATER_CELL);
+            let ax = ccx * WATER_CELL + ox;
+            let ay = ccy * WATER_CELL + oy;
+            // size class
+            let radius: i32 = match (h >> 20) % 10 {
+                0..=5 => 1, // puddle / tiny
+                6..=8 => 3, // pond
+                _ => 6,     // small lake
+            };
+            // never place water body too close to the ocean shore (avoid touching y >= 5)
+            if ay + radius >= 5 {
+                continue;
+            }
+            let dx = (x - ax).abs();
+            let dy = (y - ay).abs();
+            if dx + dy <= radius {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn tree_at(x: i32, y: i32, seed: u32, density: f32) -> Option<Tile> {
