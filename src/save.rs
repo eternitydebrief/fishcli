@@ -14,6 +14,10 @@ pub struct SaveData {
     pub rng_state: u32,
     pub play_time_secs: u64,
     pub lifetime_valu_earned: u64,
+    #[serde(default)]
+    pub quest_progress: Vec<(String, u32)>,
+    #[serde(default)]
+    pub quest_done: Vec<String>,
 }
 
 fn save_path() -> Option<PathBuf> {

@@ -5,7 +5,9 @@ use crate::fishlist;
 use crate::narrator::Narrator;
 use crate::npc::{self, Npc};
 use crate::player::Player;
+use crate::quest;
 use crate::save::{self, SaveData};
+use std::collections::HashMap;
 use crate::world::{Tile, World, WorldView};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
@@ -46,6 +48,10 @@ pub struct App {
     pub rng_state: u32,
     pub caught: Vec<bool>,
     pub narrator: Narrator,
+    /// quest id -> progress count
+    pub quest_progress: HashMap<String, u32>,
+    /// quest ids that have been completed and rewarded
+    pub quest_done: Vec<String>,
     held_dir: Option<(i32, i32)>,
     held_until_tick: u64,
     last_step_tick: u64,
@@ -86,9 +92,38 @@ impl App {
             rng_state: 0xC0FF_EE42,
             caught: vec![false; fishlist::fish().len()],
             narrator,
+            quest_progress: HashMap::new(),
+            quest_done: Vec::new(),
             held_dir: None,
             held_until_tick: 0,
             last_step_tick: 0,
+        }
+    }
+
+    fn quest_progress(&mut self, kind: &str, target: &str) {
+        for q in quest::quests() {
+            if self.quest_done.contains(&q.id) {
+                continue;
+            }
+            if q.objective.kind != kind || q.objective.target != target {
+                continue;
+            }
+            let entry = self.quest_progress.entry(q.id.clone()).or_insert(0);
+            *entry += 1;
+            let cur = *entry;
+            if cur >= q.objective.count {
+                self.player.valu = self.player.valu.saturating_add(q.reward.valu);
+                self.quest_done.push(q.id.clone());
+                self.narrator.say(format!(
+                    "Quest complete: {} (+{}$V)",
+                    q.title, q.reward.valu
+                ));
+            } else {
+                self.narrator.say(format!(
+                    "{}: {}/{}",
+                    q.title, cur, q.objective.count
+                ));
+            }
         }
     }
 
@@ -115,6 +150,8 @@ impl App {
         if data.rng_state != 0 {
             self.rng_state = data.rng_state;
         }
+        self.quest_progress = data.quest_progress.iter().cloned().collect();
+        self.quest_done = data.quest_done.clone();
     }
 
     fn current_save(&self) -> SaveData {
@@ -134,6 +171,12 @@ impl App {
             rng_state: self.rng_state,
             play_time_secs: 0,
             lifetime_valu_earned: 0,
+            quest_progress: self
+                .quest_progress
+                .iter()
+                .map(|(k, v)| (k.clone(), *v))
+                .collect(),
+            quest_done: self.quest_done.clone(),
         }
     }
 
@@ -366,6 +409,7 @@ impl App {
                 self.running = false;
             }
             "s" => self.narrator.say("Stats screen - coming in a later commit."),
+            "q-list" | "quests" => self.list_quests(),
             "m" => self.narrator.say("Settings - coming in a later commit."),
             "e" => {
                 self.narrator.say("You leaf through the fishdex.");
@@ -376,6 +420,24 @@ impl App {
                 .say("commands: :w  :wq  :q  :q!  :s  :m  :e  :h"),
             "" => {}
             other => self.narrator.say(format!("Unknown command: :{other}")),
+        }
+    }
+
+    fn list_quests(&mut self) {
+        let mut any = false;
+        for q in quest::quests() {
+            if self.quest_done.contains(&q.id) {
+                continue;
+            }
+            let progress = self.quest_progress.get(&q.id).copied().unwrap_or(0);
+            self.narrator.say(format!(
+                "[{}/{}] {} - {}",
+                progress, q.objective.count, q.title, q.description
+            ));
+            any = true;
+        }
+        if !any {
+            self.narrator.say("All quests complete!");
         }
     }
 
@@ -390,12 +452,14 @@ impl App {
                         self.caught[i] = true;
                     }
                     self.player.inventory.push(fish_ref);
+                    let name = fish_ref.name.clone();
                     self.narrator
-                        .say(format!("You reel in a {}!", fish_ref.name));
+                        .say(format!("You reel in a {}!", name));
                     self.narrator.say(format!(
                         "Added to your basket ({} fish).",
                         self.player.inventory.len()
                     ));
+                    self.quest_progress("catch", &name);
                 } else if escaped {
                     self.narrator
                         .say(format!("The {} slips away.", fish_ref.name));
@@ -456,7 +520,9 @@ impl App {
         let ny = self.player.y + dy;
         if let Some(npc) = npc::npc_at(nx, ny) {
             self.narrator.say(format!("You greet {}.", npc.name));
+            let id = npc.id.clone();
             self.scene = Scene::Dialogue { npc, line: 0 };
+            self.quest_progress("talk", &id);
             return;
         }
         match self.world.get(nx, ny) {

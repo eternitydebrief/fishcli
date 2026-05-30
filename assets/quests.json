@@ -1,0 +1,32 @@
+[
+  { "_comment": "schema: id (string), title (string), description (string), objective { kind: 'catch'|'talk', target (string - fish name or npc id), count (int, defaults 1) }, reward { valu (u64) }. quests auto-start. on completion, valu is granted and the quest is marked done." },
+
+  {
+    "id": "first-cast",
+    "title": "First Cast",
+    "description": "Catch any common carp. They're forgiving.",
+    "objective": { "kind": "catch", "target": "common carp", "count": 1 },
+    "reward": { "valu": 50 }
+  },
+  {
+    "id": "fill-the-basket",
+    "title": "Fill the Basket",
+    "description": "Catch three bluegill for the inn's cook.",
+    "objective": { "kind": "catch", "target": "bluegill", "count": 3 },
+    "reward": { "valu": 200 }
+  },
+  {
+    "id": "say-hi",
+    "title": "Meet the Village",
+    "description": "Greet the Old Angler.",
+    "objective": { "kind": "talk", "target": "old-angler", "count": 1 },
+    "reward": { "valu": 30 }
+  },
+  {
+    "id": "trout-hunter",
+    "title": "Trout Hunter",
+    "description": "Reel in five rainbow trout.",
+    "objective": { "kind": "catch", "target": "rainbow trout", "count": 5 },
+    "reward": { "valu": 750 }
+  }
+]

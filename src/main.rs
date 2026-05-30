@@ -17,6 +17,7 @@ mod fishlist;
 mod narrator;
 mod npc;
 mod player;
+mod quest;
 mod save;
 mod world;
 
