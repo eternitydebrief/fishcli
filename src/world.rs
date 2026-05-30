@@ -92,6 +92,7 @@ pub enum Tile {
     Pebble,
     Flower,
     Cactus,
+    Well,
 }
 
 impl Tile {
@@ -118,6 +119,7 @@ impl Tile {
             Tile::Pebble => "Small stones. They click underfoot.",
             Tile::Flower => "A wildflower, swaying. You feel a little better just looking.",
             Tile::Cactus => "A wary cactus, spines dry and bristling.",
+            Tile::Well => "An old stone well. The bottom is darker than dark. You hear faint splashing.",
         }
     }
 }
@@ -175,6 +177,9 @@ impl World {
         }
         if water_body_at(x, y, self.seed) {
             return Tile::Water;
+        }
+        if well_at(x, y, self.seed) {
+            return Tile::Well;
         }
         if !in_village_zone(x, y) {
             let biome = biome_at(x, y, self.seed);
@@ -249,6 +254,13 @@ impl World {
             Tile::Pebble => pebble_glyph(x, y),
             Tile::Flower => flower_glyph(x, y),
             Tile::Cactus => cactus_glyph(x, y),
+            Tile::Well => (
+                'O',
+                Style::default()
+                    .fg(Color::Rgb(170, 170, 180))
+                    .bg(Color::Rgb(20, 20, 30))
+                    .add_modifier(Modifier::BOLD),
+            ),
         }
     }
 }
@@ -594,7 +606,35 @@ fn village_tile(x: i32, y: i32) -> Option<Tile> {
     if (-6..=5).contains(&x) && (5..=8).contains(&y) {
         return Some(Tile::Dock);
     }
+    // village well in the central square
+    if (x, y) == (0, -1) {
+        return Some(Tile::Well);
+    }
     None
+}
+
+const WELL_CELL: i32 = 60;
+
+fn well_at(x: i32, y: i32, seed: u32) -> bool {
+    if in_village_zone(x, y) {
+        return false;
+    }
+    if y >= 4 {
+        return false;
+    }
+    if water_body_at(x, y, seed) {
+        return false;
+    }
+    let cx = x.div_euclid(WELL_CELL);
+    let cy = y.div_euclid(WELL_CELL);
+    let h = hash2(cx, cy, seed.wrapping_add(0xDEAD_BABE));
+    // ~25% of WELL_CELL cells host a well
+    if h % 4 != 0 {
+        return false;
+    }
+    let ox = ((h >> 4) as i32).rem_euclid(WELL_CELL);
+    let oy = ((h >> 12) as i32).rem_euclid(WELL_CELL);
+    cx * WELL_CELL + ox == x && cy * WELL_CELL + oy == y
 }
 
 fn jitter(x: i32, y: i32, salt: u32, range: i32) -> i32 {

@@ -442,11 +442,12 @@ impl App {
                 self.narrator.say("You step into the fishing school.");
                 self.scene = Scene::FishingSchool;
             }
-            Tile::Dock | Tile::Water => {
+            Tile::Dock | Tile::Water | Tile::Well => {
                 let f = fish::pick_fish(&mut self.rng_state, fishlist::fish());
                 let spot = match self.world.get(nx, ny) {
                     Tile::Dock => "off the dock",
                     Tile::Water => "into the water",
+                    Tile::Well => "down the well",
                     _ => "out",
                 };
                 self.narrator.say(format!("You cast {spot}."));
