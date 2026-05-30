@@ -536,7 +536,7 @@ fn tree_render(x: i32, y: i32, seed: u32) -> (char, Style) {
                     _ => '8',
                 },
             };
-            leaf_style(g, anchor_hash, (60, 94, 55), x, y)
+            leaf_style(g, anchor_hash, (90, 145, 80), x, y)
         }
         (TreeSpecies::Pine, TreePart::Trunk) => trunk_style(anchor_hash, 'I'),
         (TreeSpecies::Pine, TreePart::Canopy) => {
@@ -553,7 +553,7 @@ fn tree_render(x: i32, y: i32, seed: u32) -> (char, Style) {
             } else {
                 '/'
             };
-            leaf_style(g, anchor_hash, (44, 77, 50), x, y)
+            leaf_style(g, anchor_hash, (70, 125, 75), x, y)
         }
         (TreeSpecies::Bush, _) => {
             let g = match anchor_hash % 3 {
@@ -561,16 +561,21 @@ fn tree_render(x: i32, y: i32, seed: u32) -> (char, Style) {
                 1 => '*',
                 _ => 'q',
             };
-            leaf_style(g, anchor_hash, (77, 99, 60), x, y)
+            leaf_style(g, anchor_hash, (115, 150, 85), x, y)
         }
     }
 }
 
 fn trunk_style(anchor_hash: u32, g: char) -> (char, Style) {
-    let r = 88 + (anchor_hash % 22) as u8;
-    let gc = 60 + (anchor_hash % 16) as u8;
-    let b = 38 + (anchor_hash % 13) as u8;
-    (g, Style::default().fg(Color::Rgb(r, gc, b)))
+    let r = 130 + (anchor_hash % 30) as u8;
+    let gc = 88 + (anchor_hash % 22) as u8;
+    let b = 55 + (anchor_hash % 18) as u8;
+    (
+        g,
+        Style::default()
+            .fg(Color::Rgb(r, gc, b))
+            .add_modifier(Modifier::BOLD),
+    )
 }
 
 fn leaf_style(g: char, anchor_hash: u32, base: (u8, u8, u8), x: i32, y: i32) -> (char, Style) {
