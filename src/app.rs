@@ -177,9 +177,13 @@ impl App {
             }
             "s" => self.narrator.say("Stats screen — coming in a later commit."),
             "m" => self.narrator.say("Settings — coming in a later commit."),
+            "e" => {
+                self.narrator.say("You leaf through the fishdex.");
+                self.scene = Scene::Fishdex(Fishdex::new());
+            }
             "h" | "help" => self
                 .narrator
-                .say("commands: :w  :wq  :q  :q!  :s  :m  :h"),
+                .say("commands: :w  :wq  :q  :q!  :s  :m  :e  :h"),
             "" => {}
             other => self.narrator.say(format!("Unknown command: :{other}")),
         }
