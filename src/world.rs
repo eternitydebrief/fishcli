@@ -809,56 +809,106 @@ fn cactus_glyph(x: i32, y: i32) -> (char, Style) {
 }
 
 /// Two-row shore wave. `row`: 0 = sand row (upper), 1 = water row (lower).
-/// Waves arrive as discrete pulses: water row crests first, sand row catches
-/// the wash a few ticks later, then both retreat into calm before the next pulse.
+/// Foam splashes spawn at random shore points at random intervals. Each splash
+/// is a chaotic asymmetric blob of multiple foam glyphs in shades of white that
+/// fade over ~22 ticks. Between splashes the shore is calm.
 fn shore_anim(x: i32, row: i32, tick: u64) -> (char, Style) {
-    const PERIOD: i64 = 90;
-    // sand row triggers AFTER water row, so the wave appears to travel inland
-    let row_delay = if row == 0 { 6 } else { 0 };
-    let x_jitter = (((x as f32) * 0.21).sin() * 3.5) as i64;
-    let local = ((tick as i64 - row_delay - x_jitter).rem_euclid(PERIOD)) as i64;
-
-    // wave timeline within PERIOD ticks:
-    //   0..3   sharp crest
-    //   3..14  breaking foam
-    //   14..28 wash / wet
-    //   28..   calm / dry
-    let intensity: f32 = if local < 3 {
-        1.0
-    } else if local < 14 {
-        0.75
-    } else if local < 28 {
-        0.35
+    if let Some(s) = shore_splash(x, row, tick) {
+        return s;
+    }
+    // calm fallback
+    if row == 1 {
+        water_anim(x, 6, tick)
     } else {
-        0.0
+        let g = match hash2(x, 0, 0x5A1D_5A1D) % 3 {
+            0 => ',',
+            1 => '.',
+            _ => '`',
+        };
+        (
+            g,
+            Style::default().fg(shade((180, 165, 120), x, 0, 0x5A1D_5A1D, 14)),
+        )
+    }
+}
+
+fn shore_splash(x: i32, row: i32, tick: u64) -> Option<(char, Style)> {
+    const SPAWN_EVERY: u64 = 3;
+    const LIFETIME: u64 = 22;
+    const REACH: i32 = 4;
+
+    let mut active: Option<(u64, i32, u32)> = None;
+    let earliest = tick.saturating_sub(LIFETIME);
+    let mut t = (earliest / SPAWN_EVERY) * SPAWN_EVERY;
+    while t <= tick {
+        for dx in -REACH..=REACH {
+            let ax = x - dx;
+            let h = hash2(ax, t as i32, 0xFA0A_FA0A);
+            if h % 90 != 0 {
+                continue;
+            }
+            let reach = ((h >> 4) as i32 % 3 + 2).abs();
+            if dx.abs() > reach {
+                continue;
+            }
+            // skip splashes that haven't started yet at this tick (paranoia)
+            if t > tick {
+                continue;
+            }
+            // sand row gets splash chance only if water row is reaching too
+            if row == 0 {
+                let extend = ((h >> 8) % 2) == 0;
+                if !extend {
+                    continue;
+                }
+            }
+            // prefer the freshest splash so multiple don't fight
+            if let Some((cur_t, _, _)) = active {
+                if t < cur_t {
+                    continue;
+                }
+            }
+            active = Some((t, ax, h));
+        }
+        t = t.saturating_add(SPAWN_EVERY);
+    }
+
+    let (spawn_t, anchor_x, anchor_hash) = active?;
+    let age = tick - spawn_t;
+    let intensity = 1.0 - (age as f32 / LIFETIME as f32);
+
+    let local_dx = x - anchor_x;
+    let ch_hash = hash2(
+        x,
+        (spawn_t as i32).wrapping_add(local_dx * 7),
+        0xCAFE_F00D,
+    );
+    // chaotic asymmetric glyph
+    let glyph = match ch_hash % 8 {
+        0 => '*',
+        1 => 'o',
+        2 => '.',
+        3 => ',',
+        4 => '`',
+        5 => ':',
+        6 => '\'',
+        _ => '"',
     };
 
-    match row {
-        // water row (closest to the open sea)
-        1 => {
-            if intensity > 0.9 {
-                ('*', Style::default().fg(shade((220, 220, 215), x, 0, 0xF0AA_F0AA, 8)).add_modifier(Modifier::BOLD))
-            } else if intensity > 0.5 {
-                ('~', Style::default().fg(shade((170, 190, 210), x, 0, 0xF0AA_F0AA, 8)))
-            } else if intensity > 0.1 {
-                ('-', Style::default().fg(shade((110, 150, 180), x, 0, 0xF0AA_F0AA, 8)))
-            } else {
-                ('-', Style::default().fg(shade((80, 110, 150), x, 0, 0xF0AA_F0AA, 8)))
-            }
-        }
-        // sand row (the beach proper)
-        _ => {
-            if intensity > 0.9 {
-                ('~', Style::default().fg(shade((200, 210, 215), x, 0, 0xF0AA_F0AA, 8)).add_modifier(Modifier::BOLD))
-            } else if intensity > 0.5 {
-                ('*', Style::default().fg(shade((215, 200, 165), x, 0, 0xF0AA_F0AA, 8)))
-            } else if intensity > 0.1 {
-                (',', Style::default().fg(shade((175, 160, 120), x, 0, 0xF0AA_F0AA, 8)))
-            } else {
-                ('.', Style::default().fg(shade((195, 180, 135), x, 0, 0xF0AA_F0AA, 8)))
-            }
-        }
-    }
+    // fade with age, biased toward white/cream with occasional pale blue
+    let _ = anchor_hash;
+    let lum = (130.0 + intensity * 120.0).clamp(0.0, 255.0) as u8;
+    let color = match ch_hash % 4 {
+        0 => Color::Rgb(lum, lum, lum),
+        1 => Color::Rgb(lum, lum.saturating_sub(8), lum.saturating_sub(20)),
+        2 => Color::Rgb(
+            lum.saturating_sub(15),
+            lum.saturating_sub(8),
+            lum,
+        ),
+        _ => Color::Rgb(lum, lum.saturating_sub(4), lum.saturating_sub(10)),
+    };
+    Some((glyph, Style::default().fg(color).add_modifier(Modifier::BOLD)))
 }
 
 #[cfg(test)]
