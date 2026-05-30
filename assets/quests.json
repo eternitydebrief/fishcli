@@ -1,5 +1,5 @@
 [
-  { "_comment": "schema: id (string), title (string), description (string), objective { kind: 'catch'|'talk', target (string - fish name or npc id), count (int, defaults 1) }, reward { valu (u64) }. quests auto-start. on completion, valu is granted and the quest is marked done." },
+  { "_comment": "schema: id (string), title (string), description (string), objective { kind: 'catch'|'talk'|'walk', target (string - fish name, npc id, 'any' or biome name like 'Desert'), count (int, defaults 1) }, reward { valu (u64) }. quests auto-start. on completion, valu is granted and the quest is marked done." },
 
   {
     "id": "first-cast",
@@ -28,5 +28,19 @@
     "description": "Reel in five rainbow trout.",
     "objective": { "kind": "catch", "target": "rainbow trout", "count": 5 },
     "reward": { "valu": 750 }
+  },
+  {
+    "id": "stretch-legs",
+    "title": "Stretch Your Legs",
+    "description": "Take a long walk - 200 steps in any direction.",
+    "objective": { "kind": "walk", "target": "any", "count": 200 },
+    "reward": { "valu": 60 }
+  },
+  {
+    "id": "desert-trek",
+    "title": "Desert Trek",
+    "description": "Walk 80 steps through the Desert biome.",
+    "objective": { "kind": "walk", "target": "Desert", "count": 80 },
+    "reward": { "valu": 250 }
   }
 ]

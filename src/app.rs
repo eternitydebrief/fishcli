@@ -38,6 +38,7 @@ pub enum Scene {
     Help(HelpTopic),
     Stats,
     Settings,
+    Quests { cursor: usize },
 }
 
 #[derive(Clone, Copy)]
@@ -109,6 +110,8 @@ pub struct App {
     pub session_start: std::time::Instant,
     /// play time loaded from save (excluding this session)
     pub saved_play_secs: u64,
+    /// id of the quest currently pinned to the top-left tracker
+    pub pinned_quest: Option<String>,
     held_dir: Option<(i32, i32)>,
     held_until_tick: u64,
     last_step_tick: u64,
@@ -156,6 +159,7 @@ impl App {
             lifetime_valu: 0,
             session_start: std::time::Instant::now(),
             saved_play_secs: 0,
+            pinned_quest: None,
             held_dir: None,
             held_until_tick: 0,
             last_step_tick: 0,
@@ -167,6 +171,14 @@ impl App {
     }
 
     fn quest_progress(&mut self, kind: &str, target: &str) {
+        self.tick_quest_progress(kind, target, false);
+    }
+
+    fn quest_progress_silent(&mut self, kind: &str, target: &str) {
+        self.tick_quest_progress(kind, target, true);
+    }
+
+    fn tick_quest_progress(&mut self, kind: &str, target: &str, silent: bool) {
         for q in quest::quests() {
             if self.quest_done.contains(&q.id) {
                 continue;
@@ -185,7 +197,7 @@ impl App {
                     "Quest complete: {} (+{}$V)",
                     q.title, q.reward.valu
                 ));
-            } else {
+            } else if !silent {
                 self.narrator.say(format!(
                     "{}: {}/{}",
                     q.title, cur, q.objective.count
@@ -222,6 +234,7 @@ impl App {
         self.player.items = data.items.clone();
         self.lifetime_valu = data.lifetime_valu_earned;
         self.saved_play_secs = data.play_time_secs;
+        self.pinned_quest = data.pinned_quest.clone();
     }
 
     fn current_save(&self) -> SaveData {
@@ -248,6 +261,7 @@ impl App {
                 .collect(),
             quest_done: self.quest_done.clone(),
             items: self.player.items.clone(),
+            pinned_quest: self.pinned_quest.clone(),
         }
     }
 
@@ -427,6 +441,33 @@ impl App {
                     self.scene = Scene::Overworld;
                 }
             }
+            Scene::Quests { cursor } => {
+                let active = active_quest_ids(&self.quest_done);
+                match code {
+                    KeyCode::Esc | KeyCode::Char('q') => self.scene = Scene::Overworld,
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        if !active.is_empty() {
+                            *cursor = (*cursor + 1).min(active.len() - 1);
+                        }
+                    }
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        *cursor = cursor.saturating_sub(1);
+                    }
+                    KeyCode::Char('p') => {
+                        if let Some(id) = active.get(*cursor) {
+                            if self.pinned_quest.as_deref() == Some(id.as_str()) {
+                                self.pinned_quest = None;
+                                self.narrator.say("Unpinned quest.");
+                            } else {
+                                self.pinned_quest = Some(id.clone());
+                                self.narrator
+                                    .say(format!("Pinned: {}", quest_title(id).unwrap_or("?")));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
             Scene::Inventory { tab } => match code {
                 KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('i') => {
                     self.scene = Scene::Overworld;
@@ -596,15 +637,14 @@ impl App {
                 self.do_save();
                 self.running = false;
             }
-            "q" => {
-                self.do_save();
-                self.running = false;
+            "q" | "quests" | "q-list" => {
+                self.scene = Scene::Quests { cursor: 0 };
+                self.mode = Mode::Insert;
             }
             "q!" => {
                 self.running = false;
             }
             "s" => self.narrator.say("Stats screen - coming in a later commit."),
-            "q-list" | "quests" => self.list_quests(),
             "m" => self.narrator.say("Settings - coming in a later commit."),
             "e" => {
                 self.narrator.say("You leaf through the fishdex.");
@@ -724,6 +764,10 @@ impl App {
             self.player.x = nx;
             self.player.y = ny;
             self.check_biome_change();
+            self.quest_progress_silent("walk", "any");
+            if let Some(b) = self.current_biome {
+                self.quest_progress_silent("walk", b.label());
+            }
         }
     }
 
@@ -860,6 +904,13 @@ impl App {
                 self.total_play_secs(),
             ),
             Scene::Settings => render_settings(frame),
+            Scene::Quests { cursor } => render_quests(
+                frame,
+                *cursor,
+                &self.quest_progress,
+                &self.quest_done,
+                self.pinned_quest.as_deref(),
+            ),
         }
 
         if matches!(self.scene, Scene::NamePrompt(_)) {
@@ -912,7 +963,154 @@ impl App {
                 render_biome_popup(frame, b);
             }
         }
+
+        if let Some(id) = self.pinned_quest.as_deref() {
+            if let Some(q) = quest::quests().iter().find(|q| q.id == id) {
+                if !self.quest_done.contains(&q.id) {
+                    let progress = self.quest_progress.get(&q.id).copied().unwrap_or(0);
+                    render_pinned_quest(frame, q, progress);
+                }
+            }
+        }
     }
+}
+
+fn quest_title(id: &str) -> Option<&'static str> {
+    quest::quests().iter().find(|q| q.id == id).map(|q| q.title.as_str())
+}
+
+fn active_quest_ids(done: &[String]) -> Vec<String> {
+    quest::quests()
+        .iter()
+        .filter(|q| !done.contains(&q.id))
+        .map(|q| q.id.clone())
+        .collect()
+}
+
+fn render_pinned_quest(frame: &mut Frame, q: &quest::QuestDef, progress: u32) {
+    let area = frame.area();
+    let title_line = format!(" {} ", q.title);
+    let progress_line = format!(" {}/{} ", progress, q.objective.count);
+    let w = (title_line.len().max(progress_line.len()) as u16 + 2).min(area.width);
+    let h = 4u16.min(area.height);
+    if w < 6 || h < 4 {
+        return;
+    }
+    let rect = Rect {
+        x: area.x,
+        y: area.y,
+        width: w,
+        height: h,
+    };
+    frame.render_widget(Clear, rect);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" quest ")
+        .border_style(Style::default().fg(Color::Yellow));
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    let lines = vec![
+        ratatui::text::Line::from(ratatui::text::Span::styled(
+            title_line,
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )),
+        ratatui::text::Line::from(ratatui::text::Span::styled(
+            progress_line,
+            Style::default().fg(Color::LightYellow),
+        )),
+    ];
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn render_quests(
+    frame: &mut Frame,
+    cursor: usize,
+    progress: &HashMap<String, u32>,
+    done: &[String],
+    pinned: Option<&str>,
+) {
+    let area = frame.area();
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" quests (j/k navigate, p pin/unpin, q/esc close) ")
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        "  ACTIVE",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )));
+
+    let active: Vec<&quest::QuestDef> = quest::quests().iter().filter(|q| !done.contains(&q.id)).collect();
+    if active.is_empty() {
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+            "    (none)",
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+    for (i, q) in active.iter().enumerate() {
+        let cur = progress.get(&q.id).copied().unwrap_or(0);
+        let is_pinned = pinned == Some(q.id.as_str());
+        let prefix = if i == cursor { "> " } else { "  " };
+        let pin_marker = if is_pinned { "[PIN] " } else { "      " };
+        let line = ratatui::text::Line::from(vec![
+            ratatui::text::Span::styled(
+                format!("{prefix}{pin_marker}"),
+                Style::default().fg(Color::Yellow),
+            ),
+            ratatui::text::Span::styled(
+                q.title.clone(),
+                Style::default()
+                    .fg(Color::LightYellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            ratatui::text::Span::raw(format!("  {}/{}  ", cur, q.objective.count)),
+            ratatui::text::Span::styled(
+                q.description.clone(),
+                Style::default().fg(Color::Gray),
+            ),
+        ]);
+        lines.push(line);
+    }
+
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        "  COMPLETED",
+        Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD),
+    )));
+    let mut any_done = false;
+    for q in quest::quests().iter().filter(|q| done.contains(&q.id)) {
+        lines.push(ratatui::text::Line::from(vec![
+            ratatui::text::Span::styled(
+                "    ".to_string(),
+                Style::default(),
+            ),
+            ratatui::text::Span::styled(
+                q.title.clone(),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]));
+        any_done = true;
+    }
+    if !any_done {
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+            "    (none yet)",
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+
+    frame.render_widget(
+        Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }),
+        inner,
+    );
 }
 
 fn render_biome_popup(frame: &mut Frame, biome: Biome) {
