@@ -26,6 +26,11 @@ pub struct FishDef {
     /// tab (never the Fish tab), cannot be sold, cannot be discarded, and
     /// catching it twice has no effect.
     pub unique: bool,
+    /// Loot-pool tags. Empty = catchable through normal biome/water fishing.
+    /// Non-empty = ONLY reachable when the player has The Rod equipped and
+    /// selects this pool from the loot-pool menu. Pool names: "cosmic",
+    /// "divine", "mineral", "forest", "desert", "tundra", "swamp", etc.
+    pub pool: Vec<String>,
 }
 
 impl Default for FishDef {
@@ -41,6 +46,7 @@ impl Default for FishDef {
             effect: None,
             joke: false,
             unique: false,
+            pool: Vec::new(),
         }
     }
 }
@@ -91,25 +97,49 @@ pub fn pick_fish<'a>(
     biome: &str,
     water: &str,
 ) -> &'a FishDef {
-    let eligible: Vec<&'a FishDef> = fish.iter().filter(|f| f.matches(biome, water)).collect();
-    let pool = if eligible.is_empty() {
+    pick_fish_with_pool(rng, fish, biome, water, None)
+}
+
+/// Pick a fish honouring an optional pool override. When `pool` is `Some`,
+/// only fish whose `pool` tag list contains that name are eligible. When it
+/// is `None`, the normal biome/water filter is used and fish carrying any
+/// pool tag are excluded — variant fish (cosmic/divine/mineral) only
+/// appear when their pool is explicitly chosen.
+pub fn pick_fish_with_pool<'a>(
+    rng: &mut u32,
+    fish: &'a [FishDef],
+    biome: &str,
+    water: &str,
+    pool: Option<&str>,
+) -> &'a FishDef {
+    let eligible: Vec<&'a FishDef> = if let Some(p) = pool {
+        fish.iter()
+            .filter(|f| f.pool.iter().any(|tag| tag.eq_ignore_ascii_case(p)))
+            .collect()
+    } else {
+        fish.iter()
+            .filter(|f| f.pool.is_empty() && f.matches(biome, water))
+            .collect()
+    };
+    let pool_vec = if eligible.is_empty() {
+        // safety net: never panic; fall back to anything
         fish.iter().collect::<Vec<_>>()
     } else {
         eligible
     };
-    let total: f32 = pool.iter().map(|f| f.rarity).sum();
-    if total <= 0.0 || pool.is_empty() {
+    let total: f32 = pool_vec.iter().map(|f| f.rarity).sum();
+    if total <= 0.0 || pool_vec.is_empty() {
         return &fish[0];
     }
     let r = next_rand_f32(rng) * total;
     let mut acc = 0.0;
-    for f in &pool {
+    for f in &pool_vec {
         acc += f.rarity;
         if r <= acc {
             return f;
         }
     }
-    pool[pool.len() - 1]
+    pool_vec[pool_vec.len() - 1]
 }
 
 pub fn next_rand_f32(s: &mut u32) -> f32 {

@@ -596,129 +596,276 @@ impl World {
             Tile::MineEntrance => (
                 '#',
                 Style::default()
-                    .fg(Color::Rgb(40, 30, 20))
-                    .bg(Color::Rgb(20, 12, 8))
+                    .fg(Color::Rgb(60, 40, 25))
                     .add_modifier(Modifier::BOLD),
             ),
             Tile::MineFrame => mine_frame_glyph(x, y, self.seed),
-            Tile::CaveFloor => {
-                let g = match hash2(x, y, 0xCA7E_F100) % 3 {
-                    0 => '.',
-                    1 => ',',
-                    _ => '`',
+            Tile::CaveFloor => cave_floor_glyph(x, y),
+            Tile::CaveWall => cave_wall_glyph(x, y),
+            Tile::Stalactite => {
+                let h = hash2(x, y, 0x57AC_1117);
+                let g = match h % 3 {
+                    0 => 'V',
+                    1 => 'v',
+                    _ => 'y',
                 };
-                (
-                    g,
-                    Style::default().fg(Color::Rgb(110, 85, 65)).bg(Color::Rgb(30, 22, 18)),
-                )
+                let shade = 140 + (h % 50) as u8;
+                (g, Style::default().fg(Color::Rgb(shade, shade - 10, shade - 25)))
             }
-            Tile::CaveWall => {
-                let g = match hash2(x, y, 0xCAFE_5A1F) % 4 {
-                    0 => '#',
-                    1 => '%',
-                    2 => '&',
-                    _ => '#',
+            Tile::Stalagmite => {
+                let h = hash2(x, y, 0x57A6_A177);
+                let g = match h % 3 {
+                    0 => 'A',
+                    1 => '^',
+                    _ => 'T',
                 };
-                (
-                    g,
-                    Style::default().fg(Color::Rgb(70, 50, 35)).bg(Color::Rgb(28, 20, 14))
-                        .add_modifier(Modifier::BOLD),
-                )
+                let shade = 145 + (h % 45) as u8;
+                (g, Style::default().fg(Color::Rgb(shade - 5, shade - 15, shade - 30)))
             }
-            Tile::Stalactite => (
-                'V',
-                Style::default()
-                    .fg(Color::Rgb(150, 130, 110))
-                    .bg(Color::Rgb(28, 20, 14)),
-            ),
-            Tile::Stalagmite => (
-                'A',
-                Style::default()
-                    .fg(Color::Rgb(150, 130, 110))
-                    .bg(Color::Rgb(30, 22, 18)),
-            ),
-            Tile::OreRock => {
-                let h = hash2(x, y, 0x09E_5EED);
-                let (fg, ch) = match h % 4 {
-                    0 => (Color::Rgb(230, 200, 90), '*'),
-                    1 => (Color::Rgb(200, 220, 240), '*'),
-                    2 => (Color::Rgb(220, 130, 90), '*'),
-                    _ => (Color::Rgb(180, 160, 220), '*'),
-                };
-                (
-                    ch,
-                    Style::default()
-                        .fg(fg)
-                        .bg(Color::Rgb(28, 20, 14))
-                        .add_modifier(Modifier::BOLD),
-                )
-            }
-            Tile::MineralWater => (
-                '~',
-                Style::default()
-                    .fg(Color::Rgb(120, 200, 240))
-                    .bg(Color::Rgb(8, 20, 40)),
-            ),
+            Tile::OreRock => ore_rock_glyph(x, y),
+            Tile::MineralWater => mineral_water_glyph(x, y, tick),
             Tile::MineExit => (
                 '<',
                 Style::default()
                     .fg(Color::LightYellow)
-                    .bg(Color::Rgb(30, 22, 18))
                     .add_modifier(Modifier::BOLD),
             ),
-            Tile::Seabed => {
-                let g = match hash2(x, y, 0x5EAB_ED01) % 3 {
-                    0 => '.',
-                    1 => ',',
-                    _ => '`',
+            Tile::Seabed => seabed_glyph(x, y),
+            Tile::CoralTrunk => coral_trunk_glyph(x, y),
+            Tile::CoralCanopy => coral_canopy_glyph(x, y),
+            Tile::Kelp => kelp_glyph(x, y, tick),
+            Tile::DeepWater => deep_water_glyph(x, y, tick),
+            Tile::Anemone => {
+                let h = hash2(x, y, 0xA1E_A0AE);
+                let g = match h % 3 {
+                    0 => 'o',
+                    1 => 'O',
+                    _ => 'Q',
                 };
-                (
-                    g,
-                    Style::default()
-                        .fg(Color::Rgb(170, 190, 200))
-                        .bg(Color::Rgb(20, 50, 90)),
-                )
+                let (r, gc, b) = match h % 4 {
+                    0 => (255, 150, 90),
+                    1 => (255, 90, 130),
+                    2 => (180, 90, 220),
+                    _ => (255, 200, 110),
+                };
+                (g, Style::default().fg(Color::Rgb(r, gc, b)).add_modifier(Modifier::BOLD))
             }
-            Tile::CoralTrunk => (
-                'Y',
-                Style::default()
-                    .fg(Color::Rgb(240, 130, 150))
-                    .bg(Color::Rgb(10, 30, 70))
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Tile::CoralCanopy => (
-                '*',
-                Style::default()
-                    .fg(Color::Rgb(255, 170, 200))
-                    .bg(Color::Rgb(10, 30, 70))
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Tile::Kelp => (
-                'i',
-                Style::default()
-                    .fg(Color::Rgb(80, 200, 130))
-                    .bg(Color::Rgb(10, 30, 70)),
-            ),
-            Tile::DeepWater => {
-                // animated faint ripples on the open deep
-                let phase = ((tick / 4) as i32 + x + y) % 11;
-                let g = if phase == 0 { '~' } else { ' ' };
-                (
-                    g,
-                    Style::default()
-                        .fg(Color::Rgb(80, 130, 200))
-                        .bg(Color::Rgb(6, 22, 60)),
-                )
-            }
-            Tile::Anemone => (
-                'o',
-                Style::default()
-                    .fg(Color::Rgb(255, 150, 90))
-                    .bg(Color::Rgb(20, 50, 90))
-                    .add_modifier(Modifier::BOLD),
-            ),
         }
     }
+}
+
+fn cave_floor_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0xCA7E_F100);
+    let g = match h % 7 {
+        0 => '.',
+        1 => ',',
+        2 => '`',
+        3 => '\'',
+        4 => '_',
+        5 => ':',
+        _ => ' ',
+    };
+    let shade = 70 + (h % 35) as u8;
+    (
+        g,
+        Style::default().fg(Color::Rgb(shade + 30, shade, shade.saturating_sub(15))),
+    )
+}
+
+fn cave_wall_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0xCAFE_5A1F);
+    let g = match h % 9 {
+        0 => '#',
+        1 => '%',
+        2 => '&',
+        3 => 'M',
+        4 => 'N',
+        5 => 'W',
+        6 => '@',
+        7 => '8',
+        _ => 'B',
+    };
+    let shade = 60 + (h % 45) as u8;
+    let r = shade + 20;
+    let gc = shade.saturating_sub(5);
+    let b = shade.saturating_sub(20);
+    (
+        g,
+        Style::default()
+            .fg(Color::Rgb(r, gc, b))
+            .add_modifier(Modifier::BOLD),
+    )
+}
+
+fn ore_rock_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0x09E5_EED1);
+    let (fg, ch) = match h % 7 {
+        0 => (Color::Rgb(230, 200, 90), '*'),  // gold
+        1 => (Color::Rgb(200, 220, 240), '+'), // silver
+        2 => (Color::Rgb(220, 130, 90), 'o'),  // copper
+        3 => (Color::Rgb(180, 160, 220), '%'), // amethyst
+        4 => (Color::Rgb(100, 220, 180), '#'), // turquoise
+        5 => (Color::Rgb(240, 100, 100), '&'), // ruby
+        _ => (Color::Rgb(80, 200, 240), 'X'),  // sapphire
+    };
+    (
+        ch,
+        Style::default().fg(fg).add_modifier(Modifier::BOLD),
+    )
+}
+
+fn mineral_water_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
+    // shimmering pool with mineral glints; cycles through a few tints
+    let phase = ((tick / 8) as i32 + x + y).rem_euclid(4);
+    let g = match (hash2(x, y, 0x9A7E_5A1E) + tick as u32 / 12) % 5 {
+        0 => '~',
+        1 => '*',
+        2 => '.',
+        3 => ',',
+        _ => '~',
+    };
+    let (r, gc, b) = match phase {
+        0 => (90, 200, 240),
+        1 => (140, 220, 200),
+        2 => (200, 200, 240),
+        _ => (160, 200, 220),
+    };
+    (
+        g,
+        Style::default()
+            .fg(Color::Rgb(r, gc, b))
+            .add_modifier(Modifier::BOLD),
+    )
+}
+
+fn seabed_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0x5EAB_ED01);
+    let g = match h % 9 {
+        0 => '.',
+        1 => ',',
+        2 => '`',
+        3 => ':',
+        4 => '\'',
+        5 => '_',
+        6 => '~',
+        7 => '*',
+        _ => ' ',
+    };
+    let blue = 130 + (h % 70) as u8;
+    (
+        g,
+        Style::default().fg(Color::Rgb(
+            blue.saturating_sub(30),
+            blue.saturating_sub(5),
+            blue.saturating_add(20).min(240),
+        )),
+    )
+}
+
+fn coral_trunk_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0xC0A1_7A77);
+    let g = match h % 5 {
+        0 => 'Y',
+        1 => 'V',
+        2 => '#',
+        3 => '+',
+        _ => 'I',
+    };
+    let (r, gc, b) = match h % 6 {
+        0 => (240, 130, 150), // pink
+        1 => (255, 180, 80),  // orange
+        2 => (180, 90, 220),  // purple
+        3 => (255, 220, 130), // yellow
+        4 => (230, 80, 90),   // red
+        _ => (130, 220, 200), // teal
+    };
+    (
+        g,
+        Style::default().fg(Color::Rgb(r, gc, b)).add_modifier(Modifier::BOLD),
+    )
+}
+
+fn coral_canopy_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0xC0A1_CA70);
+    let g = match h % 6 {
+        0 => '*',
+        1 => '\u{B0}', // degree mark
+        2 => 'o',
+        3 => '%',
+        4 => '#',
+        _ => '+',
+    };
+    // brighter cousin of the trunk color
+    let (r, gc, b) = match h % 6 {
+        0 => (255, 170, 200),
+        1 => (255, 220, 130),
+        2 => (220, 140, 240),
+        3 => (255, 240, 180),
+        4 => (255, 130, 130),
+        _ => (170, 240, 220),
+    };
+    (
+        g,
+        Style::default().fg(Color::Rgb(r, gc, b)).add_modifier(Modifier::BOLD),
+    )
+}
+
+fn kelp_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
+    // gentle sway: pick glyph based on time so the kelp leans
+    let sway = ((tick / 10) as i32 + y).rem_euclid(5);
+    let g = match sway {
+        0 | 4 => '/',
+        1 | 3 => 'i',
+        _ => '\\',
+    };
+    let h = hash2(x, y, 0xCE7_C001);
+    let shade = 160 + (h % 60) as u8;
+    (
+        g,
+        Style::default().fg(Color::Rgb(40, shade, 90)),
+    )
+}
+
+/// Caustic underwater light: shimmering bright bands that drift over the
+/// deep. Combines two sine "rays" with a slow drift so the light pattern
+/// flows like sunlight refracting through surface waves.
+fn deep_water_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
+    let t = tick as f32 * 0.06;
+    let fx = x as f32;
+    let fy = y as f32;
+    // two crossing wave rays produce caustic intersections
+    let ray1 = (fx * 0.35 + fy * 0.18 + t).sin();
+    let ray2 = (fx * 0.22 - fy * 0.31 + t * 1.3).sin();
+    let intensity = ray1 + ray2;
+    if intensity > 1.55 {
+        // bright caustic peak
+        let g = match (x + y).rem_euclid(3) {
+            0 => '*',
+            1 => '+',
+            _ => '`',
+        };
+        return (g, Style::default().fg(Color::Rgb(220, 240, 255)).add_modifier(Modifier::BOLD));
+    }
+    if intensity > 0.95 {
+        let g = match (x * 3 + y).rem_euclid(4) {
+            0 => '~',
+            1 => '-',
+            2 => '`',
+            _ => '.',
+        };
+        return (g, Style::default().fg(Color::Rgb(150, 200, 240)));
+    }
+    if intensity > 0.2 {
+        let g = if (x + y * 2).rem_euclid(7) == 0 { '~' } else { ' ' };
+        return (g, Style::default().fg(Color::Rgb(80, 140, 210)));
+    }
+    // dark deep: scattered tiny particulates
+    let g = if hash2(x, y, 0xDEE_BEE5).wrapping_add(tick as u32 / 40) % 200 == 0 {
+        '.'
+    } else {
+        ' '
+    };
+    (g, Style::default().fg(Color::Rgb(60, 110, 180)))
 }
 
 fn mine_frame_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
@@ -1437,7 +1584,8 @@ fn is_coral_anchor(x: i32, y: i32, seed: u32) -> bool {
             }
         }
     }
-    best_xy == (x, y) && (best % 100) < 65
+    // sparse coral: only ~18% of grid cells actually grow a coral structure
+    best_xy == (x, y) && (best % 100) < 18
 }
 
 fn village_oak_glyph(x: i32, y: i32) -> Option<(char, Style)> {
