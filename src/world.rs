@@ -6,6 +6,69 @@ use ratatui::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Biome {
+    Meadow,
+    Forest,
+    Rocky,
+    Scrub,
+}
+
+struct BiomeParams {
+    tree: f32,
+    big_rock: f32,
+    rock: f32,
+    pebble: f32,
+    flower: f32,
+}
+
+fn biome_params(b: Biome) -> BiomeParams {
+    match b {
+        Biome::Meadow => BiomeParams {
+            tree: 0.025,
+            big_rock: 0.002,
+            rock: 0.010,
+            pebble: 0.040,
+            flower: 0.060,
+        },
+        Biome::Forest => BiomeParams {
+            tree: 0.090,
+            big_rock: 0.002,
+            rock: 0.008,
+            pebble: 0.020,
+            flower: 0.012,
+        },
+        Biome::Rocky => BiomeParams {
+            tree: 0.008,
+            big_rock: 0.012,
+            rock: 0.045,
+            pebble: 0.120,
+            flower: 0.005,
+        },
+        Biome::Scrub => BiomeParams {
+            tree: 0.005,
+            big_rock: 0.001,
+            rock: 0.006,
+            pebble: 0.020,
+            flower: 0.010,
+        },
+    }
+}
+
+const BIOME_CELL_W: i32 = 28;
+const BIOME_CELL_H: i32 = 14;
+
+pub fn biome_at(x: i32, y: i32, seed: u32) -> Biome {
+    let cx = x.div_euclid(BIOME_CELL_W);
+    let cy = y.div_euclid(BIOME_CELL_H);
+    match hash2(cx, cy, seed.wrapping_add(0xB10E_B10E)) % 10 {
+        0..=4 => Biome::Meadow,
+        5..=6 => Biome::Forest,
+        7..=8 => Biome::Rocky,
+        _ => Biome::Scrub,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tile {
     Grass,
     Wall,
@@ -101,24 +164,31 @@ impl World {
             return Tile::Sand;
         }
         if !in_village_zone(x, y) {
-            if let Some(part) = tree_at(x, y, self.seed) {
+            let biome = biome_at(x, y, self.seed);
+            let p = biome_params(biome);
+            if let Some(part) = tree_at(x, y, self.seed, p.tree) {
                 return part;
             }
-            if big_rock_at(x, y, self.seed) {
+            if big_rock_at(x, y, self.seed, p.big_rock) {
                 return Tile::BigRock;
             }
             let r = hash2(x, y, self.seed.wrapping_add(0x1234_5678)) as f32 / u32::MAX as f32;
-            if r < 0.015 {
+            if r < p.rock {
                 return Tile::Rock;
             }
-            if r < 0.055 {
+            if r < p.rock + p.pebble {
                 return Tile::Pebble;
             }
-            if r < 0.085 {
+            if r < p.rock + p.pebble + p.flower {
                 return Tile::Flower;
             }
         }
         Tile::Grass
+    }
+
+    #[allow(dead_code)]
+    pub fn biome(&self, x: i32, y: i32) -> Biome {
+        biome_at(x, y, self.seed)
     }
 
     pub fn render_tile(&self, x: i32, y: i32, tick: u64) -> (char, Style) {
@@ -139,7 +209,7 @@ impl World {
                     .add_modifier(Modifier::BOLD),
             ),
             Tile::Dock => ('=', Style::default().fg(Color::LightYellow)),
-            Tile::Grass => grass_anim(x, y, tick),
+            Tile::Grass => grass_anim(x, y, tick, biome_at(x, y, self.seed)),
             Tile::Water => water_anim(x, y, tick),
             Tile::Sand => {
                 let shore = matches!(self.get(x, y + 1), Tile::Water);
@@ -163,7 +233,7 @@ impl World {
     }
 }
 
-fn is_big_rock_anchor(x: i32, y: i32, seed: u32) -> bool {
+fn is_big_rock_anchor(x: i32, y: i32, seed: u32, density: f32) -> bool {
     if in_village_zone(x, y) {
         return false;
     }
@@ -171,15 +241,15 @@ fn is_big_rock_anchor(x: i32, y: i32, seed: u32) -> bool {
         return false;
     }
     let r = hash2(x, y, seed.wrapping_add(0xBEEF_FACE)) as f32 / u32::MAX as f32;
-    r < 0.004
+    r < density
 }
 
-fn big_rock_at(x: i32, y: i32, seed: u32) -> bool {
+fn big_rock_at(x: i32, y: i32, seed: u32, density: f32) -> bool {
     for dx in 0..2i32 {
         for dy in 0..2i32 {
             let ax = x - dx;
             let ay = y - dy;
-            if is_big_rock_anchor(ax, ay, seed) {
+            if is_big_rock_anchor(ax, ay, seed, density) {
                 return true;
             }
         }
@@ -227,23 +297,27 @@ fn tree_offsets(sp: TreeSpecies) -> &'static [(i32, i32, TreePart)] {
     }
 }
 
-fn is_tree_anchor(x: i32, y: i32, seed: u32) -> bool {
+fn is_tree_anchor(x: i32, y: i32, seed: u32, density: f32) -> bool {
     if in_village_zone(x, y) {
         return false;
     }
-    if y >= 4 || y <= -40 {
+    if y >= 4 || y <= -1000 {
         return false;
     }
     let r = hash2(x, y, seed.wrapping_add(0xC0DE_C0DE)) as f32 / u32::MAX as f32;
-    r < 0.03
+    r < density
 }
 
-fn tree_at(x: i32, y: i32, seed: u32) -> Option<Tile> {
+fn tree_at(x: i32, y: i32, seed: u32, density: f32) -> Option<Tile> {
     for dy in 0..=2i32 {
         for dx in -1..=1i32 {
             let ax = x + dx;
             let ay = y + dy;
-            if !is_tree_anchor(ax, ay, seed) {
+            let local_density = biome_params(biome_at(ax, ay, seed)).tree;
+            // anchor uses biome's own density (an anchor is local to its own biome)
+            // density param is for the cell-of-interest; not used here
+            let _ = density;
+            if !is_tree_anchor(ax, ay, seed, local_density) {
                 continue;
             }
             let sp = tree_species(ax, ay, seed);
@@ -265,7 +339,8 @@ fn find_tree_anchor(x: i32, y: i32, seed: u32) -> Option<(i32, i32, TreeSpecies,
         for dx in -1..=1i32 {
             let ax = x + dx;
             let ay = y + dy;
-            if !is_tree_anchor(ax, ay, seed) {
+            let density = biome_params(biome_at(ax, ay, seed)).tree;
+            if !is_tree_anchor(ax, ay, seed, density) {
                 continue;
             }
             let sp = tree_species(ax, ay, seed);
@@ -404,7 +479,8 @@ fn big_rock_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
         for dx in 0..2i32 {
             let ax = x - dx;
             let ay = y - dy;
-            if is_big_rock_anchor(ax, ay, seed) {
+            let density = biome_params(biome_at(ax, ay, seed)).big_rock;
+            if is_big_rock_anchor(ax, ay, seed, density) {
                 anchor = (ax, ay);
                 found = true;
                 break 'find;
@@ -490,7 +566,7 @@ fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
     (glyph, Style::default().fg(shade(base, x, y, 0xA11_BABE, 14)))
 }
 
-fn grass_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
+fn grass_anim(x: i32, y: i32, tick: u64, biome: Biome) -> (char, Style) {
     let seed = (x.unsigned_abs() as u64)
         .wrapping_mul(7)
         .wrapping_add((y.unsigned_abs() as u64).wrapping_mul(13));
@@ -501,7 +577,13 @@ fn grass_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
         2 => '`',
         _ => '.',
     };
-    (g, Style::default().fg(shade((65, 105, 65), x, y, 0x6C00_6C00, 18)))
+    let base = match biome {
+        Biome::Meadow => (65, 105, 65),
+        Biome::Forest => (45, 80, 50),
+        Biome::Rocky => (95, 100, 70),
+        Biome::Scrub => (110, 105, 75),
+    };
+    (g, Style::default().fg(shade(base, x, y, 0x6C00_6C00, 14)))
 }
 
 fn foam_anim(x: i32, tick: u64) -> (char, Style) {
