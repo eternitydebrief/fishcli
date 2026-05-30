@@ -219,11 +219,11 @@ fn with_dark_bg(style: Style) -> Style {
 
 fn derive_dark(fg: Color) -> Color {
     let (r, g, b) = color_to_rgb(fg);
-    // scale each channel down to at most 16
+    // scale each channel down to at most 32
     Color::Rgb(
-        ((r as u16 * 16) / 255) as u8,
-        ((g as u16 * 16) / 255) as u8,
-        ((b as u16 * 16) / 255) as u8,
+        ((r as u16 * 32) / 255) as u8,
+        ((g as u16 * 32) / 255) as u8,
+        ((b as u16 * 32) / 255) as u8,
     )
 }
 
