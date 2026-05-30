@@ -12,6 +12,8 @@ pub enum Tile {
     Water,
     Dock,
     Sand,
+    Tree,
+    Rock,
 }
 
 impl Tile {
@@ -20,11 +22,13 @@ impl Tile {
     }
 }
 
-pub struct World;
+pub struct World {
+    pub seed: u32,
+}
 
 impl World {
-    pub fn new(_seed: u32) -> Self {
-        Self
+    pub fn new(seed: u32) -> Self {
+        Self { seed }
     }
 
     pub fn get(&self, x: i32, y: i32) -> Tile {
@@ -32,12 +36,21 @@ impl World {
             return t;
         }
         if y >= 6 {
-            Tile::Water
-        } else if y == 5 {
-            Tile::Sand
-        } else {
-            Tile::Grass
+            return Tile::Water;
         }
+        if y == 5 {
+            return Tile::Sand;
+        }
+        if !in_village_zone(x, y) {
+            let r = hash2(x, y, self.seed) as f32 / u32::MAX as f32;
+            if r < 0.10 {
+                return Tile::Tree;
+            }
+            if r < 0.13 {
+                return Tile::Rock;
+            }
+        }
+        Tile::Grass
     }
 
     pub fn render_viewport(
@@ -101,8 +114,44 @@ impl World {
                     (',', Style::default().fg(Color::Yellow))
                 }
             }
+            Tile::Tree => tree_glyph(x, y),
+            Tile::Rock => rock_glyph(x, y),
         }
     }
+}
+
+fn in_village_zone(x: i32, y: i32) -> bool {
+    x.abs() <= 30 && (-6..=4).contains(&y)
+}
+
+fn hash2(x: i32, y: i32, seed: u32) -> u32 {
+    let mut h = seed.wrapping_add((x as u32).wrapping_mul(374_761_393));
+    h = h.wrapping_add((y as u32).wrapping_mul(668_265_263));
+    h ^= h >> 13;
+    h = h.wrapping_mul(1_274_126_177);
+    h ^ (h >> 16)
+}
+
+fn tree_glyph(x: i32, y: i32) -> (char, Style) {
+    let v = hash2(x, y, 0xC0DE_C0DE) % 5;
+    let (g, c) = match v {
+        0 => ('♣', Color::Green),
+        1 => ('♣', Color::LightGreen),
+        2 => ('Y', Color::Green),
+        3 => ('♠', Color::Green),
+        _ => ('t', Color::LightGreen),
+    };
+    (g, Style::default().fg(c).add_modifier(Modifier::BOLD))
+}
+
+fn rock_glyph(x: i32, y: i32) -> (char, Style) {
+    let v = hash2(x, y, 0xF00D_F00D) % 3;
+    let (g, c) = match v {
+        0 => ('o', Color::DarkGray),
+        1 => ('°', Color::Gray),
+        _ => ('*', Color::DarkGray),
+    };
+    (g, Style::default().fg(c))
 }
 
 fn village_tile(x: i32, y: i32) -> Option<Tile> {
