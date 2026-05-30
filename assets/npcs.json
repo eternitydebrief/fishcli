@@ -62,5 +62,17 @@
       "Young fisher gives you a quick nod.",
       "\"Caught my first walleye last week off this very plank.\""
     ]
+  },
+  {
+    "id": "sailor",
+    "name": "The Sailor",
+    "x": 0,
+    "y": 14,
+    "glyph": "S",
+    "color": "lightblue",
+    "dialogue": [
+      "The Sailor stares past you, at the horizon.",
+      "\"You need a thousand fish before you'll survive what's down there. Come back when you have them.\""
+    ]
   }
 ]

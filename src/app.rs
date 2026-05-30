@@ -1016,6 +1016,15 @@ impl App {
                 self.mode = Mode::Insert;
             }
             "h" => self.narrator.say("Try :help for commands, :c for controls."),
+            "l" | "leave" | "surface" => {
+                if self.world.dim == crate::world::Dimension::Surface {
+                    self.narrator
+                        .say("You are already on the surface.");
+                } else {
+                    self.world.dim = crate::world::Dimension::Surface;
+                    self.narrator.say("You return to Sentinel.");
+                }
+            }
             "" => {}
             other => self.narrator.say(format!("Unknown command: :{other}")),
         }
@@ -1206,9 +1215,11 @@ impl App {
         let (dx, dy) = self.player.facing;
         let tx = self.player.x + dx;
         let ty = self.player.y + dy;
-        if let Some(npc) = npc::npc_at(tx, ty) {
-            self.narrator.say(format!("{}: {}", npc.name, "An ordinary villager. Press f to talk."));
-            return;
+        if self.world.dim == crate::world::Dimension::Surface {
+            if let Some(npc) = npc::npc_at(tx, ty) {
+                self.narrator.say(format!("{}: {}", npc.name, "An ordinary villager. Press f to talk."));
+                return;
+            }
         }
         let t = self.world.get(tx, ty);
         self.narrator.say(t.describe());
@@ -1218,7 +1229,9 @@ impl App {
         self.player.facing = (dx, dy);
         let nx = self.player.x + dx;
         let ny = self.player.y + dy;
-        if npc::npc_at(nx, ny).is_some() {
+        if self.world.dim == crate::world::Dimension::Surface
+            && npc::npc_at(nx, ny).is_some()
+        {
             return; // blocked by NPC; press f to interact
         }
         let t = self.world.get(nx, ny);
@@ -1271,13 +1284,21 @@ impl App {
         let (dx, dy) = self.player.facing;
         let nx = self.player.x + dx;
         let ny = self.player.y + dy;
-        if let Some(npc) = npc::npc_at(nx, ny) {
-            self.narrator.say(format!("You greet {}.", npc.name));
-            let id = npc.id.clone();
-            self.scene = Scene::Dialogue { npc, line: 0 };
-            self.quest_progress("talk", &id);
-            self.stats.npcs_talked += 1;
-            return;
+        // NPCs only live on the Surface; below ground or underwater the npc
+        // table is irrelevant.
+        if self.world.dim == crate::world::Dimension::Surface {
+            if let Some(npc) = npc::npc_at(nx, ny) {
+                if npc.id == "sailor" {
+                    self.interact_sailor();
+                    return;
+                }
+                self.narrator.say(format!("You greet {}.", npc.name));
+                let id = npc.id.clone();
+                self.scene = Scene::Dialogue { npc, line: 0 };
+                self.quest_progress("talk", &id);
+                self.stats.npcs_talked += 1;
+                return;
+            }
         }
         match self.world.get(nx, ny) {
             Tile::DoorRod => {
@@ -1291,10 +1312,21 @@ impl App {
                 self.narrator.say("You step into the fishing school.");
                 self.scene = Scene::FishingSchool;
             }
-            Tile::Dock | Tile::Water | Tile::Well => {
-                let water_kind = water_kind_at(&self.world, nx, ny);
-                let biome = biome_at(nx, ny, self.world.seed).label();
-                let f = fish::pick_fish(&mut self.rng_state, fishlist::fish(), biome, water_kind);
+            Tile::MineEntrance => {
+                self.world.dim = crate::world::Dimension::Mines;
+                self.narrator.say("You descend the mineshaft. The light dies behind you.");
+            }
+            Tile::MineExit => {
+                self.world.dim = crate::world::Dimension::Surface;
+                self.narrator.say("You climb back up to Sentinel's air.");
+            }
+            Tile::Dock
+            | Tile::Water
+            | Tile::Well
+            | Tile::MineralWater
+            | Tile::DeepWater => {
+                let (water_kind, biome) = fishing_context(&self.world, nx, ny);
+                let f = fish::pick_fish(&mut self.rng_state, fishlist::fish(), &biome, water_kind);
                 self.narrator.say("Casting line - aim for the green!");
                 self.stats.casts += 1;
                 self.cast = Some(CastState {
@@ -1310,6 +1342,29 @@ impl App {
             }
             _ => self.narrator.say("Nothing to interact with."),
         }
+    }
+
+    /// Sailor on the pier. Until 1000 fish lifetime, he just chats. After
+    /// that, he offers to row you out and dive — instantly puts you in
+    /// Atlantis.
+    fn interact_sailor(&mut self) {
+        const GATE: u64 = 1000;
+        if self.stats.fish_caught < GATE {
+            self.narrator.say(format!(
+                "Sailor: \"You've landed {} fish. Bring me a thousand and I'll show you the deep.\"",
+                self.stats.fish_caught
+            ));
+            return;
+        }
+        self.world.dim = crate::world::Dimension::Atlantis;
+        // spawn the player at a fixed Atlantis arrival point so they don't
+        // appear inside a coral wall
+        self.player.x = 0;
+        self.player.y = 0;
+        self.narrator
+            .say("Sailor: \"Hold your breath. Or don't.\"");
+        self.narrator
+            .say("*** You dive. Khei opens. Atlantis spreads below you. ***");
     }
 
     fn mark_seen_around_player(&mut self) {
@@ -2125,10 +2180,29 @@ fn water_kind_at(world: &World, x: i32, y: i32) -> &'static str {
         // dock cells are over ocean
         return "ocean";
     }
+    if matches!(t, Tile::MineralWater) {
+        return "mineral_pool";
+    }
+    if matches!(t, Tile::DeepWater | Tile::Seabed | Tile::Kelp | Tile::Anemone) {
+        return "atlantis";
+    }
     if y >= 5 {
         return "ocean";
     }
     "lake"
+}
+
+/// Derive (water_kind, biome_label) for a fishing cast at (x, y) in the
+/// current dimension. Surface uses real biome+water. Mines and Atlantis
+/// short-circuit to their own pseudo-biome labels.
+fn fishing_context(world: &World, x: i32, y: i32) -> (&'static str, String) {
+    match world.dim {
+        crate::world::Dimension::Surface => {
+            (water_kind_at(world, x, y), biome_at(x, y, world.seed).label().to_string())
+        }
+        crate::world::Dimension::Mines => ("mineral_pool", "Mines".to_string()),
+        crate::world::Dimension::Atlantis => ("atlantis", "Atlantis".to_string()),
+    }
 }
 
 fn direction_for(code: KeyCode) -> Option<(i32, i32)> {

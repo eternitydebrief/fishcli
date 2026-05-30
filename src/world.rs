@@ -332,13 +332,17 @@ impl<'a> Widget for WorldView<'a> {
                 }
                 let wx = self.player.0 - half_w + sx;
                 let wy = self.player.1 - half_h + sy;
-                if let Some(npc) = crate::npc::npc_at(wx, wy) {
-                    return (
-                        npc.render_char(),
-                        Style::default()
-                            .fg(npc.render_color())
-                            .add_modifier(Modifier::BOLD),
-                    );
+                // NPCs only render on the Surface; mines and atlantis are
+                // unpopulated for now.
+                if self.world.dim == Dimension::Surface {
+                    if let Some(npc) = crate::npc::npc_at(wx, wy) {
+                        return (
+                            npc.render_char(),
+                            Style::default()
+                                .fg(npc.render_color())
+                                .add_modifier(Modifier::BOLD),
+                        );
+                    }
                 }
                 self.world.render_tile(wx, wy, self.tick)
             })
