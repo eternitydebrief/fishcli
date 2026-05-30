@@ -296,6 +296,10 @@ impl World {
         if pier_cell(x, y) {
             return Tile::Dock;
         }
+        // procedural village structures sit on top of water for floating towns
+        if let Some(t) = procedural_village_tile(x, y, self.seed) {
+            return t;
+        }
         if y >= 6 {
             return Tile::Water;
         }
@@ -540,6 +544,37 @@ fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
     if y >= 5 {
         return info;
     }
+    // procedural villages can FORCE water around themselves: towns get a
+    // lake at their east side, floating towns sit in a big disc of water
+    if let Some(v) = village_anchor_for(x, y, seed) {
+        match v.kind {
+            VillageKind::Town => {
+                let lx = v.ax + 26;
+                let ly = v.ay;
+                let dxf = (x - lx) as f32 / 14.0;
+                let dyf = (y - ly) as f32 / 6.0;
+                let d = dxf * dxf + dyf * dyf;
+                if d <= 1.0 {
+                    info.in_water = true;
+                    return info;
+                } else if d <= RING_OUTER * RING_OUTER {
+                    info.in_ring = true;
+                }
+            }
+            VillageKind::Floating => {
+                let dxf = (x - v.ax) as f32 / 24.0;
+                let dyf = (y - v.ay) as f32 / 18.0;
+                let d = dxf * dxf + dyf * dyf;
+                if d <= 1.0 {
+                    info.in_water = true;
+                    return info;
+                } else if d <= RING_OUTER * RING_OUTER {
+                    info.in_ring = true;
+                }
+            }
+            _ => {}
+        }
+    }
     let cx = x.div_euclid(WATER_CELL_W);
     let cy = y.div_euclid(WATER_CELL_H);
     for dcy in -1..=1 {
@@ -646,6 +681,251 @@ fn find_tree_anchor(x: i32, y: i32, seed: u32) -> Option<(i32, i32, TreeSpecies,
 
 fn in_village_zone(x: i32, y: i32) -> bool {
     x.abs() <= 50 && (-18..=5).contains(&y)
+}
+
+// procedural village system: coarse grid of anchors, three village kinds.
+// Origin village is hand-coded (the "Home Village"); procedural villages
+// spawn far enough away to avoid colliding with it.
+
+const PV_CELL_W: i32 = 160;
+const PV_CELL_H: i32 = 80;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VillageKind {
+    Hamlet,
+    Town,
+    Floating,
+}
+
+#[derive(Clone, Copy)]
+pub struct PVillage {
+    pub ax: i32,
+    pub ay: i32,
+    pub kind: VillageKind,
+    pub hash: u32,
+}
+
+const CONSONANTS: &[char] = &[
+    'b', 'c', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'm', 'n', 'p', 'r', 's', 't', 'v', 'w', 'z',
+];
+const VOWELS: &[char] = &['a', 'e', 'i', 'o', 'u'];
+
+/// Generates a name like "Karovi" or "Telosa" from the anchor hash.
+pub fn village_name(h: u32) -> String {
+    let syllables = 2 + ((h >> 28) % 2); // 2 or 3 syllables
+    let mut s = String::with_capacity(7);
+    let mut x = h;
+    for i in 0..syllables {
+        let c = CONSONANTS[(x as usize) % CONSONANTS.len()];
+        x = x.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+        let v = VOWELS[(x as usize) % VOWELS.len()];
+        x = x.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+        if i == 0 {
+            s.push(c.to_ascii_uppercase());
+        } else {
+            s.push(c);
+        }
+        s.push(v);
+    }
+    s
+}
+
+/// All village anchors whose footprints touch the rectangle defined by
+/// (cx_min..=cx_max, cy_min..=cy_max) of world coordinates.
+pub fn villages_in_rect(
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    seed: u32,
+) -> Vec<PVillage> {
+    let cx_min = x0.div_euclid(PV_CELL_W) - 1;
+    let cx_max = x1.div_euclid(PV_CELL_W) + 1;
+    let cy_min = y0.div_euclid(PV_CELL_H) - 1;
+    let cy_max = y1.div_euclid(PV_CELL_H) + 1;
+    let mut out = Vec::new();
+    for ccy in cy_min..=cy_max {
+        for ccx in cx_min..=cx_max {
+            let h = hash2(ccx, ccy, seed.wrapping_add(0xC17F_C17F));
+            if h % 3 != 0 {
+                continue;
+            }
+            let ox = ((h >> 4) as i32).rem_euclid(PV_CELL_W);
+            let oy = ((h >> 12) as i32).rem_euclid(PV_CELL_H);
+            let ax = ccx * PV_CELL_W + ox;
+            let ay = ccy * PV_CELL_H + oy;
+            if ax.abs() < 100 && ay > -40 {
+                continue;
+            }
+            if ay > -8 {
+                continue;
+            }
+            let kind = match (h >> 24) % 10 {
+                0..=4 => VillageKind::Hamlet,
+                5..=7 => VillageKind::Town,
+                _ => VillageKind::Floating,
+            };
+            out.push(PVillage { ax, ay, kind, hash: h });
+        }
+    }
+    out
+}
+
+fn village_anchor_for(x: i32, y: i32, seed: u32) -> Option<PVillage> {
+    let cx = x.div_euclid(PV_CELL_W);
+    let cy = y.div_euclid(PV_CELL_H);
+    for dcy in -1..=1 {
+        for dcx in -1..=1 {
+            let ccx = cx + dcx;
+            let ccy = cy + dcy;
+            let h = hash2(ccx, ccy, seed.wrapping_add(0xC17F_C17F));
+            if h % 3 != 0 {
+                continue;
+            }
+            let ox = ((h >> 4) as i32).rem_euclid(PV_CELL_W);
+            let oy = ((h >> 12) as i32).rem_euclid(PV_CELL_H);
+            let ax = ccx * PV_CELL_W + ox;
+            let ay = ccy * PV_CELL_H + oy;
+            // skip if too close to the home village or to the ocean
+            if ax.abs() < 100 && ay > -40 {
+                continue;
+            }
+            if ay > -8 {
+                continue;
+            }
+            let kind = match (h >> 24) % 10 {
+                0..=4 => VillageKind::Hamlet,
+                5..=7 => VillageKind::Town,
+                _ => VillageKind::Floating,
+            };
+            let radius = match kind {
+                VillageKind::Hamlet => 18,
+                VillageKind::Town => 35,
+                VillageKind::Floating => 28,
+            };
+            if (x - ax).abs() <= radius && (y - ay).abs() <= radius {
+                return Some(PVillage { ax, ay, kind, hash: h });
+            }
+        }
+    }
+    None
+}
+
+fn procedural_village_tile(x: i32, y: i32, seed: u32) -> Option<Tile> {
+    let v = village_anchor_for(x, y, seed)?;
+    let dx = x - v.ax;
+    let dy = y - v.ay;
+    match v.kind {
+        VillageKind::Hamlet => hamlet_tile(dx, dy),
+        VillageKind::Town => town_tile(dx, dy),
+        VillageKind::Floating => floating_tile(dx, dy),
+    }
+}
+
+fn hamlet_tile(dx: i32, dy: i32) -> Option<Tile> {
+    // 3 small huts around a central well
+    let huts = &[
+        ((-10, -7), (-6, -5), (-8, -5), Tile::DoorRod),
+        ((6, -7), (10, -5), (8, -5), Tile::DoorRod),
+        ((-2, 5), (2, 7), (0, 7), Tile::DoorSchool),
+    ];
+    for &((xa, ya), (xb, yb), (dxx, dyy), door) in huts {
+        if (xa..=xb).contains(&dx) && (ya..=yb).contains(&dy) {
+            if (dx, dy) == (dxx, dyy) {
+                return Some(door);
+            }
+            if dy == ya {
+                return Some(Tile::Roof);
+            }
+            return Some(Tile::Wall);
+        }
+    }
+    if (dx, dy) == (0, 0) {
+        return Some(Tile::Well);
+    }
+    // path: short corridors to each hut
+    if dx.abs() <= 1 && (-4..=4).contains(&dy) {
+        return Some(Tile::Path);
+    }
+    if dy.abs() <= 1 && (-8..=8).contains(&dx) {
+        return Some(Tile::Path);
+    }
+    None
+}
+
+fn town_tile(dx: i32, dy: i32) -> Option<Tile> {
+    // walled town: rectangle from (-18, -10) to (18, 10)
+    if dx == -18 || dx == 18 {
+        if (-10..=10).contains(&dy) && !(-2..=2).contains(&dy) {
+            return Some(Tile::Wall);
+        }
+    }
+    if dy == -10 || dy == 10 {
+        if (-18..=18).contains(&dx) && !(-2..=2).contains(&dx) {
+            return Some(Tile::Wall);
+        }
+    }
+    // 5 houses inside
+    let huts = &[
+        ((-15, -7), (-11, -5), (-13, -5), Tile::DoorRod),
+        ((-5, -7), (-1, -5), (-3, -5), Tile::DoorRod),
+        ((5, -7), (9, -5), (7, -5), Tile::DoorSchool),
+        ((-9, 5), (-5, 7), (-7, 7), Tile::DoorRod),
+        ((5, 5), (9, 7), (7, 7), Tile::DoorSchool),
+    ];
+    for &((xa, ya), (xb, yb), (dxx, dyy), door) in huts {
+        if (xa..=xb).contains(&dx) && (ya..=yb).contains(&dy) {
+            if (dx, dy) == (dxx, dyy) {
+                return Some(door);
+            }
+            if dy == ya {
+                return Some(Tile::Roof);
+            }
+            return Some(Tile::Wall);
+        }
+    }
+    if (dx, dy) == (0, 0) {
+        return Some(Tile::Well);
+    }
+    // main cross paths
+    if dx.abs() <= 1 && (-9..=9).contains(&dy) {
+        return Some(Tile::Path);
+    }
+    if dy.abs() <= 1 && (-17..=17).contains(&dx) {
+        return Some(Tile::Path);
+    }
+    None
+}
+
+fn floating_tile(dx: i32, dy: i32) -> Option<Tile> {
+    // dock platform forming a + with houses at the ends
+    let on_pier = (dx.abs() <= 2 && (-18..=18).contains(&dy))
+        || (dy.abs() <= 2 && (-18..=18).contains(&dx));
+    let on_plaza = dx.abs() <= 4 && dy.abs() <= 4;
+    let pier = on_pier || on_plaza;
+    // small floating houses at the four cardinal ends
+    let huts = &[
+        ((-16, -1), (-12, 1), (-12, 1), Tile::DoorRod),  // west
+        ((12, -1), (16, 1), (12, 1), Tile::DoorRod),     // east
+        ((-1, -16), (1, -12), (0, -12), Tile::DoorSchool), // north
+        ((-1, 12), (1, 16), (0, 12), Tile::DoorSchool),  // south
+    ];
+    for &((xa, ya), (xb, yb), (dxx, dyy), door) in huts {
+        if (xa..=xb).contains(&dx) && (ya..=yb).contains(&dy) {
+            if (dx, dy) == (dxx, dyy) {
+                return Some(door);
+            }
+            if (dx, dy) == ((xa + xb) / 2, (ya + yb) / 2) {
+                // center tile of the small hut
+                return Some(Tile::Wall);
+            }
+            return Some(Tile::Wall);
+        }
+    }
+    if pier {
+        return Some(Tile::Dock);
+    }
+    None
 }
 
 fn hash2(x: i32, y: i32, seed: u32) -> u32 {

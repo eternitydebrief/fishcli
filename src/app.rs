@@ -1210,6 +1210,42 @@ fn render_map(
         },
         inner,
     );
+
+    // overlay village name labels for any village whose center is in view & seen
+    let pcx = player.0.div_euclid(MAP_CELL_W) + offset.0;
+    let pcy = player.1.div_euclid(MAP_CELL_H) + offset.1;
+    let half_w = (inner.width as i32) / 2;
+    let half_h = (inner.height as i32) / 2;
+    let view_x_lo = (pcx - half_w) * MAP_CELL_W;
+    let view_x_hi = (pcx + half_w) * MAP_CELL_W;
+    let view_y_lo = (pcy - half_h) * MAP_CELL_H;
+    let view_y_hi = (pcy + half_h) * MAP_CELL_H;
+    for v in crate::world::villages_in_rect(view_x_lo, view_y_lo, view_x_hi, view_y_hi, world.seed)
+    {
+        let vcx = v.ax.div_euclid(MAP_CELL_W);
+        let vcy = v.ay.div_euclid(MAP_CELL_H);
+        if !seen.contains(&(vcx, vcy)) {
+            continue;
+        }
+        let sx = vcx - (pcx - half_w);
+        let sy = vcy - (pcy - half_h);
+        if sx < 0 || sy < 0 || sx >= inner.width as i32 || sy >= inner.height as i32 {
+            continue;
+        }
+        let label = crate::world::village_name(v.hash);
+        // place label one row above the dot, centered
+        let lw = label.len() as i32;
+        let lx = (sx - lw / 2).max(0).min(inner.width as i32 - lw);
+        let ly = (sy - 1).max(0);
+        let buf = frame.buffer_mut();
+        for (i, ch) in label.chars().enumerate() {
+            let cx = (inner.x as i32 + lx + i as i32) as u16;
+            let cy = (inner.y as i32 + ly) as u16;
+            buf[(cx, cy)]
+                .set_char(ch)
+                .set_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
+        }
+    }
 }
 
 fn biome_map_bg(b: crate::world::Biome) -> Color {
