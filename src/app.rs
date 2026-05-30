@@ -9,7 +9,7 @@ use crate::world::{Tile, World};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, Clear, Paragraph},
 };
