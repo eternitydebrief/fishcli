@@ -135,7 +135,7 @@ impl Tile {
     pub fn walkable(self) -> bool {
         matches!(
             self,
-            Tile::Grass | Tile::Sand | Tile::Pebble | Tile::Flower | Tile::Path
+            Tile::Grass | Tile::Sand | Tile::Pebble | Tile::Flower | Tile::Path | Tile::Dock
         )
     }
 
@@ -226,6 +226,9 @@ impl World {
     pub fn get(&self, x: i32, y: i32) -> Tile {
         if let Some(t) = village_tile(x, y) {
             return t;
+        }
+        if pier_cell(x, y) {
+            return Tile::Dock;
         }
         if y >= 6 {
             return Tile::Water;
@@ -807,8 +810,8 @@ fn village_tile(x: i32, y: i32) -> Option<Tile> {
         }
     }
 
-    // dock and well
-    if (-6..=5).contains(&x) && (5..=8).contains(&y) {
+    // pier and well
+    if pier_cell(x, y) {
         return Some(Tile::Dock);
     }
     if (x, y) == (0, -1) {
@@ -902,7 +905,23 @@ const WALL_BOT_CAP: i32 = 4;
 const WALL_BOT_EDGE: i32 = 5;
 
 fn dock_gap_x(x: i32) -> bool {
-    (-3..=3).contains(&x)
+    (-3..=4).contains(&x)
+}
+
+fn pier_cell(x: i32, y: i32) -> bool {
+    // main column 8 wide x 8 deep
+    if (-3..=4).contains(&x) && (5..=12).contains(&y) {
+        return true;
+    }
+    // left arm at far end
+    if (-13..=-4).contains(&x) && (11..=12).contains(&y) {
+        return true;
+    }
+    // right arm at far end
+    if (5..=14).contains(&x) && (11..=12).contains(&y) {
+        return true;
+    }
+    false
 }
 
 fn north_gate_x(x: i32) -> bool {

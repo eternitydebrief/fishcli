@@ -38,5 +38,29 @@
       "\"Got fish to sell? Bring 'em here.\"",
       "(Selling not wired up yet - coming soon.)"
     ]
+  },
+  {
+    "id": "old-fisher",
+    "name": "Old Fisher",
+    "x": -10,
+    "y": 12,
+    "glyph": "F",
+    "color": "lightyellow",
+    "dialogue": [
+      "The old fisher doesn't look up from his line.",
+      "\"Cast far and stand still. The biggest ones are deep.\""
+    ]
+  },
+  {
+    "id": "young-fisher",
+    "name": "Young Fisher",
+    "x": 11,
+    "y": 12,
+    "glyph": "F",
+    "color": "cyan",
+    "dialogue": [
+      "Young fisher gives you a quick nod.",
+      "\"Caught my first walleye last week off this very plank.\""
+    ]
   }
 ]
