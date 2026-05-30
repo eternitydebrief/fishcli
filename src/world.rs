@@ -509,9 +509,14 @@ fn tree_offsets(sp: TreeSpecies) -> &'static [(i32, i32, TreePart)] {
 
 // At most one tree per (TREE_GRID_W x TREE_GRID_H) cell. The winner is the
 // candidate inside the grid block with the smallest hash that also passes
-// its density roll. This stops the dense overlap we used to get around lakes.
-const TREE_GRID_W: i32 = 3;
-const TREE_GRID_H: i32 = 2;
+// its density roll. Spacing is generous so trees never overlap.
+const TREE_GRID_W: i32 = 6;
+const TREE_GRID_H: i32 = 3;
+
+// Ring trees are gated by an extra coarse quantization so a lake gets a
+// sparse handful of perimeter trees, not a continuous wall.
+const RING_PATCH_W: i32 = 8;
+const RING_PATCH_H: i32 = 3;
 
 fn tree_density_at(x: i32, y: i32, seed: u32, base: f32) -> f32 {
     let info = cached_water_info(x, y, seed);
@@ -519,12 +524,16 @@ fn tree_density_at(x: i32, y: i32, seed: u32, base: f32) -> f32 {
         return 0.0;
     }
     if info.in_ring {
-        // sparse ring: high chance that the grid-cell winner becomes a tree,
-        // but with grid spacing this still leaves visible gaps in the ring
-        0.70
-    } else {
-        base
+        // gate via patch hash: only ~half of patches in the ring can host a tree
+        let px = x.div_euclid(RING_PATCH_W);
+        let py = y.div_euclid(RING_PATCH_H);
+        let ph = hash2(px, py, seed.wrapping_add(0x4E11_F00D));
+        if ph % 2 != 0 {
+            return 0.0;
+        }
+        return 0.85;
     }
+    base
 }
 
 fn tree_roll(x: i32, y: i32, seed: u32) -> f32 {
