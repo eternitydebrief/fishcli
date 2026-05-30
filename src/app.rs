@@ -59,9 +59,9 @@ impl App {
             app.narrator.say(format!("Welcome back, {who}."));
         } else {
             app.scene = Scene::NamePrompt(String::new());
-            app.narrator.say("No save found — pick a name to begin.");
+            app.narrator.say("No save found - pick a name to begin.");
             app.narrator
-                .say("Esc → Normal mode. : for commands (:w :wq :q :q! :s :m :e :h).");
+                .say("Esc -> Normal mode. : for commands (:w :wq :q :q! :s :m :e :h).");
         }
         app
     }
@@ -343,8 +343,8 @@ impl App {
             "q!" => {
                 self.running = false;
             }
-            "s" => self.narrator.say("Stats screen — coming in a later commit."),
-            "m" => self.narrator.say("Settings — coming in a later commit."),
+            "s" => self.narrator.say("Stats screen - coming in a later commit."),
+            "m" => self.narrator.say("Settings - coming in a later commit."),
             "e" => {
                 self.narrator.say("You leaf through the fishdex.");
                 self.scene = Scene::Fishdex(Fishdex::new());
@@ -416,7 +416,7 @@ impl App {
                 let f = fish::pick_fish(&mut self.rng_state);
                 self.narrator.say("You cast your line.");
                 self.narrator
-                    .say(format!("Something tugs the line — a {}!", f.name));
+                    .say(format!("Something tugs the line - a {}!", f.name));
                 self.scene = Scene::Fishing(Fishing::new(f, self.rng_state));
             }
             t if t.walkable() => {

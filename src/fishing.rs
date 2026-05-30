@@ -187,8 +187,8 @@ impl Fishing {
 
     pub fn render(&self, frame: &mut Frame, anim_tick: u64) {
         let area = frame.area();
-        let stars = "★".repeat(self.fish.difficulty as usize);
-        let title = format!(" fishing — {} {} ", self.fish.name, stars);
+        let stars = "*".repeat(self.fish.difficulty as usize);
+        let title = format!(" fishing - {} {} ", self.fish.name, stars);
         let outer = Block::default()
             .borders(Borders::ALL)
             .title(title)
@@ -357,7 +357,7 @@ impl Fishing {
         let fish_pos = self.fish_y.round() as i32;
         let mut lines = Vec::with_capacity(self.bar_h + 2);
         lines.push(Line::from(Span::styled(
-            "┌─┐",
+            "+-+",
             Style::default().fg(Color::DarkGray),
         )));
         for y in 0..self.bar_h as i32 {
@@ -371,7 +371,7 @@ impl Fishing {
                         .bg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
                 ),
-                (true, false) => Span::styled("█", Style::default().fg(Color::Cyan)),
+                (true, false) => Span::styled("#", Style::default().fg(Color::Cyan)),
                 (false, true) => Span::styled(
                     "f",
                     Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
@@ -379,13 +379,13 @@ impl Fishing {
                 _ => Span::raw(" "),
             };
             lines.push(Line::from(vec![
-                Span::styled("│", Style::default().fg(Color::DarkGray)),
+                Span::styled("|", Style::default().fg(Color::DarkGray)),
                 cell,
-                Span::styled("│", Style::default().fg(Color::DarkGray)),
+                Span::styled("|", Style::default().fg(Color::DarkGray)),
             ]));
         }
         lines.push(Line::from(Span::styled(
-            "└─┘",
+            "+-+",
             Style::default().fg(Color::DarkGray),
         )));
         lines

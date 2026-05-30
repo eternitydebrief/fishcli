@@ -137,10 +137,10 @@ fn hash2(x: i32, y: i32, seed: u32) -> u32 {
 fn tree_glyph(x: i32, y: i32) -> (char, Style) {
     let v = hash2(x, y, 0xC0DE_C0DE) % 5;
     let (g, c) = match v {
-        0 => ('♣', Color::Green),
-        1 => ('♣', Color::LightGreen),
+        0 => ('T', Color::Green),
+        1 => ('T', Color::LightGreen),
         2 => ('Y', Color::Green),
-        3 => ('♠', Color::Green),
+        3 => ('Y', Color::LightGreen),
         _ => ('t', Color::LightGreen),
     };
     (g, Style::default().fg(c).add_modifier(Modifier::BOLD))
@@ -150,8 +150,8 @@ fn rock_glyph(x: i32, y: i32) -> (char, Style) {
     let v = hash2(x, y, 0xF00D_F00D) % 3;
     let (g, c) = match v {
         0 => ('o', Color::DarkGray),
-        1 => ('°', Color::Gray),
-        _ => ('*', Color::DarkGray),
+        1 => ('O', Color::Gray),
+        _ => ('.', Color::DarkGray),
     };
     (g, Style::default().fg(c))
 }

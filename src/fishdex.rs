@@ -36,7 +36,7 @@ impl Fishdex {
         let area = frame.area();
         let total = FISH.len();
         let caught_count = caught.iter().filter(|c| **c).count();
-        let title = format!(" fishdex ({}/{}) — j/k or arrows to browse, esc/q to leave ", caught_count, total);
+        let title = format!(" fishdex ({}/{}) - j/k or arrows to browse, esc/q to leave ", caught_count, total);
         let outer = Block::default()
             .borders(Borders::ALL)
             .title(title)
@@ -62,7 +62,7 @@ impl Fishdex {
                         ),
                         Span::raw("  "),
                         Span::styled(
-                            "★".repeat(f.difficulty as usize),
+                            "*".repeat(f.difficulty as usize),
                             Style::default().fg(Color::Yellow),
                         ),
                     ]))
@@ -95,7 +95,7 @@ impl Fishdex {
                     Line::from(vec![
                         Span::raw("difficulty: "),
                         Span::styled(
-                            "★".repeat(f.difficulty as usize),
+                            "*".repeat(f.difficulty as usize),
                             Style::default().fg(Color::Yellow),
                         ),
                     ]),
