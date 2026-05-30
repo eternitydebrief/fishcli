@@ -35,6 +35,13 @@ pub enum Scene {
     Inventory {
         tab: usize,
     },
+    Help(HelpTopic),
+}
+
+#[derive(Clone, Copy)]
+pub enum HelpTopic {
+    Controls,
+    Commands,
 }
 
 pub struct NotesBuf {
@@ -397,6 +404,11 @@ impl App {
                     self.exit_subscene();
                 }
             }
+            Scene::Help(_) => {
+                if matches!(code, KeyCode::Esc | KeyCode::Char('q')) {
+                    self.scene = Scene::Overworld;
+                }
+            }
             Scene::Inventory { tab } => match code {
                 KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('i') => {
                     self.scene = Scene::Overworld;
@@ -590,9 +602,15 @@ impl App {
                 self.scene = Scene::Inventory { tab: 0 };
                 self.mode = Mode::Insert;
             }
-            "h" | "help" => self
-                .narrator
-                .say("commands: :w  :wq  :q  :q!  :s  :m  :e  :h"),
+            "c" | "controls" => {
+                self.scene = Scene::Help(HelpTopic::Controls);
+                self.mode = Mode::Insert;
+            }
+            "help" => {
+                self.scene = Scene::Help(HelpTopic::Commands);
+                self.mode = Mode::Insert;
+            }
+            "h" => self.narrator.say("Try :help for commands, :c for controls."),
             "" => {}
             other => self.narrator.say(format!("Unknown command: :{other}")),
         }
@@ -810,6 +828,7 @@ impl App {
                 &self.player.items,
                 *tab,
             ),
+            Scene::Help(topic) => render_help(frame, *topic),
         }
 
         if matches!(self.scene, Scene::NamePrompt(_)) {
@@ -904,6 +923,66 @@ fn direction_for(code: KeyCode) -> Option<(i32, i32)> {
         KeyCode::Char('l') | KeyCode::Right => Some((1, 0)),
         _ => None,
     }
+}
+
+fn render_help(frame: &mut Frame, topic: HelpTopic) {
+    let area = frame.area();
+    let (title, lines): (&str, Vec<(&str, &str)>) = match topic {
+        HelpTopic::Controls => (
+            " controls (q/esc to close) ",
+            vec![
+                ("h j k l / arrows", "move (and turn to face)"),
+                ("f", "interact with what you're facing (door, npc, water)"),
+                ("g", "pick up nearby flower / pebble"),
+                ("x", "inspect the tile you're facing"),
+                ("e", "open fishdex"),
+                ("Esc", "switch from Insert -> Normal mode"),
+                ("i / a", "switch from Normal -> Insert mode"),
+                (":", "in Normal mode, open command line"),
+            ],
+        ),
+        HelpTopic::Commands => (
+            " :commands (q/esc to close) ",
+            vec![
+                (":w", "save"),
+                (":wq / :x", "save and quit"),
+                (":q", "save and quit"),
+                (":q!", "quit without saving"),
+                (":e", "open fishdex"),
+                (":n  / :notes", "open notebook editor"),
+                (":i  / :inv", "open inventory"),
+                (":c  / :controls", "show in-game controls"),
+                (":help", "show this list"),
+                (":q-list / :quests", "list active quests"),
+                (":s", "stats screen (coming soon)"),
+                (":m", "settings (coming soon)"),
+            ],
+        ),
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let key_w: u16 = 20;
+    let body: Vec<ratatui::text::Line> = lines
+        .into_iter()
+        .map(|(k, v)| {
+            ratatui::text::Line::from(vec![
+                ratatui::text::Span::styled(
+                    format!("  {:<width$}", k, width = key_w as usize),
+                    Style::default()
+                        .fg(Color::LightYellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                ratatui::text::Span::raw(v.to_string()),
+            ])
+        })
+        .collect();
+    let p = Paragraph::new(body).wrap(ratatui::widgets::Wrap { trim: false });
+    frame.render_widget(p, inner);
 }
 
 fn render_inventory(
