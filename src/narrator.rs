@@ -3,7 +3,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, Paragraph},
 };
 use std::collections::VecDeque;
 
@@ -64,7 +64,8 @@ impl Narrator {
             let style = Style::default().fg(Color::Rgb(gray, gray, gray));
             lines.push(Line::from(Span::styled(format!("> {m}"), style)));
         }
-        let p = Paragraph::new(lines).wrap(Wrap { trim: false });
+        // no wrap - one message per row, so newest never gets pushed off-screen
+        let p = Paragraph::new(lines);
         frame.render_widget(p, inner);
     }
 }
