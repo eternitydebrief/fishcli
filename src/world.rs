@@ -492,8 +492,8 @@ fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
         (x.unsigned_abs() as u64 + (y.unsigned_abs() as u64) * 3 + tick / 4) % 12;
     let glyph = match phase {
         0 | 1 => '~',
-        2 | 3 => '=',
-        4 => '-',
+        2 | 3 => '-',
+        4 => '.',
         5..=8 => '~',
         9 => '-',
         _ => '~',
