@@ -747,7 +747,7 @@ fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
         glyph,
         Style::default()
             .fg(shade(base, x, y, 0xA11_BABE, 6))
-            .bg(Color::Rgb(0, 5, 32)),
+            .bg(Color::Rgb(0, 2, 16)),
     )
 }
 
