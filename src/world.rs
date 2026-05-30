@@ -163,6 +163,7 @@ pub struct World {
 pub struct WorldView<'a> {
     pub world: &'a World,
     pub player: (i32, i32),
+    pub player_facing: (i32, i32),
     pub tick: u64,
 }
 
@@ -180,7 +181,14 @@ impl<'a> Widget for WorldView<'a> {
                 let cy = area.y + sy;
                 let cell = &mut buf[(cx, cy)];
                 if sx as i32 == half_w && sy as i32 == half_h {
-                    cell.set_char('@').set_style(player_style);
+                    let g = match self.player_facing {
+                        (0, -1) => '^',
+                        (0, 1) => 'v',
+                        (-1, 0) => '<',
+                        (1, 0) => '>',
+                        _ => '@',
+                    };
+                    cell.set_char(g).set_style(player_style);
                 } else {
                     let wx = self.player.0 - half_w + sx as i32;
                     let wy = self.player.1 - half_h + sy as i32;

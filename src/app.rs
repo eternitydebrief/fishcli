@@ -796,6 +796,7 @@ impl App {
                     WorldView {
                         world: &self.world,
                         player: (self.player.x, self.player.y),
+                        player_facing: self.player.facing,
                         tick: anim_tick,
                     },
                     inner,
