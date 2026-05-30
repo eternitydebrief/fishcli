@@ -126,13 +126,14 @@ pub enum Tile {
     Flower,
     Cactus,
     Well,
+    Path,
 }
 
 impl Tile {
     pub fn walkable(self) -> bool {
         matches!(
             self,
-            Tile::Grass | Tile::Sand | Tile::Pebble | Tile::Flower
+            Tile::Grass | Tile::Sand | Tile::Pebble | Tile::Flower | Tile::Path
         )
     }
 
@@ -155,6 +156,7 @@ impl Tile {
             Tile::Flower => "A wildflower, swaying. You feel a little better just looking.",
             Tile::Cactus => "A wary cactus, spines dry and bristling.",
             Tile::Well => "An old stone well. The bottom is darker than dark. You hear faint splashing.",
+            Tile::Path => "A trodden path of packed earth and gravel.",
         }
     }
 }
@@ -324,6 +326,14 @@ impl World {
                     .bg(Color::Rgb(20, 20, 30))
                     .add_modifier(Modifier::BOLD),
             ),
+            Tile::Path => {
+                let g = match hash2(x, y, 0xDADA_BABE) % 3 {
+                    0 => '.',
+                    1 => ',',
+                    _ => '.',
+                };
+                (g, Style::default().fg(Color::Rgb(150, 135, 105)))
+            }
         }
     }
 }
@@ -502,7 +512,7 @@ fn find_tree_anchor(x: i32, y: i32, seed: u32) -> Option<(i32, i32, TreeSpecies,
 }
 
 fn in_village_zone(x: i32, y: i32) -> bool {
-    x.abs() <= 32 && (-9..=5).contains(&y)
+    x.abs() <= 50 && (-18..=5).contains(&y)
 }
 
 fn hash2(x: i32, y: i32, seed: u32) -> u32 {
@@ -694,68 +704,47 @@ fn village_tile(x: i32, y: i32) -> Option<Tile> {
         return Some(t);
     }
 
-    // rod shop (left)
-    let in_rod = (-22..=-18).contains(&x) && (-3..=1).contains(&y);
-    if in_rod {
-        if x == -20 && y == 1 {
-            return Some(Tile::DoorRod);
+    // house definitions: (x_range, y_range, door_xy, door_kind)
+    type DoorKind = Tile;
+    let houses: &[((i32, i32), (i32, i32), (i32, i32), DoorKind)] = &[
+        // rod shop - far left
+        ((-37, -33), (-3, 1), (-35, 1), Tile::DoorRod),
+        // inn - left-center
+        ((-20, -16), (-3, 1), (-18, 1), Tile::DoorRod),
+        // bakery - top center
+        ((-2, 2), (-6, -3), (0, -3), Tile::DoorRod),
+        // market - top-left
+        ((-25, -21), (-8, -4), (-23, -4), Tile::DoorRod),
+        // library - top-right
+        ((21, 25), (-8, -4), (23, -4), Tile::DoorSchool),
+        // cottage - right-center
+        ((16, 20), (-3, 1), (18, 1), Tile::DoorSchool),
+        // fishing school - far right
+        ((33, 37), (-3, 1), (35, 1), Tile::DoorSchool),
+    ];
+
+    for &((xa, xb), (ya, yb), (dx, dy), dkind) in houses {
+        if (xa..=xb).contains(&x) && (ya..=yb).contains(&y) {
+            if (x, y) == (dx, dy) {
+                return Some(dkind);
+            }
+            if y == ya {
+                return Some(Tile::Roof);
+            }
+            return Some(Tile::Wall);
         }
-        if y == -3 {
-            return Some(Tile::Roof);
-        }
-        return Some(Tile::Wall);
-    }
-    // fishing school (right)
-    let in_school = (18..=22).contains(&x) && (-3..=1).contains(&y);
-    if in_school {
-        if x == 20 && y == 1 {
-            return Some(Tile::DoorSchool);
-        }
-        if y == -3 {
-            return Some(Tile::Roof);
-        }
-        return Some(Tile::Wall);
-    }
-    // inn (left-center, decorative)
-    let in_inn = (-12..=-8).contains(&x) && (-3..=1).contains(&y);
-    if in_inn {
-        if x == -10 && y == 1 {
-            return Some(Tile::DoorRod);
-        }
-        if y == -3 {
-            return Some(Tile::Roof);
-        }
-        return Some(Tile::Wall);
-    }
-    // cottage (right-center)
-    let in_cottage = (8..=12).contains(&x) && (-3..=1).contains(&y);
-    if in_cottage {
-        if x == 10 && y == 1 {
-            return Some(Tile::DoorSchool);
-        }
-        if y == -3 {
-            return Some(Tile::Roof);
-        }
-        return Some(Tile::Wall);
-    }
-    // bakery (top center)
-    let in_bakery = (-2..=2).contains(&x) && (-5..=-3).contains(&y);
-    if in_bakery {
-        if x == 0 && y == -3 {
-            return Some(Tile::DoorRod);
-        }
-        if y == -5 {
-            return Some(Tile::Roof);
-        }
-        return Some(Tile::Wall);
     }
 
-    // dock and well in the central square
+    // dock and well
     if (-6..=5).contains(&x) && (5..=8).contains(&y) {
         return Some(Tile::Dock);
     }
     if (x, y) == (0, -1) {
         return Some(Tile::Well);
+    }
+    // pathways inside the walls
+    if village_path(x, y) {
+        return Some(Tile::Path);
     }
     None
 }
@@ -767,44 +756,87 @@ fn village_tile(x: i32, y: i32) -> Option<Tile> {
 //   y =  4       bottom cap row: || ___ ||
 //   y =  5       bottom edge: \ _____ /
 // dock gap punches a hole in the bottom two rows for x in [-6, 5]
-const WALL_L_OUT: i32 = -32;
-const WALL_L_IN: i32 = -31;
-const WALL_R_IN: i32 = 31;
-const WALL_R_OUT: i32 = 32;
-const WALL_TOP_SHADOW: i32 = -9;
-const WALL_TOP_EDGE: i32 = -8;
+const WALL_L_OUT: i32 = -50;
+const WALL_L_IN: i32 = -49;
+const WALL_R_IN: i32 = 49;
+const WALL_R_OUT: i32 = 50;
+const WALL_TOP_SHADOW: i32 = -18;
+const WALL_TOP_EDGE: i32 = -17;
 const WALL_BOT_CAP: i32 = 4;
 const WALL_BOT_EDGE: i32 = 5;
 
 fn dock_gap_x(x: i32) -> bool {
-    (-6..=5).contains(&x)
+    (-3..=3).contains(&x)
+}
+
+fn north_gate_x(x: i32) -> bool {
+    (-2..=2).contains(&x)
+}
+
+fn side_gate_y(y: i32) -> bool {
+    (-9..=-7).contains(&y)
 }
 
 fn village_perimeter(x: i32, y: i32) -> Option<Tile> {
     let in_box_x = x >= WALL_L_OUT && x <= WALL_R_OUT;
     let in_side_y = y >= WALL_TOP_EDGE && y <= WALL_BOT_CAP;
 
-    // top shadow row (no corners, narrower than the full width)
-    if y == WALL_TOP_SHADOW && x >= WALL_L_IN && x <= WALL_R_IN {
+    // top shadow row (no corners), skip north gate
+    if y == WALL_TOP_SHADOW
+        && x >= WALL_L_IN
+        && x <= WALL_R_IN
+        && !north_gate_x(x)
+    {
         return Some(Tile::Wall);
     }
-    // top edge row (full width with /\ corners)
-    if y == WALL_TOP_EDGE && in_box_x {
+    // top edge row, skip north gate
+    if y == WALL_TOP_EDGE && in_box_x && !north_gate_x(x) {
         return Some(Tile::Wall);
     }
-    // side columns
+    // side columns, skip east/west gates
     if in_side_y && (x == WALL_L_OUT || x == WALL_L_IN || x == WALL_R_IN || x == WALL_R_OUT) {
+        if side_gate_y(y) {
+            return None;
+        }
         return Some(Tile::Wall);
     }
-    // bottom cap row (skip dock gap)
+    // bottom cap and bottom edge skip dock gap
     if y == WALL_BOT_CAP && in_box_x && !dock_gap_x(x) {
         return Some(Tile::Wall);
     }
-    // bottom edge row (skip dock gap)
     if y == WALL_BOT_EDGE && in_box_x && !dock_gap_x(x) {
         return Some(Tile::Wall);
     }
     None
+}
+
+fn village_path(x: i32, y: i32) -> bool {
+    // central square (paved area around the well)
+    if (-4..=4).contains(&x) && (-3..=2).contains(&y) {
+        return true;
+    }
+    // north corridor: from gate down to square
+    if (-2..=2).contains(&x) && (-16..=-3).contains(&y) {
+        return true;
+    }
+    // south corridor: from square to dock gap
+    if (-3..=3).contains(&x) && (3..=4).contains(&y) {
+        return true;
+    }
+    // east corridor: from gate to square
+    if (5..=48).contains(&x) && (-1..=1).contains(&y) {
+        return true;
+    }
+    // west corridor: from gate to square
+    if (-48..=-5).contains(&x) && (-1..=1).contains(&y) {
+        return true;
+    }
+    // small spurs to each house door
+    // rod shop door (-33, 1) -> west corridor connects already
+    // school door (33, 1) -> east corridor connects
+    // inn door (-18, 1), cottage (18, 1): connected via central corridors
+    // bakery (0, -3) spur from north corridor
+    false
 }
 
 fn perimeter_glyph(x: i32, y: i32) -> Option<(char, Style)> {
