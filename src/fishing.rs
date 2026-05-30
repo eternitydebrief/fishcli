@@ -196,22 +196,33 @@ impl Fishing {
         let inner = outer.inner(area);
         frame.render_widget(outer, area);
 
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
+        let show_scene = inner.width >= 55;
+        let constraints: Vec<Constraint> = if show_scene {
+            vec![
                 Constraint::Length(SCENE_W as u16 + 2),
                 Constraint::Length(5),
                 Constraint::Min(20),
-            ])
+            ]
+        } else {
+            vec![Constraint::Length(5), Constraint::Min(15)]
+        };
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(constraints)
             .split(inner);
 
-        let scene = Paragraph::new(self.render_scene(anim_tick)).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" dock ")
-                .border_style(Style::default().fg(Color::DarkGray)),
-        );
-        frame.render_widget(scene, chunks[0]);
+        let (bar_idx, right_idx) = if show_scene {
+            let scene = Paragraph::new(self.render_scene(anim_tick)).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" dock ")
+                    .border_style(Style::default().fg(Color::DarkGray)),
+            );
+            frame.render_widget(scene, chunks[0]);
+            (1usize, 2usize)
+        } else {
+            (0usize, 1usize)
+        };
 
         let bar = Paragraph::new(self.render_bar())
             .alignment(Alignment::Center)
@@ -221,7 +232,7 @@ impl Fishing {
                     .title(" line ")
                     .border_style(Style::default().fg(Color::DarkGray)),
             );
-        frame.render_widget(bar, chunks[1]);
+        frame.render_widget(bar, chunks[bar_idx]);
 
         let right = Layout::default()
             .direction(Direction::Vertical)
@@ -230,7 +241,7 @@ impl Fishing {
                 Constraint::Length(3),
                 Constraint::Min(1),
             ])
-            .split(chunks[2]);
+            .split(chunks[right_idx]);
 
         let gauge = Gauge::default()
             .block(Block::default().borders(Borders::ALL).title(" catch "))

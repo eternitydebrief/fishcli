@@ -44,9 +44,11 @@ impl Fishdex {
         let inner = outer.inner(area);
         frame.render_widget(outer, area);
 
+        let list_w = inner.width.max(20) / 2;
+        let list_w = list_w.clamp(16, 36);
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(30), Constraint::Min(20)])
+            .constraints([Constraint::Length(list_w), Constraint::Min(8)])
             .split(inner);
 
         let items: Vec<ListItem<'static>> = FISH
