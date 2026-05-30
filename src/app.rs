@@ -1114,6 +1114,22 @@ fn render_help(frame: &mut Frame, topic: HelpTopic) {
     frame.render_widget(p, inner);
 }
 
+fn group_line(name: &str, desc: &str, n: usize) -> ratatui::text::Line<'static> {
+    let label = if n > 1 {
+        format!("({n}) {name}")
+    } else {
+        name.to_string()
+    };
+    ratatui::text::Line::from(vec![
+        ratatui::text::Span::styled(
+            label,
+            Style::default().fg(Color::LightYellow),
+        ),
+        ratatui::text::Span::raw("  - "),
+        ratatui::text::Span::raw(desc.to_string()),
+    ])
+}
+
 fn render_inventory(
     frame: &mut Frame,
     fish_inv: &[&'static FishDef],
@@ -1167,33 +1183,34 @@ fn render_inventory(
         height: inner.height.saturating_sub(2),
     };
     let lines: Vec<ratatui::text::Line> = match cat {
-        Category::Fish => fish_inv
-            .iter()
-            .map(|f| {
-                ratatui::text::Line::from(vec![
-                    ratatui::text::Span::styled(
-                        f.name.clone(),
-                        Style::default().fg(Color::LightYellow),
-                    ),
-                    ratatui::text::Span::raw("  - "),
-                    ratatui::text::Span::raw(f.description.clone()),
-                ])
-            })
-            .collect(),
-        other => items
-            .iter()
-            .filter(|it| it.category == other)
-            .map(|it| {
-                ratatui::text::Line::from(vec![
-                    ratatui::text::Span::styled(
-                        it.name.clone(),
-                        Style::default().fg(Color::LightYellow),
-                    ),
-                    ratatui::text::Span::raw("  - "),
-                    ratatui::text::Span::raw(it.description.clone()),
-                ])
-            })
-            .collect(),
+        Category::Fish => {
+            let mut grouped: Vec<(&str, &str, usize)> = Vec::new();
+            for f in fish_inv {
+                if let Some((_, _, n)) = grouped.iter_mut().find(|(n, _, _)| *n == f.name.as_str()) {
+                    *n += 1;
+                } else {
+                    grouped.push((f.name.as_str(), f.description.as_str(), 1));
+                }
+            }
+            grouped
+                .into_iter()
+                .map(|(name, desc, n)| group_line(name, desc, n))
+                .collect()
+        }
+        other => {
+            let mut grouped: Vec<(&str, &str, usize)> = Vec::new();
+            for it in items.iter().filter(|it| it.category == other) {
+                if let Some((_, _, n)) = grouped.iter_mut().find(|(n, _, _)| *n == it.name.as_str()) {
+                    *n += 1;
+                } else {
+                    grouped.push((it.name.as_str(), it.description.as_str(), 1));
+                }
+            }
+            grouped
+                .into_iter()
+                .map(|(name, desc, n)| group_line(name, desc, n))
+                .collect()
+        }
     };
     let body = if lines.is_empty() {
         vec![ratatui::text::Line::from(ratatui::text::Span::styled(
