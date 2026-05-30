@@ -913,12 +913,12 @@ fn pier_cell(x: i32, y: i32) -> bool {
     if (-3..=4).contains(&x) && (5..=12).contains(&y) {
         return true;
     }
-    // left arm at far end
-    if (-13..=-4).contains(&x) && (11..=12).contains(&y) {
+    // left arm at far end - 3 tall
+    if (-13..=-4).contains(&x) && (10..=12).contains(&y) {
         return true;
     }
-    // right arm at far end
-    if (5..=14).contains(&x) && (11..=12).contains(&y) {
+    // right arm at far end - 3 tall
+    if (5..=14).contains(&x) && (10..=12).contains(&y) {
         return true;
     }
     false

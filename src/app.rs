@@ -1410,7 +1410,7 @@ fn render_help(frame: &mut Frame, topic: HelpTopic) {
                 (":help", "show this list"),
                 (":s  / :stats", "stats screen"),
                 (":m  / :map", "open the explored world map"),
-                (":settings", "settings"),
+                (":o  / :options", "settings"),
             ],
         ),
     };
