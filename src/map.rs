@@ -40,7 +40,7 @@ impl Tile {
     }
 
     pub fn walkable(self) -> bool {
-        !matches!(self, Tile::Wall | Tile::Water)
+        matches!(self, Tile::Grass | Tile::Sand)
     }
 }
 
