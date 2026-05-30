@@ -281,11 +281,17 @@ impl World {
             ),
             Tile::Dock => ('=', Style::default().fg(Color::LightYellow)),
             Tile::Grass => grass_anim(x, y, tick, biome_at(x, y, self.seed)),
-            Tile::Water => water_anim(x, y, tick),
+            Tile::Water => {
+                if matches!(self.get(x, y - 1), Tile::Sand) {
+                    shore_anim(x, 1, tick)
+                } else {
+                    water_anim(x, y, tick)
+                }
+            }
             Tile::Sand => {
                 let shore = matches!(self.get(x, y + 1), Tile::Water);
                 if shore {
-                    shore_anim(x, tick)
+                    shore_anim(x, 0, tick)
                 } else {
                     let g = match hash2(x, y, 0x5A1D_5A1D) % 3 {
                         0 => ',',
@@ -802,25 +808,57 @@ fn cactus_glyph(x: i32, y: i32) -> (char, Style) {
     )
 }
 
-fn shore_anim(x: i32, tick: u64) -> (char, Style) {
-    // wave runs UP the shore (south->north) then retreats. the whole
-    // foam strip pulses together with only a small per-cell jitter so
-    // motion reads as vertical wash rather than a sideways-travelling crest.
-    let t = tick as f32 * 0.045;
-    let jitter = ((x as f32) * 0.27).sin() * 0.18;
-    let env = (t).sin() + jitter;
-    let (g, base) = if env > 0.85 {
-        ('~', (160, 180, 200))
-    } else if env > 0.35 {
-        ('*', (210, 210, 200))
-    } else if env > -0.15 {
-        (',', (170, 155, 115))
-    } else if env > -0.65 {
-        ('.', (185, 170, 125))
+/// Two-row shore wave. `row`: 0 = sand row (upper), 1 = water row (lower).
+/// Waves arrive as discrete pulses: water row crests first, sand row catches
+/// the wash a few ticks later, then both retreat into calm before the next pulse.
+fn shore_anim(x: i32, row: i32, tick: u64) -> (char, Style) {
+    const PERIOD: i64 = 90;
+    // sand row triggers AFTER water row, so the wave appears to travel inland
+    let row_delay = if row == 0 { 6 } else { 0 };
+    let x_jitter = (((x as f32) * 0.21).sin() * 3.5) as i64;
+    let local = ((tick as i64 - row_delay - x_jitter).rem_euclid(PERIOD)) as i64;
+
+    // wave timeline within PERIOD ticks:
+    //   0..3   sharp crest
+    //   3..14  breaking foam
+    //   14..28 wash / wet
+    //   28..   calm / dry
+    let intensity: f32 = if local < 3 {
+        1.0
+    } else if local < 14 {
+        0.75
+    } else if local < 28 {
+        0.35
     } else {
-        ('`', (195, 180, 135))
+        0.0
     };
-    (g, Style::default().fg(shade(base, x, 0, 0xF0AA_F0AA, 8)))
+
+    match row {
+        // water row (closest to the open sea)
+        1 => {
+            if intensity > 0.9 {
+                ('*', Style::default().fg(shade((220, 220, 215), x, 0, 0xF0AA_F0AA, 8)).add_modifier(Modifier::BOLD))
+            } else if intensity > 0.5 {
+                ('~', Style::default().fg(shade((170, 190, 210), x, 0, 0xF0AA_F0AA, 8)))
+            } else if intensity > 0.1 {
+                ('-', Style::default().fg(shade((110, 150, 180), x, 0, 0xF0AA_F0AA, 8)))
+            } else {
+                ('-', Style::default().fg(shade((80, 110, 150), x, 0, 0xF0AA_F0AA, 8)))
+            }
+        }
+        // sand row (the beach proper)
+        _ => {
+            if intensity > 0.9 {
+                ('~', Style::default().fg(shade((200, 210, 215), x, 0, 0xF0AA_F0AA, 8)).add_modifier(Modifier::BOLD))
+            } else if intensity > 0.5 {
+                ('*', Style::default().fg(shade((215, 200, 165), x, 0, 0xF0AA_F0AA, 8)))
+            } else if intensity > 0.1 {
+                (',', Style::default().fg(shade((175, 160, 120), x, 0, 0xF0AA_F0AA, 8)))
+            } else {
+                ('.', Style::default().fg(shade((195, 180, 135), x, 0, 0xF0AA_F0AA, 8)))
+            }
+        }
+    }
 }
 
 #[cfg(test)]
