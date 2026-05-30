@@ -106,7 +106,9 @@ pub struct App {
     pub quest_done: Vec<String>,
     /// most recent biome the player stepped into
     pub current_biome: Option<Biome>,
-    /// shown when biome changes, ticks down to 0
+    /// label currently shown in the location popup (village name or biome)
+    pub current_location: Option<String>,
+    /// shown when location changes, ticks down to 0
     pub biome_popup_ticks: u32,
     /// xp gain popup: (skill_name, gained_xp, current_total_xp, level, ticks_remaining)
     pub xp_popup: Option<(&'static str, u64, u64, u32, u32)>,
@@ -169,6 +171,7 @@ impl App {
             quest_progress: HashMap::new(),
             quest_done: Vec::new(),
             current_biome: None,
+            current_location: None,
             biome_popup_ticks: 0,
             xp_popup: None,
             lifetime_valu: 0,
@@ -966,10 +969,17 @@ impl App {
 
     fn check_biome_change(&mut self) {
         let b = biome_at(self.player.x, self.player.y, self.world.seed);
-        if self.current_biome != Some(b) {
-            self.current_biome = Some(b);
-            self.biome_popup_ticks = 90; // ~3s at 30fps
-            self.narrator.say(format!("Entered: {}", b.label()));
+        self.current_biome = Some(b);
+        let label = crate::world::location_name_at(
+            self.player.x,
+            self.player.y,
+            self.world.seed,
+        )
+        .unwrap_or_else(|| b.label().to_string());
+        if self.current_location.as_deref() != Some(label.as_str()) {
+            self.current_location = Some(label.clone());
+            self.biome_popup_ticks = 60; // 3s at 20fps
+            self.narrator.say(format!("Entered: {label}"));
         }
     }
 
@@ -1097,8 +1107,8 @@ impl App {
         }
 
         if self.biome_popup_ticks > 0 {
-            if let Some(b) = self.current_biome {
-                render_biome_popup(frame, b);
+            if let Some(ref name) = self.current_location {
+                render_location_popup(frame, name);
             }
         }
 
@@ -1480,9 +1490,8 @@ fn render_xp_popup(
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-fn render_biome_popup(frame: &mut Frame, biome: Biome) {
+fn render_location_popup(frame: &mut Frame, label: &str) {
     let area = frame.area();
-    let label = biome.label();
     let w = (label.len() as u16 + 6).min(area.width);
     let h = 3u16.min(area.height);
     if w < 6 || h < 3 {

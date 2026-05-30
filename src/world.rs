@@ -788,6 +788,16 @@ const CONSONANTS: &[char] = &[
 ];
 const VOWELS: &[char] = &['a', 'e', 'i', 'o', 'u'];
 
+/// Village/biome name at the given world coords. Returns the home village
+/// name when inside the origin village zone, else a procedural village name,
+/// else None (caller can fall back to biome).
+pub fn location_name_at(x: i32, y: i32, seed: u32) -> Option<String> {
+    if in_village_zone(x, y) {
+        return Some("Home Village".to_string());
+    }
+    village_anchor_for(x, y, seed).map(|v| village_name(v.hash))
+}
+
 /// Generates a name like "Karovi" or "Telosa" from the anchor hash.
 pub fn village_name(h: u32) -> String {
     let syllables = 2 + ((h >> 28) % 2); // 2 or 3 syllables
