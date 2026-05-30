@@ -23,6 +23,8 @@ pub struct SaveData {
     pub items: Vec<Item>,
     #[serde(default)]
     pub pinned_quest: Option<String>,
+    #[serde(default)]
+    pub seen_cells: Vec<(i32, i32)>,
 }
 
 fn save_path() -> Option<PathBuf> {

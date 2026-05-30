@@ -39,6 +39,7 @@ pub enum Scene {
     Stats,
     Settings,
     Quests { cursor: usize },
+    Map,
 }
 
 #[derive(Clone, Copy)]
@@ -112,6 +113,8 @@ pub struct App {
     pub saved_play_secs: u64,
     /// id of the quest currently pinned to the top-left tracker
     pub pinned_quest: Option<String>,
+    /// coarse map cells (each 4w x 2h world cells) the player has explored
+    pub seen_cells: std::collections::HashSet<(i32, i32)>,
     held_dir: Option<(i32, i32)>,
     held_until_tick: u64,
     last_step_tick: u64,
@@ -160,6 +163,7 @@ impl App {
             session_start: std::time::Instant::now(),
             saved_play_secs: 0,
             pinned_quest: None,
+            seen_cells: std::collections::HashSet::new(),
             held_dir: None,
             held_until_tick: 0,
             last_step_tick: 0,
@@ -235,6 +239,7 @@ impl App {
         self.lifetime_valu = data.lifetime_valu_earned;
         self.saved_play_secs = data.play_time_secs;
         self.pinned_quest = data.pinned_quest.clone();
+        self.seen_cells = data.seen_cells.iter().copied().collect();
     }
 
     fn current_save(&self) -> SaveData {
@@ -262,6 +267,7 @@ impl App {
             quest_done: self.quest_done.clone(),
             items: self.player.items.clone(),
             pinned_quest: self.pinned_quest.clone(),
+            seen_cells: self.seen_cells.iter().copied().collect(),
         }
     }
 
@@ -436,7 +442,7 @@ impl App {
                     self.exit_subscene();
                 }
             }
-            Scene::Help(_) | Scene::Stats | Scene::Settings => {
+            Scene::Help(_) | Scene::Stats | Scene::Settings | Scene::Map => {
                 if matches!(code, KeyCode::Esc | KeyCode::Char('q')) {
                     self.scene = Scene::Overworld;
                 }
@@ -768,6 +774,7 @@ impl App {
             self.player.x = nx;
             self.player.y = ny;
             self.check_biome_change();
+            self.mark_seen_around_player();
             let weight = if dy != 0 { 2 } else { 1 };
             for _ in 0..weight {
                 self.quest_progress_silent("walk", "any");
@@ -839,6 +846,18 @@ impl App {
                 self.scene = Scene::Fishing(Fishing::new(f, self.rng_state));
             }
             _ => self.narrator.say("Nothing to interact with."),
+        }
+    }
+
+    fn mark_seen_around_player(&mut self) {
+        const VIEW_W: i32 = 50;
+        const VIEW_H: i32 = 18;
+        let (px, py) = (self.player.x, self.player.y);
+        for dy in -VIEW_H / 2..=VIEW_H / 2 {
+            for dx in -VIEW_W / 2..=VIEW_W / 2 {
+                let cc = coarse_cell(px + dx, py + dy);
+                self.seen_cells.insert(cc);
+            }
         }
     }
 
@@ -918,6 +937,12 @@ impl App {
                 &self.quest_done,
                 self.pinned_quest.as_deref(),
             ),
+            Scene::Map => render_map(
+                frame,
+                &self.world,
+                (self.player.x, self.player.y),
+                &self.seen_cells,
+            ),
         }
 
         if matches!(self.scene, Scene::NamePrompt(_)) {
@@ -992,6 +1017,101 @@ fn active_quest_ids(done: &[String]) -> Vec<String> {
         .filter(|q| !done.contains(&q.id))
         .map(|q| q.id.clone())
         .collect()
+}
+
+pub const MAP_CELL_W: i32 = 4;
+pub const MAP_CELL_H: i32 = 2;
+
+pub fn coarse_cell(x: i32, y: i32) -> (i32, i32) {
+    (x.div_euclid(MAP_CELL_W), y.div_euclid(MAP_CELL_H))
+}
+
+fn render_map(
+    frame: &mut Frame,
+    world: &World,
+    player: (i32, i32),
+    seen: &std::collections::HashSet<(i32, i32)>,
+) {
+    use ratatui::buffer::Buffer;
+    use ratatui::widgets::Widget;
+    struct MapView<'a> {
+        world: &'a World,
+        player: (i32, i32),
+        seen: &'a std::collections::HashSet<(i32, i32)>,
+    }
+    impl<'a> Widget for MapView<'a> {
+        fn render(self, area: Rect, buf: &mut Buffer) {
+            let pcx = self.player.0.div_euclid(MAP_CELL_W);
+            let pcy = self.player.1.div_euclid(MAP_CELL_H);
+            let half_w = (area.width as i32) / 2;
+            let half_h = (area.height as i32) / 2;
+            for sy in 0..area.height {
+                for sx in 0..area.width {
+                    let cx = area.x + sx;
+                    let cy = area.y + sy;
+                    let cell = &mut buf[(cx, cy)];
+                    if sx as i32 == half_w && sy as i32 == half_h {
+                        cell.set_char('@').set_style(
+                            Style::default()
+                                .fg(Color::White)
+                                .add_modifier(Modifier::BOLD),
+                        );
+                        continue;
+                    }
+                    let mcx = pcx - half_w + sx as i32;
+                    let mcy = pcy - half_h + sy as i32;
+                    if !self.seen.contains(&(mcx, mcy)) {
+                        cell.set_char(' ').set_style(Style::default().fg(Color::Black));
+                        continue;
+                    }
+                    let wx = mcx * MAP_CELL_W + MAP_CELL_W / 2;
+                    let wy = mcy * MAP_CELL_H + MAP_CELL_H / 2;
+                    let (g, s) = map_glyph_for(self.world, wx, wy);
+                    cell.set_char(g).set_style(s);
+                }
+            }
+        }
+    }
+    let area = frame.area();
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" map (q/esc to close) ")
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    frame.render_widget(
+        MapView {
+            world,
+            player,
+            seen,
+        },
+        inner,
+    );
+}
+
+fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
+    let t = world.get(x, y);
+    match t {
+        Tile::Water => ('~', Style::default().fg(Color::Rgb(60, 100, 160))),
+        Tile::Sand => (',', Style::default().fg(Color::Rgb(190, 175, 120))),
+        Tile::Dock => ('=', Style::default().fg(Color::Rgb(190, 160, 100))),
+        Tile::Well => ('O', Style::default().fg(Color::Rgb(170, 170, 180))),
+        Tile::Wall => ('#', Style::default().fg(Color::Rgb(160, 130, 90))),
+        Tile::Roof => ('#', Style::default().fg(Color::Rgb(170, 80, 60))),
+        Tile::DoorRod | Tile::DoorSchool => ('D', Style::default().fg(Color::Yellow)),
+        Tile::TreeCanopy | Tile::TreeTrunk => ('#', Style::default().fg(Color::Rgb(80, 140, 70))),
+        Tile::BigRock | Tile::MediumRock | Tile::Rock => {
+            ('#', Style::default().fg(Color::Rgb(130, 130, 130)))
+        }
+        Tile::Path => ('.', Style::default().fg(Color::Rgb(160, 140, 110))),
+        Tile::Lamppost => ('i', Style::default().fg(Color::Rgb(220, 200, 120))),
+        Tile::Bench => ('=', Style::default().fg(Color::Rgb(140, 95, 55))),
+        Tile::Cactus => ('Y', Style::default().fg(Color::Rgb(90, 130, 70))),
+        Tile::Pebble | Tile::Flower | Tile::Grass => (
+            '.',
+            Style::default().fg(Color::Rgb(80, 120, 80)),
+        ),
+    }
 }
 
 fn render_pinned_task(frame: &mut Frame, q: &quest::QuestDef, progress: u32) {
@@ -1289,7 +1409,8 @@ fn render_help(frame: &mut Frame, topic: HelpTopic) {
                 (":c  / :controls", "show in-game controls"),
                 (":help", "show this list"),
                 (":s  / :stats", "stats screen"),
-                (":m  / :settings", "settings"),
+                (":m  / :map", "open the explored world map"),
+                (":settings", "settings"),
             ],
         ),
     };
