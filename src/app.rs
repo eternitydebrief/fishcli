@@ -1104,7 +1104,9 @@ impl App {
                 self.scene = Scene::FishingSchool;
             }
             Tile::Dock | Tile::Water | Tile::Well => {
-                let f = fish::pick_fish(&mut self.rng_state, fishlist::fish());
+                let water_kind = water_kind_at(&self.world, nx, ny);
+                let biome = biome_at(nx, ny, self.world.seed).label();
+                let f = fish::pick_fish(&mut self.rng_state, fishlist::fish(), biome, water_kind);
                 self.narrator.say("Casting line - aim for the green!");
                 self.stats.casts += 1;
                 self.cast = Some(CastState {
@@ -1903,6 +1905,21 @@ fn render_location_popup(frame: &mut Frame, label: &str) {
         .alignment(Alignment::Center)
         .block(block);
     frame.render_widget(p, popup);
+}
+
+fn water_kind_at(world: &World, x: i32, y: i32) -> &'static str {
+    let t = world.get(x, y);
+    if matches!(t, Tile::Well) {
+        return "well";
+    }
+    if matches!(t, Tile::Dock) {
+        // dock cells are over ocean
+        return "ocean";
+    }
+    if y >= 5 {
+        return "ocean";
+    }
+    "lake"
 }
 
 fn direction_for(code: KeyCode) -> Option<(i32, i32)> {

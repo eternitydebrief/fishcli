@@ -7,6 +7,21 @@ pub struct FishDef {
     pub description: String,
     pub rarity: f32,
     pub difficulty: u8,
+    /// Biomes where this fish can appear. Empty = any biome.
+    pub biomes: Vec<String>,
+    /// Water types where this fish can appear: "ocean", "lake", "pond",
+    /// "puddle", "well". Empty = any water.
+    pub waters: Vec<String>,
+    /// Optional flat sell price override; 0 = computed from difficulty.
+    pub price: u64,
+    /// Optional permanent-buff effect on catch:
+    ///   "price_mult:0.10"  - +10% to all future sell prices
+    ///   "free_rod"         - next rod tier is free
+    ///   "fishing_xp:500"   - instant fishing xp boost
+    ///   "bobber_range:1"   - permanent +1 max cast distance
+    pub effect: Option<String>,
+    /// If true, this is a joke pickup (boot, tire, etc.) not a real fish.
+    pub joke: bool,
 }
 
 impl Default for FishDef {
@@ -16,6 +31,11 @@ impl Default for FishDef {
             description: String::new(),
             rarity: 0.0,
             difficulty: 1,
+            biomes: Vec::new(),
+            waters: Vec::new(),
+            price: 0,
+            effect: None,
+            joke: false,
         }
     }
 }
@@ -36,23 +56,55 @@ impl FishDef {
     pub fn target_change_ticks(&self) -> u32 {
         50 - (self.t() * 30.0) as u32
     }
+
+    pub fn sell_price(&self) -> u64 {
+        if self.price > 0 {
+            return self.price;
+        }
+        let d = self.difficulty as u64;
+        10 + d * d * 4
+    }
+
+    pub fn matches(&self, biome: &str, water: &str) -> bool {
+        let biome_ok = self.biomes.is_empty()
+            || self
+                .biomes
+                .iter()
+                .any(|b| b.eq_ignore_ascii_case(biome) || b == "any");
+        let water_ok = self.waters.is_empty()
+            || self
+                .waters
+                .iter()
+                .any(|w| w.eq_ignore_ascii_case(water) || w == "any");
+        biome_ok && water_ok
+    }
 }
 
-pub fn pick_fish<'a>(rng: &mut u32, fish: &'a [FishDef]) -> &'a FishDef {
-    let total: f32 = fish.iter().map(|f| f.rarity).sum();
-    if total <= 0.0 || fish.is_empty() {
-        // shouldn't happen but degrade gracefully
+pub fn pick_fish<'a>(
+    rng: &mut u32,
+    fish: &'a [FishDef],
+    biome: &str,
+    water: &str,
+) -> &'a FishDef {
+    let eligible: Vec<&'a FishDef> = fish.iter().filter(|f| f.matches(biome, water)).collect();
+    let pool = if eligible.is_empty() {
+        fish.iter().collect::<Vec<_>>()
+    } else {
+        eligible
+    };
+    let total: f32 = pool.iter().map(|f| f.rarity).sum();
+    if total <= 0.0 || pool.is_empty() {
         return &fish[0];
     }
     let r = next_rand_f32(rng) * total;
     let mut acc = 0.0;
-    for f in fish {
+    for f in &pool {
         acc += f.rarity;
         if r <= acc {
             return f;
         }
     }
-    &fish[fish.len() - 1]
+    pool[pool.len() - 1]
 }
 
 pub fn next_rand_f32(s: &mut u32) -> f32 {
