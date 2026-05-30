@@ -194,7 +194,7 @@ impl App {
                 self.lifetime_valu = self.lifetime_valu.saturating_add(q.reward.valu);
                 self.quest_done.push(q.id.clone());
                 self.narrator.say(format!(
-                    "Quest complete: {} (+{}$V)",
+                    "Task complete: {} (+{}$V)",
                     q.title, q.reward.valu
                 ));
             } else if !silent {
@@ -637,7 +637,11 @@ impl App {
                 self.do_save();
                 self.running = false;
             }
-            "q" | "quests" | "q-list" => {
+            "q" => {
+                self.do_save();
+                self.running = false;
+            }
+            "t" | "tasks" => {
                 self.scene = Scene::Quests { cursor: 0 };
                 self.mode = Mode::Insert;
             }
@@ -688,7 +692,7 @@ impl App {
             any = true;
         }
         if !any {
-            self.narrator.say("All quests complete!");
+            self.narrator.say("All tasks complete!");
         }
     }
 
@@ -971,7 +975,7 @@ impl App {
             if let Some(q) = quest::quests().iter().find(|q| q.id == id) {
                 if !self.quest_done.contains(&q.id) {
                     let progress = self.quest_progress.get(&q.id).copied().unwrap_or(0);
-                    render_pinned_quest(frame, q, progress);
+                    render_pinned_task(frame, q, progress);
                 }
             }
         }
@@ -990,7 +994,7 @@ fn active_quest_ids(done: &[String]) -> Vec<String> {
         .collect()
 }
 
-fn render_pinned_quest(frame: &mut Frame, q: &quest::QuestDef, progress: u32) {
+fn render_pinned_task(frame: &mut Frame, q: &quest::QuestDef, progress: u32) {
     let area = frame.area();
     let title_line = format!(" {} ", q.title);
     let progress_line = format!(" {}/{} ", progress, q.objective.count);
@@ -1008,7 +1012,7 @@ fn render_pinned_quest(frame: &mut Frame, q: &quest::QuestDef, progress: u32) {
     frame.render_widget(Clear, rect);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" quest ")
+        .title(" task ")
         .border_style(Style::default().fg(Color::Yellow));
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
@@ -1037,7 +1041,7 @@ fn render_quests(
     let area = frame.area();
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" quests (j/k navigate, p pin/unpin, q/esc close) ")
+        .title(" tasks (j/k navigate, p pin/unpin, q/esc close) ")
         .border_style(Style::default().fg(Color::Cyan));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -1281,11 +1285,11 @@ fn render_help(frame: &mut Frame, topic: HelpTopic) {
                 (":e", "open fishdex"),
                 (":n  / :notes", "open notebook editor"),
                 (":i  / :inv", "open inventory"),
+                (":t  / :tasks", "open tasks menu"),
                 (":c  / :controls", "show in-game controls"),
                 (":help", "show this list"),
-                (":q-list / :quests", "list active quests"),
-                (":s", "stats screen (coming soon)"),
-                (":m", "settings (coming soon)"),
+                (":s  / :stats", "stats screen"),
+                (":m  / :settings", "settings"),
             ],
         ),
     };
