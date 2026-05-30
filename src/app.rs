@@ -36,6 +36,8 @@ pub enum Scene {
         tab: usize,
     },
     Help(HelpTopic),
+    Stats,
+    Settings,
 }
 
 #[derive(Clone, Copy)]
@@ -101,6 +103,12 @@ pub struct App {
     pub current_biome: Option<Biome>,
     /// shown when biome changes, ticks down to 0
     pub biome_popup_ticks: u32,
+    /// total valu earned lifetime (sum of quest rewards + sales)
+    pub lifetime_valu: u64,
+    /// time when this session started (for play-time stat)
+    pub session_start: std::time::Instant,
+    /// play time loaded from save (excluding this session)
+    pub saved_play_secs: u64,
     held_dir: Option<(i32, i32)>,
     held_until_tick: u64,
     last_step_tick: u64,
@@ -145,10 +153,17 @@ impl App {
             quest_done: Vec::new(),
             current_biome: None,
             biome_popup_ticks: 0,
+            lifetime_valu: 0,
+            session_start: std::time::Instant::now(),
+            saved_play_secs: 0,
             held_dir: None,
             held_until_tick: 0,
             last_step_tick: 0,
         }
+    }
+
+    pub fn total_play_secs(&self) -> u64 {
+        self.saved_play_secs + self.session_start.elapsed().as_secs()
     }
 
     fn quest_progress(&mut self, kind: &str, target: &str) {
@@ -164,6 +179,7 @@ impl App {
             let cur = *entry;
             if cur >= q.objective.count {
                 self.player.valu = self.player.valu.saturating_add(q.reward.valu);
+                self.lifetime_valu = self.lifetime_valu.saturating_add(q.reward.valu);
                 self.quest_done.push(q.id.clone());
                 self.narrator.say(format!(
                     "Quest complete: {} (+{}$V)",
@@ -204,6 +220,8 @@ impl App {
         self.quest_progress = data.quest_progress.iter().cloned().collect();
         self.quest_done = data.quest_done.clone();
         self.player.items = data.items.clone();
+        self.lifetime_valu = data.lifetime_valu_earned;
+        self.saved_play_secs = data.play_time_secs;
     }
 
     fn current_save(&self) -> SaveData {
@@ -221,8 +239,8 @@ impl App {
             caught: self.caught.clone(),
             world_seed: self.world.seed,
             rng_state: self.rng_state,
-            play_time_secs: 0,
-            lifetime_valu_earned: 0,
+            play_time_secs: self.total_play_secs(),
+            lifetime_valu_earned: self.lifetime_valu,
             quest_progress: self
                 .quest_progress
                 .iter()
@@ -404,7 +422,7 @@ impl App {
                     self.exit_subscene();
                 }
             }
-            Scene::Help(_) => {
+            Scene::Help(_) | Scene::Stats | Scene::Settings => {
                 if matches!(code, KeyCode::Esc | KeyCode::Char('q')) {
                     self.scene = Scene::Overworld;
                 }
@@ -829,6 +847,19 @@ impl App {
                 *tab,
             ),
             Scene::Help(topic) => render_help(frame, *topic),
+            Scene::Stats => render_stats(
+                frame,
+                &self.player.name,
+                self.player.valu,
+                self.lifetime_valu,
+                self.caught.iter().filter(|c| **c).count(),
+                fishlist::fish().len(),
+                self.player.inventory.len(),
+                self.player.items.len(),
+                self.quest_done.len(),
+                self.total_play_secs(),
+            ),
+            Scene::Settings => render_settings(frame),
         }
 
         if matches!(self.scene, Scene::NamePrompt(_)) {
@@ -923,6 +954,104 @@ fn direction_for(code: KeyCode) -> Option<(i32, i32)> {
         KeyCode::Char('l') | KeyCode::Right => Some((1, 0)),
         _ => None,
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_stats(
+    frame: &mut Frame,
+    name: &str,
+    valu: u64,
+    lifetime_valu: u64,
+    unique_caught: usize,
+    total_species: usize,
+    fish_in_basket: usize,
+    items_picked: usize,
+    quests_done: usize,
+    play_secs: u64,
+) {
+    let area = frame.area();
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" stats (q/esc to close) ")
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let h = play_secs / 3600;
+    let m = (play_secs % 3600) / 60;
+    let s = play_secs % 60;
+    let play = if h > 0 {
+        format!("{h}h {m}m {s}s")
+    } else if m > 0 {
+        format!("{m}m {s}s")
+    } else {
+        format!("{s}s")
+    };
+
+    let who = if name.is_empty() { "angler" } else { name };
+    let rows: Vec<(&str, String)> = vec![
+        ("Name", who.to_string()),
+        ("Play time", play),
+        ("Valu", format_valu(valu)),
+        ("Lifetime valu earned", format_valu(lifetime_valu)),
+        (
+            "Fishdex",
+            format!("{}/{} species", unique_caught, total_species),
+        ),
+        ("Fish in basket", fish_in_basket.to_string()),
+        ("Items picked up", items_picked.to_string()),
+        ("Quests completed", quests_done.to_string()),
+    ];
+
+    let lines: Vec<ratatui::text::Line> = rows
+        .into_iter()
+        .map(|(k, v)| {
+            ratatui::text::Line::from(vec![
+                ratatui::text::Span::styled(
+                    format!("  {:<24}", k),
+                    Style::default()
+                        .fg(Color::LightYellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                ratatui::text::Span::raw(v),
+            ])
+        })
+        .collect();
+    frame.render_widget(
+        Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }),
+        inner,
+    );
+}
+
+fn render_settings(frame: &mut Frame) {
+    let area = frame.area();
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" settings (q/esc to close) ")
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let body = vec![
+        ratatui::text::Line::from(""),
+        ratatui::text::Line::from("  No togglable settings yet."),
+        ratatui::text::Line::from(""),
+        ratatui::text::Line::from(ratatui::text::Span::styled(
+            "  Game data is stored at:",
+            Style::default().fg(Color::DarkGray),
+        )),
+        ratatui::text::Line::from(ratatui::text::Span::styled(
+            "    ~/.local/share/fishcli/save.json",
+            Style::default().fg(Color::DarkGray),
+        )),
+        ratatui::text::Line::from(ratatui::text::Span::styled(
+            "    ~/.local/share/fishcli/notes.txt",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+    frame.render_widget(
+        Paragraph::new(body).wrap(ratatui::widgets::Wrap { trim: false }),
+        inner,
+    );
 }
 
 fn render_help(frame: &mut Frame, topic: HelpTopic) {
