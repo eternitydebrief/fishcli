@@ -951,20 +951,32 @@ fn deep_water_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
 /// The Five Elders' castle in Atlantis. 16-wide x 9-tall rectangle around
 /// (0, 0). Interior is open seabed. Door at south-center (0, 4).
 fn atlantis_castle_at(x: i32, y: i32) -> Option<Tile> {
+    // First check the central castle.
     let in_x = (-8..=8).contains(&x);
     let in_y = (-4..=4).contains(&y);
-    if !in_x || !in_y {
-        return None;
+    if in_x && in_y {
+        let is_perim = x == -8 || x == 8 || y == -4 || y == 4;
+        let is_door = (x == 0 || x == -1 || x == 1) && y == 4;
+        if is_door {
+            return Some(Tile::LandmarkDoor);
+        }
+        if is_perim {
+            return Some(Tile::LandmarkWall);
+        }
+        return Some(Tile::Seabed);
     }
-    let is_perim = x == -8 || x == 8 || y == -4 || y == 4;
-    let is_door = (x == 0 || x == -1 || x == 1) && y == 4;
-    if is_door {
-        return Some(Tile::LandmarkDoor);
+    // Outlying citizen cottages around the castle. Each is a 4x3 hut with
+    // a south-facing door. Positions are hand-placed so the city has
+    // an actual shape.
+    const ATLANTIS_HUTS: &[(i32, i32)] = &[
+        (-13, 4), (-13, 8), (10, 4), (10, 8), (-6, 8), (5, 8),
+    ];
+    for &(cx, cy) in ATLANTIS_HUTS {
+        if let Some(t) = small_hut_at(x, y, cx, cy) {
+            return Some(t);
+        }
     }
-    if is_perim {
-        return Some(Tile::LandmarkWall);
-    }
-    Some(Tile::Seabed)
+    None
 }
 
 /// The Crypt in the Mines. 11x7 rectangle around (0, 0), interior dotted
@@ -995,22 +1007,49 @@ fn mines_crypt_at(x: i32, y: i32) -> Option<Tile> {
 }
 
 /// The Fallen Fish's keep in the Inferno. Larger castle than the Crypt,
-/// smaller than the Atlantean palace. Door at south.
+/// smaller than the Atlantean palace. Door at south. Hovels of his
+/// infernal subjects scattered around.
 fn inferno_castle_at(x: i32, y: i32) -> Option<Tile> {
     let in_x = (-7..=7).contains(&x);
     let in_y = (-4..=4).contains(&y);
-    if !in_x || !in_y {
+    if in_x && in_y {
+        let is_perim = x == -7 || x == 7 || y == -4 || y == 4;
+        let is_door = x == 0 && y == 4;
+        if is_door {
+            return Some(Tile::LandmarkDoor);
+        }
+        if is_perim {
+            return Some(Tile::LandmarkWall);
+        }
+        return Some(Tile::InfernoFloor);
+    }
+    const INFERNO_HOVELS: &[(i32, i32)] = &[
+        (-11, 4), (8, 4), (-5, 8), (5, 8),
+    ];
+    for &(cx, cy) in INFERNO_HOVELS {
+        if let Some(t) = small_hut_at(x, y, cx, cy) {
+            return Some(t);
+        }
+    }
+    None
+}
+
+/// 4-wide x 3-tall hut anchored at (cx, cy) (top-left). Door at south-center.
+fn small_hut_at(x: i32, y: i32, cx: i32, cy: i32) -> Option<Tile> {
+    let dx = x - cx;
+    let dy = y - cy;
+    if !(0..=3).contains(&dx) || !(0..=2).contains(&dy) {
         return None;
     }
-    let is_perim = x == -7 || x == 7 || y == -4 || y == 4;
-    let is_door = x == 0 && y == 4;
+    let is_perim = dx == 0 || dx == 3 || dy == 0 || dy == 2;
+    let is_door = dx == 1 && dy == 2;
     if is_door {
         return Some(Tile::LandmarkDoor);
     }
     if is_perim {
         return Some(Tile::LandmarkWall);
     }
-    Some(Tile::InfernoFloor)
+    Some(Tile::CaveFloor)
 }
 
 fn landmark_wall_glyph(x: i32, y: i32, dim: Dimension) -> (char, Style) {

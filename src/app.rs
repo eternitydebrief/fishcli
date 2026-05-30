@@ -1556,6 +1556,22 @@ impl App {
     }
 
     fn check_biome_change(&mut self) {
+        // Non-surface dimensions don't use the biome system; show the dim
+        // name in the popup once on entry.
+        if self.world.dim != crate::world::Dimension::Surface {
+            let label = match self.world.dim {
+                crate::world::Dimension::Mines => "Mines",
+                crate::world::Dimension::Atlantis => "Atlantis",
+                crate::world::Dimension::Inferno => "Inferno",
+                crate::world::Dimension::Surface => "Sentinel",
+            };
+            if self.current_location.as_deref() != Some(label) {
+                self.current_location = Some(label.to_string());
+                self.biome_popup_ticks = 60;
+                self.narrator.say(format!("Entered: {label}"));
+            }
+            return;
+        }
         let b = biome_at(self.player.x, self.player.y, self.world.seed);
         self.current_biome = Some(b);
         let label = crate::world::location_name_at(
