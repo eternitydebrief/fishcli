@@ -16,6 +16,7 @@ mod fishing;
 mod fishlist;
 mod narrator;
 mod player;
+mod save;
 mod world;
 
 use app::App;

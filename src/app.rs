@@ -4,6 +4,7 @@ use crate::fishing::{Fishing, FishingResult};
 use crate::fishlist::FISH;
 use crate::narrator::Narrator;
 use crate::player::Player;
+use crate::save::{self, SaveData};
 use crate::world::{Tile, World};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
@@ -46,10 +47,26 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
+        let mut app = Self::fresh();
+        if let Some(data) = save::load_from_disk() {
+            app.apply_save(&data);
+            let who = if app.player.name.is_empty() {
+                "angler".to_string()
+            } else {
+                app.player.name.clone()
+            };
+            app.narrator.say(format!("Welcome back, {who}."));
+        } else {
+            app.narrator.say("No save found — starting fresh.");
+            app.narrator.say("Esc → Normal mode. : for commands (:w :wq :q :q! :s :m :e :h).");
+        }
+        app
+    }
+
+    fn fresh() -> Self {
         let mut narrator = Narrator::new();
         narrator.say("You arrive at the village.");
         narrator.say("Yellow D west = rod shop. Pink D east = fishing school. Dock is south.");
-        narrator.say("Esc → Normal mode. : for commands (:w :wq :q :q! :s :m :e :h).");
         Self {
             world: World::new(0xDEAD_BEEF),
             player: Player::spawn(),
@@ -63,6 +80,66 @@ impl App {
             held_dir: None,
             held_until_tick: 0,
             last_step_tick: 0,
+        }
+    }
+
+    fn apply_save(&mut self, data: &SaveData) {
+        self.player.x = data.player_x;
+        self.player.y = data.player_y;
+        self.player.name = data.name.clone();
+        self.player.valu = data.valu;
+        self.player.inventory = data
+            .inventory
+            .iter()
+            .filter_map(|n| FISH.iter().find(|f| f.name == n.as_str()))
+            .collect();
+        if data.caught.len() == self.caught.len() {
+            self.caught = data.caught.clone();
+        } else {
+            // FISH list grew/shrunk since save — preserve what we can
+            for (i, &c) in data.caught.iter().enumerate() {
+                if let Some(slot) = self.caught.get_mut(i) {
+                    *slot = c;
+                }
+            }
+        }
+        self.world = World::new(data.world_seed);
+        if data.rng_state != 0 {
+            self.rng_state = data.rng_state;
+        }
+    }
+
+    fn current_save(&self) -> SaveData {
+        SaveData {
+            name: self.player.name.clone(),
+            player_x: self.player.x,
+            player_y: self.player.y,
+            valu: self.player.valu,
+            inventory: self
+                .player
+                .inventory
+                .iter()
+                .map(|f| f.name.to_string())
+                .collect(),
+            caught: self.caught.clone(),
+            world_seed: self.world.seed,
+            rng_state: self.rng_state,
+            play_time_secs: 0,
+            lifetime_valu_earned: 0,
+        }
+    }
+
+    pub fn do_save(&mut self) -> bool {
+        let data = self.current_save();
+        match save::save_to_disk(&data) {
+            Ok(()) => {
+                self.narrator.say("Saved.");
+                true
+            }
+            Err(e) => {
+                self.narrator.say(format!("Save failed: {e}"));
+                false
+            }
         }
     }
 
@@ -213,13 +290,15 @@ impl App {
     fn execute_command(&mut self, cmd: &str) {
         let trimmed = cmd.trim();
         match trimmed {
-            "w" => self.narrator.say("Saved. (placeholder — save lands next commit)"),
+            "w" => {
+                self.do_save();
+            }
             "wq" | "x" => {
-                self.narrator.say("Saving and quitting.");
+                self.do_save();
                 self.running = false;
             }
             "q" => {
-                self.narrator.say("Quitting.");
+                self.do_save();
                 self.running = false;
             }
             "q!" => {
