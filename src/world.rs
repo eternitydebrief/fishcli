@@ -880,11 +880,11 @@ fn shore_anim(x: i32, row: i32, tick: u64) -> (char, Style) {
 }
 
 fn shore_splash(x: i32, row: i32, tick: u64) -> Option<(char, Style)> {
-    const SPAWN_EVERY: u64 = 3;
+    const SPAWN_EVERY: u64 = 6;
     const REACH: i32 = 4;
     // sand row dies fast so the foam appears to RETREAT toward the water row
-    let lifetime: u64 = if row == 0 { 10 } else { 28 };
-    let look_back = if row == 1 { lifetime } else { lifetime + 4 };
+    let lifetime: u64 = if row == 0 { 32 } else { 70 };
+    let look_back = if row == 1 { lifetime } else { lifetime + 8 };
 
     let mut active: Option<(u64, i32, u32)> = None;
     let earliest = tick.saturating_sub(look_back);
@@ -927,11 +927,11 @@ fn shore_splash(x: i32, row: i32, tick: u64) -> Option<(char, Style)> {
     let age = tick - spawn_t;
     let intensity = 1.0 - (age as f32 / lifetime as f32);
 
-    // glyph swap every 2 ticks per cell -> foam looks like it's roiling
+    // glyph swap every 7 ticks per cell -> calmer roil
     let local_dx = x - anchor_x;
     let ch_hash = hash2(
         x.wrapping_add(local_dx * 7),
-        (tick / 2) as i32,
+        (tick / 7) as i32,
         0xCAFE_F00D,
     );
     let glyph = match ch_hash % 8 {
