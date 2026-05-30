@@ -30,6 +30,7 @@ pub struct App {
     pub rng_state: u32,
     pub caught: Vec<bool>,
     pub narrator: Narrator,
+    pub valu: u64,
 }
 
 impl App {
@@ -46,6 +47,7 @@ impl App {
             rng_state: 0xC0FF_EE42,
             caught: vec![false; FISH.len()],
             narrator,
+            valu: 0,
         }
     }
 
@@ -207,17 +209,84 @@ impl App {
             Scene::Fishdex(d) => d.render(frame, &caught_snapshot),
         }
         let full = frame.area();
-        let log_w = 42u16.min(full.width);
+
+        let valu_str = format_valu(self.valu);
+        let valu_w = (valu_str.len() as u16 + 4).max(14).min(full.width);
+        let valu_h = 3u16.min(full.height);
+        if valu_w >= 8 && valu_h >= 3 {
+            let valu_area = Rect {
+                x: full.x + full.width - valu_w,
+                y: full.y + full.height - valu_h,
+                width: valu_w,
+                height: valu_h,
+            };
+            render_valu(frame, valu_area, &valu_str);
+        }
+
+        let log_w = 42u16.min(full.width.saturating_sub(valu_w));
         let log_h = 10u16.min(full.height);
         if log_w > 4 && log_h > 2 {
             let log_area = Rect {
-                x: full.x + full.width - log_w,
+                x: full.x,
                 y: full.y + full.height - log_h,
                 width: log_w,
                 height: log_h,
             };
             self.narrator.render(frame, log_area);
         }
+    }
+}
+
+fn render_valu(frame: &mut Frame, area: Rect, text: &str) {
+    use ratatui::widgets::Clear;
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" valu ")
+        .border_style(Style::default().fg(Color::Yellow));
+    let p = Paragraph::new(text.to_string())
+        .style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        )
+        .alignment(ratatui::layout::Alignment::Right)
+        .block(block);
+    frame.render_widget(p, area);
+}
+
+pub fn format_valu(v: u64) -> String {
+    fn short(n: f64, suffix: &str) -> String {
+        let s = format!("{:.1}", n);
+        let trimmed = s.strip_suffix(".0").unwrap_or(&s);
+        format!("{}{}$V", trimmed, suffix)
+    }
+    if v < 1_000 {
+        return format!("{}$V", v);
+    }
+    if v < 1_000_000 {
+        return short(v as f64 / 1_000.0, "k");
+    }
+    if v < 1_000_000_000 {
+        return short(v as f64 / 1_000_000.0, "M");
+    }
+    if v < 1_000_000_000_000 {
+        return short(v as f64 / 1_000_000_000.0, "B");
+    }
+    short(v as f64 / 1_000_000_000_000.0, "T")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_valu;
+
+    #[test]
+    fn formats_smartly() {
+        assert_eq!(format_valu(0), "0$V");
+        assert_eq!(format_valu(999), "999$V");
+        assert_eq!(format_valu(2_500), "2.5k$V");
+        assert_eq!(format_valu(29_000_000), "29M$V");
+        assert_eq!(format_valu(1_200_000_000), "1.2B$V");
     }
 }
 
