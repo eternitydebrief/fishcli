@@ -20,6 +20,7 @@ pub enum Scene {
     FishingSchool,
     Fishing(Fishing),
     Fishdex(Fishdex),
+    NamePrompt(String),
 }
 
 pub enum Mode {
@@ -57,8 +58,10 @@ impl App {
             };
             app.narrator.say(format!("Welcome back, {who}."));
         } else {
-            app.narrator.say("No save found — starting fresh.");
-            app.narrator.say("Esc → Normal mode. : for commands (:w :wq :q :q! :s :m :e :h).");
+            app.scene = Scene::NamePrompt(String::new());
+            app.narrator.say("No save found — pick a name to begin.");
+            app.narrator
+                .say("Esc → Normal mode. : for commands (:w :wq :q :q! :s :m :e :h).");
         }
         app
     }
@@ -96,7 +99,6 @@ impl App {
         if data.caught.len() == self.caught.len() {
             self.caught = data.caught.clone();
         } else {
-            // FISH list grew/shrunk since save — preserve what we can
             for (i, &c) in data.caught.iter().enumerate() {
                 if let Some(slot) = self.caught.get_mut(i) {
                     *slot = c;
@@ -167,6 +169,14 @@ impl App {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
+        if matches!(self.scene, Scene::NamePrompt(_)) {
+            if key.kind != KeyEventKind::Press && key.kind != KeyEventKind::Repeat {
+                return;
+            }
+            self.handle_name_prompt(key.code);
+            return;
+        }
+
         if matches!(self.mode, Mode::Insert) {
             if let Scene::Fishing(g) = &mut self.scene {
                 match key.code {
@@ -197,6 +207,34 @@ impl App {
             Mode::Insert => self.insert_key(key.code),
             Mode::Normal => self.normal_key(key.code),
             Mode::Command(_) => self.command_key(key.code),
+        }
+    }
+
+    fn handle_name_prompt(&mut self, code: KeyCode) {
+        let Scene::NamePrompt(buf) = &mut self.scene else {
+            return;
+        };
+        match code {
+            KeyCode::Enter => {
+                let trimmed = buf.trim().to_string();
+                let name = if trimmed.is_empty() {
+                    "angler".to_string()
+                } else {
+                    trimmed
+                };
+                self.player.name = name.clone();
+                self.narrator.say(format!("Welcome, {name}."));
+                self.narrator
+                    .say("Try :w to save your progress whenever.");
+                self.scene = Scene::Overworld;
+            }
+            KeyCode::Backspace => {
+                buf.pop();
+            }
+            KeyCode::Char(c) if !c.is_control() && buf.chars().count() < 24 => {
+                buf.push(c);
+            }
+            _ => {}
         }
     }
 
@@ -249,6 +287,7 @@ impl App {
                     self.exit_subscene();
                 }
             }
+            Scene::NamePrompt(_) => {}
         }
     }
 
@@ -436,6 +475,11 @@ impl App {
             ),
             Scene::Fishing(g) => g.render(frame, anim_tick),
             Scene::Fishdex(d) => d.render(frame, &caught_snapshot),
+            Scene::NamePrompt(buf) => render_name_prompt(frame, buf),
+        }
+
+        if matches!(self.scene, Scene::NamePrompt(_)) {
+            return;
         }
 
         let full = frame.area();
@@ -489,6 +533,56 @@ fn direction_for(code: KeyCode) -> Option<(i32, i32)> {
         KeyCode::Char('l') | KeyCode::Right => Some((1, 0)),
         _ => None,
     }
+}
+
+fn render_name_prompt(frame: &mut Frame, buf: &str) {
+    let area = frame.area();
+    frame.render_widget(Clear, area);
+
+    let outer = Block::default()
+        .borders(Borders::ALL)
+        .title(" fishcli ")
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = outer.inner(area);
+    frame.render_widget(outer, area);
+
+    let mid_y = inner.y + inner.height / 2;
+    let title = "    /\\___\\";
+    let body_lines = [
+        "",
+        "          welcome.",
+        "",
+        "         what's your name, angler?",
+        "",
+        &format!("            > {buf}_"),
+        "",
+        "         (enter to confirm)",
+    ];
+    let title_p = Paragraph::new(title)
+        .style(Style::default().fg(Color::Cyan))
+        .alignment(Alignment::Center);
+    let title_area = Rect {
+        x: inner.x,
+        y: mid_y.saturating_sub(8),
+        width: inner.width,
+        height: 1,
+    };
+    frame.render_widget(title_p, title_area);
+
+    let body: Vec<ratatui::text::Line> = body_lines
+        .iter()
+        .map(|l| ratatui::text::Line::from(*l))
+        .collect();
+    let body_p = Paragraph::new(body)
+        .style(Style::default().fg(Color::White))
+        .alignment(Alignment::Center);
+    let body_area = Rect {
+        x: inner.x,
+        y: mid_y.saturating_sub(6),
+        width: inner.width,
+        height: 10.min(inner.height.saturating_sub(2)),
+    };
+    frame.render_widget(body_p, body_area);
 }
 
 fn render_cmdline(frame: &mut Frame, area: Rect, mode: &Mode) {
