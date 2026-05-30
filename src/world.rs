@@ -401,7 +401,8 @@ fn is_tree_anchor(x: i32, y: i32, seed: u32, density: f32) -> bool {
     r < density
 }
 
-const WATER_CELL: i32 = 18;
+const WATER_CELL_W: i32 = 36;
+const WATER_CELL_H: i32 = 22;
 
 fn water_body_at(x: i32, y: i32, seed: u32) -> bool {
     if in_village_zone(x, y) {
@@ -410,35 +411,35 @@ fn water_body_at(x: i32, y: i32, seed: u32) -> bool {
     if y >= 5 {
         return false; // ocean strip handled elsewhere
     }
-    let cx = x.div_euclid(WATER_CELL);
-    let cy = y.div_euclid(WATER_CELL);
+    let cx = x.div_euclid(WATER_CELL_W);
+    let cy = y.div_euclid(WATER_CELL_H);
     for dcy in -1..=1 {
         for dcx in -1..=1 {
             let ccx = cx + dcx;
             let ccy = cy + dcy;
             let h = hash2(ccx, ccy, seed.wrapping_add(0xF00D_BEEF));
-            // ~33% of coarse cells host a water body
-            if h % 3 != 0 {
+            // ~12% of coarse cells host a water body
+            if h % 8 != 0 {
                 continue;
             }
-            // anchor offset inside the coarse cell
-            let ox = ((h >> 4) as i32).rem_euclid(WATER_CELL);
-            let oy = ((h >> 12) as i32).rem_euclid(WATER_CELL);
-            let ax = ccx * WATER_CELL + ox;
-            let ay = ccy * WATER_CELL + oy;
-            // size class
-            let radius: i32 = match (h >> 20) % 10 {
-                0..=4 => 1, // puddle / tiny
-                5..=7 => 3, // pond
-                8 => 5,     // small lake
-                _ => 8,     // larger lake
+            let ox = ((h >> 4) as i32).rem_euclid(WATER_CELL_W);
+            let oy = ((h >> 12) as i32).rem_euclid(WATER_CELL_H);
+            let ax = ccx * WATER_CELL_W + ox;
+            let ay = ccy * WATER_CELL_H + oy;
+            // horizontal-elongated size classes: (rx, ry) where rx > ry
+            let (rx, ry): (i32, i32) = match (h >> 20) % 10 {
+                0..=4 => (2, 1),  // puddle (wider than tall)
+                5..=7 => (5, 2),  // pond
+                8 => (8, 3),      // lake
+                _ => (12, 4),     // long lake
             };
-            if ay + radius >= 5 {
+            if ay + ry >= 5 {
                 continue;
             }
-            let dx = (x - ax).abs();
-            let dy = (y - ay).abs();
-            if dx + dy <= radius {
+            // ellipse-ish test: stretched horizontally
+            let dx = (x - ax) as f32 / rx.max(1) as f32;
+            let dy = (y - ay) as f32 / ry.max(1) as f32;
+            if dx * dx + dy * dy <= 1.0 {
                 return true;
             }
         }
