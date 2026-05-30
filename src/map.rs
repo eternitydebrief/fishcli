@@ -39,6 +39,9 @@ impl Tile {
         }
     }
 
+    pub fn walkable(self) -> bool {
+        !matches!(self, Tile::Wall | Tile::Water)
+    }
 }
 
 pub struct Map {
@@ -94,16 +97,20 @@ impl Map {
         self.cells[y * self.width + x]
     }
 
-    pub fn render_lines(&self) -> Vec<Line<'static>> {
+    pub fn render_lines(&self, player: Option<(usize, usize)>) -> Vec<Line<'static>> {
         (0..self.height)
             .map(|y| {
                 let spans: Vec<Span<'static>> = (0..self.width)
                     .map(|x| {
-                        let t = self.get(x, y);
-                        Span::styled(
-                            t.glyph().to_string(),
-                            Style::default().fg(t.color()),
-                        )
+                        if player == Some((x, y)) {
+                            Span::styled("@".to_string(), Style::default().fg(Color::White))
+                        } else {
+                            let t = self.get(x, y);
+                            Span::styled(
+                                t.glyph().to_string(),
+                                Style::default().fg(t.color()),
+                            )
+                        }
                     })
                     .collect();
                 Line::from(spans)

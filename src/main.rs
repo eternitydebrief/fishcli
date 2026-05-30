@@ -8,8 +8,10 @@ use ratatui::{
 use std::time::Duration;
 
 mod map;
+mod player;
 
 use map::Map;
+use player::Player;
 
 fn main() -> Result<()> {
     let mut terminal = ratatui::init();
@@ -20,6 +22,7 @@ fn main() -> Result<()> {
 
 fn run(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
     let map = Map::starter();
+    let mut player = Player::spawn();
 
     loop {
         terminal.draw(|frame| {
@@ -29,7 +32,8 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
                 .constraints([Constraint::Min(1), Constraint::Length(3)])
                 .split(area);
 
-            let map_widget = Paragraph::new(map.render_lines()).block(
+            let lines = map.render_lines(Some((player.x, player.y)));
+            let map_widget = Paragraph::new(lines).block(
                 Block::default()
                     .borders(Borders::ALL)
                     .title(" fishcli ")
@@ -37,7 +41,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
             );
             frame.render_widget(map_widget, chunks[0]);
 
-            let help = Paragraph::new("q: quit").block(
+            let help = Paragraph::new("hjkl/arrows: move    q: quit").block(
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::DarkGray)),
@@ -47,8 +51,16 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
 
         if event::poll(Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
-                    return Ok(());
+                if key.kind != KeyEventKind::Press {
+                    continue;
+                }
+                match key.code {
+                    KeyCode::Char('q') => return Ok(()),
+                    KeyCode::Char('h') | KeyCode::Left => player.try_move(&map, -1, 0),
+                    KeyCode::Char('j') | KeyCode::Down => player.try_move(&map, 0, 1),
+                    KeyCode::Char('k') | KeyCode::Up => player.try_move(&map, 0, -1),
+                    KeyCode::Char('l') | KeyCode::Right => player.try_move(&map, 1, 0),
+                    _ => {}
                 }
             }
         }
