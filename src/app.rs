@@ -984,6 +984,8 @@ impl App {
                 self.player.items.len(),
                 self.quest_done.len(),
                 self.total_play_secs(),
+                &self.stats,
+                &self.skills,
             ),
             Scene::Settings => render_settings(frame),
             Scene::Quests { cursor } => render_quests(
@@ -1376,6 +1378,8 @@ fn render_stats(
     items_picked: usize,
     quests_done: usize,
     play_secs: u64,
+    stats: &Stats,
+    skills: &Skills,
 ) {
     let area = frame.area();
     let block = Block::default()
@@ -1397,38 +1401,75 @@ fn render_stats(
     };
 
     let who = if name.is_empty() { "angler" } else { name };
-    let rows: Vec<(&str, String)> = vec![
-        ("Name", who.to_string()),
-        ("Play time", play),
-        ("Valu", format_valu(valu)),
-        ("Lifetime valu earned", format_valu(lifetime_valu)),
-        (
-            "Fishdex",
-            format!("{}/{} species", unique_caught, total_species),
-        ),
-        ("Fish in basket", fish_in_basket.to_string()),
-        ("Items picked up", items_picked.to_string()),
-        ("Quests completed", quests_done.to_string()),
-    ];
 
-    let lines: Vec<ratatui::text::Line> = rows
-        .into_iter()
-        .map(|(k, v)| {
-            ratatui::text::Line::from(vec![
-                ratatui::text::Span::styled(
-                    format!("  {:<24}", k),
-                    Style::default()
-                        .fg(Color::LightYellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                ratatui::text::Span::raw(v),
-            ])
-        })
-        .collect();
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    lines.push(section("PROFILE"));
+    lines.push(row("Name", who.to_string()));
+    lines.push(row("Play time", play));
+    lines.push(row("Valu", format_valu(valu)));
+    lines.push(row("Lifetime valu earned", format_valu(lifetime_valu)));
+
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(section("PROGRESS"));
+    lines.push(row(
+        "Fishdex",
+        format!("{}/{} species", unique_caught, total_species),
+    ));
+    lines.push(row("Fish in basket", fish_in_basket.to_string()));
+    lines.push(row("Items picked up", items_picked.to_string()));
+    lines.push(row("Quests completed", quests_done.to_string()));
+
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(section("ACTIVITY"));
+    lines.push(row("Steps taken", stats.steps.to_string()));
+    lines.push(row("Casts", stats.casts.to_string()));
+    lines.push(row("Fish caught (lifetime)", stats.fish_caught.to_string()));
+    lines.push(row("Fish escaped", stats.fish_escaped.to_string()));
+    lines.push(row("Fish sold", stats.fish_sold.to_string()));
+    lines.push(row("NPCs talked to", stats.npcs_talked.to_string()));
+
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(section("SKILLS"));
+    let entries = [
+        ("Fishing", skills.fishing_level(), skills.fishing_xp),
+        ("Walking", skills.walking_level(), skills.walking_xp),
+        ("Negotiation", skills.negotiation_level(), skills.negotiation_xp),
+        ("Mining", skills.mining_level(), skills.mining_xp),
+        ("Woodcutting", skills.woodcutting_level(), skills.woodcutting_xp),
+    ];
+    for (label, lvl, xp) in entries {
+        let next = crate::stats::level_to_xp(lvl + 1);
+        lines.push(row(
+            label,
+            format!("lv {lvl}  ({xp}/{next} xp)"),
+        ));
+    }
+
     frame.render_widget(
         Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }),
         inner,
     );
+}
+
+fn section(title: &str) -> ratatui::text::Line<'static> {
+    ratatui::text::Line::from(ratatui::text::Span::styled(
+        format!("  {}", title),
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    ))
+}
+
+fn row(key: &str, val: String) -> ratatui::text::Line<'static> {
+    ratatui::text::Line::from(vec![
+        ratatui::text::Span::styled(
+            format!("    {:<22}", key),
+            Style::default()
+                .fg(Color::LightYellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+        ratatui::text::Span::raw(val),
+    ])
 }
 
 fn render_settings(frame: &mut Frame) {
