@@ -1,5 +1,12 @@
 use anyhow::Result;
-use crossterm::event::{self, Event};
+use crossterm::{
+    event::{
+        self, Event, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+        PushKeyboardEnhancementFlags,
+    },
+    execute,
+};
+use std::io::stdout;
 use std::time::{Duration, Instant};
 
 mod app;
@@ -13,7 +20,15 @@ const TICK_RATE: Duration = Duration::from_millis(33);
 
 fn main() -> Result<()> {
     let mut terminal = ratatui::init();
+    let enhanced = execute!(
+        stdout(),
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::REPORT_EVENT_TYPES)
+    )
+    .is_ok();
     let result = run(&mut terminal);
+    if enhanced {
+        let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
+    }
     ratatui::restore();
     result
 }

@@ -1,3 +1,4 @@
+use crossterm::event::KeyEventKind;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout},
@@ -21,6 +22,10 @@ pub struct Fishing {
     pub fish_speed: f32,
     pub progress: f32,
     pub finished: Option<FishingResult>,
+    up_held: bool,
+    down_held: bool,
+    up_held_until: u32,
+    down_held_until: u32,
     rng_state: u32,
     tick_count: u32,
 }
@@ -37,17 +42,47 @@ impl Fishing {
             fish_speed: 0.35,
             progress: 50.0,
             finished: None,
+            up_held: false,
+            down_held: false,
+            up_held_until: 0,
+            down_held_until: 0,
             rng_state: 0x9E37_79B9,
             tick_count: 0,
         }
     }
 
-    pub fn push_up(&mut self) {
-        self.rect_vy -= 1.1;
+    pub fn input_up(&mut self, kind: KeyEventKind) {
+        match kind {
+            KeyEventKind::Press => {
+                self.rect_vy -= 0.35;
+                self.up_held = true;
+                self.up_held_until = self.tick_count + 18;
+            }
+            KeyEventKind::Repeat => {
+                self.up_held = true;
+                self.up_held_until = self.tick_count + 8;
+            }
+            KeyEventKind::Release => {
+                self.up_held = false;
+            }
+        }
     }
 
-    pub fn push_down(&mut self) {
-        self.rect_vy += 1.1;
+    pub fn input_down(&mut self, kind: KeyEventKind) {
+        match kind {
+            KeyEventKind::Press => {
+                self.rect_vy += 0.35;
+                self.down_held = true;
+                self.down_held_until = self.tick_count + 18;
+            }
+            KeyEventKind::Repeat => {
+                self.down_held = true;
+                self.down_held_until = self.tick_count + 8;
+            }
+            KeyEventKind::Release => {
+                self.down_held = false;
+            }
+        }
     }
 
     pub fn tick(&mut self) {
@@ -56,8 +91,21 @@ impl Fishing {
         }
         self.tick_count += 1;
 
-        let gravity = 0.18;
-        let damping = 0.86;
+        if self.up_held && self.tick_count > self.up_held_until {
+            self.up_held = false;
+        }
+        if self.down_held && self.tick_count > self.down_held_until {
+            self.down_held = false;
+        }
+        if self.up_held {
+            self.rect_vy -= 0.45;
+        }
+        if self.down_held {
+            self.rect_vy += 0.45;
+        }
+
+        let gravity = 0.22;
+        let damping = 0.85;
         self.rect_vy += gravity;
         self.rect_vy *= damping;
         self.rect_y += self.rect_vy;

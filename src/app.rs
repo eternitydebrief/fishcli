@@ -43,25 +43,30 @@ impl App {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
-        if key.kind != KeyEventKind::Press {
-            return;
-        }
         match &mut self.scene {
-            Scene::Overworld => self.handle_overworld(key.code),
             Scene::Fishing(g) => {
                 let mut leave = false;
                 match key.code {
-                    KeyCode::Char('k') | KeyCode::Up => g.push_up(),
-                    KeyCode::Char('j') | KeyCode::Down => g.push_down(),
-                    KeyCode::Esc | KeyCode::Char('q') => leave = true,
+                    KeyCode::Char('k') | KeyCode::Up => g.input_up(key.kind),
+                    KeyCode::Char('j') | KeyCode::Down => g.input_down(key.kind),
+                    KeyCode::Esc | KeyCode::Char('q') if key.kind == KeyEventKind::Press => {
+                        leave = true;
+                    }
                     _ => {}
                 }
                 if leave {
                     self.scene = Scene::Overworld;
                 }
             }
+            Scene::Overworld => {
+                if key.kind == KeyEventKind::Press {
+                    self.handle_overworld(key.code);
+                }
+            }
             Scene::RodShop | Scene::FishingSchool => {
-                if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
+                if key.kind == KeyEventKind::Press
+                    && matches!(key.code, KeyCode::Esc | KeyCode::Char('q'))
+                {
                     self.scene = Scene::Overworld;
                 }
             }
