@@ -272,7 +272,7 @@ impl World {
 
     pub fn render_tile(&self, x: i32, y: i32, tick: u64) -> (char, Style) {
         match self.get(x, y) {
-            Tile::Wall => wall_glyph(x, y),
+            Tile::Wall => perimeter_glyph(x, y).unwrap_or_else(|| wall_glyph(x, y)),
             Tile::Roof => roof_glyph(x, y),
             Tile::DoorRod => (
                 'D',
@@ -502,7 +502,7 @@ fn find_tree_anchor(x: i32, y: i32, seed: u32) -> Option<(i32, i32, TreeSpecies,
 }
 
 fn in_village_zone(x: i32, y: i32) -> bool {
-    x.abs() <= 30 && (-6..=4).contains(&y)
+    x.abs() <= 32 && (-8..=4).contains(&y)
 }
 
 fn hash2(x: i32, y: i32, seed: u32) -> u32 {
@@ -689,8 +689,14 @@ fn big_rock_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
 }
 
 fn village_tile(x: i32, y: i32) -> Option<Tile> {
-    let in_left_house = (-22..=-18).contains(&x) && (-3..=1).contains(&y);
-    if in_left_house {
+    // perimeter walls first - they may overlap house corners visually
+    if let Some(t) = village_perimeter(x, y) {
+        return Some(t);
+    }
+
+    // rod shop (left)
+    let in_rod = (-22..=-18).contains(&x) && (-3..=1).contains(&y);
+    if in_rod {
         if x == -20 && y == 1 {
             return Some(Tile::DoorRod);
         }
@@ -699,8 +705,9 @@ fn village_tile(x: i32, y: i32) -> Option<Tile> {
         }
         return Some(Tile::Wall);
     }
-    let in_right_house = (18..=22).contains(&x) && (-3..=1).contains(&y);
-    if in_right_house {
+    // fishing school (right)
+    let in_school = (18..=22).contains(&x) && (-3..=1).contains(&y);
+    if in_school {
         if x == 20 && y == 1 {
             return Some(Tile::DoorSchool);
         }
@@ -709,14 +716,94 @@ fn village_tile(x: i32, y: i32) -> Option<Tile> {
         }
         return Some(Tile::Wall);
     }
+    // inn (left-center, decorative)
+    let in_inn = (-12..=-8).contains(&x) && (-3..=1).contains(&y);
+    if in_inn {
+        if x == -10 && y == 1 {
+            return Some(Tile::DoorRod);
+        }
+        if y == -3 {
+            return Some(Tile::Roof);
+        }
+        return Some(Tile::Wall);
+    }
+    // cottage (right-center)
+    let in_cottage = (8..=12).contains(&x) && (-3..=1).contains(&y);
+    if in_cottage {
+        if x == 10 && y == 1 {
+            return Some(Tile::DoorSchool);
+        }
+        if y == -3 {
+            return Some(Tile::Roof);
+        }
+        return Some(Tile::Wall);
+    }
+    // bakery (top center)
+    let in_bakery = (-2..=2).contains(&x) && (-5..=-3).contains(&y);
+    if in_bakery {
+        if x == 0 && y == -3 {
+            return Some(Tile::DoorRod);
+        }
+        if y == -5 {
+            return Some(Tile::Roof);
+        }
+        return Some(Tile::Wall);
+    }
+
+    // dock and well in the central square
     if (-6..=5).contains(&x) && (5..=8).contains(&y) {
         return Some(Tile::Dock);
     }
-    // village well in the central square
     if (x, y) == (0, -1) {
         return Some(Tile::Well);
     }
     None
+}
+
+/// 2-thick perimeter fence around the village with stylized corners.
+/// Bottom is open between x=-6..=5 so the player can walk to the dock.
+fn village_perimeter(x: i32, y: i32) -> Option<Tile> {
+    let on_top_band = (-31..=31).contains(&x) && (-7..=-6).contains(&y);
+    let on_left_band = (-31..=-30).contains(&x) && (-7..=4).contains(&y);
+    let on_right_band = (30..=31).contains(&x) && (-7..=4).contains(&y);
+    let dock_gap = (-6..=5).contains(&x);
+    let on_bottom_band = (-31..=31).contains(&x) && y == 4 && !dock_gap;
+    if on_top_band || on_left_band || on_right_band || on_bottom_band {
+        Some(Tile::Wall)
+    } else {
+        None
+    }
+}
+
+/// Render glyph for a perimeter wall cell. Returns None if not on perimeter.
+fn perimeter_glyph(x: i32, y: i32) -> Option<(char, Style)> {
+    let style = || {
+        Style::default()
+            .fg(Color::Rgb(160, 130, 90))
+            .add_modifier(Modifier::BOLD)
+    };
+    // corners (2x2 top, 1-row bottom corners)
+    let g = match (x, y) {
+        // top-left
+        (-31, -7) | (-30, -7) => '|',
+        (-31, -6) => '\\',
+        (-30, -6) => '_',
+        // top-right
+        (30, -7) | (31, -7) => '|',
+        (31, -6) => '/',
+        (30, -6) => '_',
+        // bottom-left
+        (-31, 4) => '\\',
+        (-30, 4) => '_',
+        // bottom-right
+        (31, 4) => '/',
+        (30, 4) => '_',
+        // straight edges
+        _ if y == -7 || y == -6 || y == 4 => '_',
+        _ if x == -31 || x == -30 || x == 30 || x == 31 => '|',
+        _ => return None,
+    };
+    Some((g, style()))
 }
 
 const WELL_CELL: i32 = 60;
