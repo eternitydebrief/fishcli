@@ -1,3 +1,4 @@
+use crate::fish;
 use crate::fishing::Fishing;
 use crate::map::{Map, Tile};
 use crate::player::Player;
@@ -22,6 +23,7 @@ pub struct App {
     pub scene: Scene,
     pub running: bool,
     pub anim_tick: u64,
+    pub rng_state: u32,
 }
 
 impl App {
@@ -32,6 +34,7 @@ impl App {
             scene: Scene::Overworld,
             running: true,
             anim_tick: 0,
+            rng_state: 0xC0FF_EE42,
         }
     }
 
@@ -94,7 +97,10 @@ impl App {
         match self.map.get(nx, ny) {
             Tile::DoorRod => self.scene = Scene::RodShop,
             Tile::DoorSchool => self.scene = Scene::FishingSchool,
-            Tile::Dock => self.scene = Scene::Fishing(Fishing::new()),
+            Tile::Dock => {
+                let f = fish::pick_fish(&mut self.rng_state);
+                self.scene = Scene::Fishing(Fishing::new(f, self.rng_state));
+            }
             t if t.walkable() => {
                 self.player.x = nx;
                 self.player.y = ny;

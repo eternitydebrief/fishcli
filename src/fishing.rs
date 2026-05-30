@@ -1,3 +1,4 @@
+use crate::fish::FishDef;
 use crossterm::event::KeyEventKind;
 use ratatui::{
     Frame,
@@ -35,6 +36,7 @@ fn scene_water(x: usize, y: usize, tick: u64) -> (char, Style) {
 }
 
 pub struct Fishing {
+    pub fish: &'static FishDef,
     pub bar_h: usize,
     pub rect_h: f32,
     pub rect_y: f32,
@@ -42,6 +44,7 @@ pub struct Fishing {
     pub fish_y: f32,
     pub fish_target_y: f32,
     pub fish_speed: f32,
+    pub target_change_ticks: u32,
     pub progress: f32,
     pub finished: Option<FishingResult>,
     up_held: bool,
@@ -53,22 +56,28 @@ pub struct Fishing {
 }
 
 impl Fishing {
-    pub fn new() -> Self {
+    pub fn new(fish: &'static FishDef, rng_seed: u32) -> Self {
+        let bar_h = 22usize;
+        let rect_h = fish.rect_h();
+        let rect_y = (bar_h as f32 - rect_h) / 2.0;
+        let mid = bar_h as f32 / 2.0;
         Self {
-            bar_h: 22,
-            rect_h: 5.0,
-            rect_y: 8.5,
+            fish,
+            bar_h,
+            rect_h,
+            rect_y,
             rect_vy: 0.0,
-            fish_y: 11.0,
-            fish_target_y: 11.0,
-            fish_speed: 0.35,
+            fish_y: mid,
+            fish_target_y: mid,
+            fish_speed: fish.fish_speed(),
+            target_change_ticks: fish.target_change_ticks().max(1),
             progress: 50.0,
             finished: None,
             up_held: false,
             down_held: false,
             up_held_until: 0,
             down_held_until: 0,
-            rng_state: 0x9E37_79B9,
+            rng_state: if rng_seed == 0 { 0x9E37_79B9 } else { rng_seed },
             tick_count: 0,
         }
     }
@@ -142,7 +151,7 @@ impl Fishing {
             self.rect_vy = 0.0;
         }
 
-        if self.tick_count % 35 == 0 {
+        if self.tick_count % self.target_change_ticks == 0 {
             self.fish_target_y = self.next_target();
         }
         let dy = self.fish_target_y - self.fish_y;
@@ -178,9 +187,11 @@ impl Fishing {
 
     pub fn render(&self, frame: &mut Frame, anim_tick: u64) {
         let area = frame.area();
+        let stars = "★".repeat(self.fish.difficulty as usize);
+        let title = format!(" fishing — {} {} ", self.fish.name, stars);
         let outer = Block::default()
             .borders(Borders::ALL)
-            .title(" fishing ")
+            .title(title)
             .border_style(Style::default().fg(Color::Cyan));
         let inner = outer.inner(area);
         frame.render_widget(outer, area);
@@ -227,10 +238,19 @@ impl Fishing {
             .percent(self.progress as u16);
         frame.render_widget(gauge, right[0]);
 
-        let (msg, color) = match &self.finished {
-            Some(FishingResult::Caught) => ("caught it!  esc/q to leave", Color::Green),
-            Some(FishingResult::Escaped) => ("got away.  esc/q to leave", Color::Red),
-            None => ("hold up/down to pull line    esc/q: leave", Color::White),
+        let (msg, color): (String, Color) = match &self.finished {
+            Some(FishingResult::Caught) => (
+                format!("caught a {}!  {}", self.fish.name, self.fish.description),
+                Color::Green,
+            ),
+            Some(FishingResult::Escaped) => (
+                format!("the {} got away.", self.fish.name),
+                Color::Red,
+            ),
+            None => (
+                "hold up/down to pull line    esc/q: leave".into(),
+                Color::White,
+            ),
         };
         let status = Paragraph::new(msg).style(Style::default().fg(color)).block(
             Block::default()
