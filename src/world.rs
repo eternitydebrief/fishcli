@@ -4,6 +4,47 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::Widget,
 };
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+// per-thread memoization for the two most-called lookups. capped so memory
+// stays bounded across long explorations.
+const CACHE_CAP: usize = 16384;
+
+thread_local! {
+    static BIOME_CACHE: RefCell<HashMap<(i32, i32), Biome>> = RefCell::new(HashMap::with_capacity(CACHE_CAP));
+    static WATER_CACHE: RefCell<HashMap<(i32, i32), bool>> = RefCell::new(HashMap::with_capacity(CACHE_CAP));
+}
+
+fn cached_biome_at(x: i32, y: i32, seed: u32) -> Biome {
+    BIOME_CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        if let Some(&b) = c.get(&(x, y)) {
+            return b;
+        }
+        if c.len() >= CACHE_CAP {
+            c.clear();
+        }
+        let b = biome_at(x, y, seed);
+        c.insert((x, y), b);
+        b
+    })
+}
+
+fn cached_water_body_at(x: i32, y: i32, seed: u32) -> bool {
+    WATER_CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        if let Some(&b) = c.get(&(x, y)) {
+            return b;
+        }
+        if c.len() >= CACHE_CAP {
+            c.clear();
+        }
+        let b = water_body_at(x, y, seed);
+        c.insert((x, y), b);
+        b
+    })
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Biome {
@@ -178,18 +219,24 @@ pub struct WorldView<'a> {
 
 impl<'a> Widget for WorldView<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        use rayon::prelude::*;
         if area.width == 0 || area.height == 0 {
             return;
         }
         let half_w = (area.width as i32) / 2;
         let half_h = (area.height as i32) / 2;
         let player_style = Style::default().fg(Color::White).add_modifier(Modifier::BOLD);
-        for sy in 0..area.height {
-            for sx in 0..area.width {
-                let cx = area.x + sx;
-                let cy = area.y + sy;
-                let cell = &mut buf[(cx, cy)];
-                if sx as i32 == half_w && sy as i32 == half_h {
+        let area_w = area.width as usize;
+        let n = area_w * area.height as usize;
+
+        // compute (glyph, style) for every cell in parallel; thread-local
+        // caches inside render_tile keep biome/water lookups cheap per worker
+        let computed: Vec<(char, Style)> = (0..n)
+            .into_par_iter()
+            .map(|i| {
+                let sx = (i % area_w) as i32;
+                let sy = (i / area_w) as i32;
+                if sx == half_w && sy == half_h {
                     let g = match self.player_facing {
                         (0, -1) => '^',
                         (0, 1) => 'v',
@@ -197,22 +244,29 @@ impl<'a> Widget for WorldView<'a> {
                         (1, 0) => '>',
                         _ => '@',
                     };
-                    cell.set_char(g).set_style(player_style);
-                } else {
-                    let wx = self.player.0 - half_w + sx as i32;
-                    let wy = self.player.1 - half_h + sy as i32;
-                    if let Some(npc) = crate::npc::npc_at(wx, wy) {
-                        cell.set_char(npc.render_char()).set_style(
-                            Style::default()
-                                .fg(npc.render_color())
-                                .add_modifier(Modifier::BOLD),
-                        );
-                    } else {
-                        let (g, s) = self.world.render_tile(wx, wy, self.tick);
-                        cell.set_char(g).set_style(s);
-                    }
+                    return (g, player_style);
                 }
-            }
+                let wx = self.player.0 - half_w + sx;
+                let wy = self.player.1 - half_h + sy;
+                if let Some(npc) = crate::npc::npc_at(wx, wy) {
+                    return (
+                        npc.render_char(),
+                        Style::default()
+                            .fg(npc.render_color())
+                            .add_modifier(Modifier::BOLD),
+                    );
+                }
+                self.world.render_tile(wx, wy, self.tick)
+            })
+            .collect();
+
+        // sequential write into the ratatui buffer
+        for (i, (g, s)) in computed.into_iter().enumerate() {
+            let sx = (i % area_w) as u16;
+            let sy = (i / area_w) as u16;
+            let cx = area.x + sx;
+            let cy = area.y + sy;
+            buf[(cx, cy)].set_char(g).set_style(s);
         }
     }
 }
@@ -243,7 +297,7 @@ impl World {
             return Tile::Well;
         }
         if !in_village_zone(x, y) {
-            let biome = biome_at(x, y, self.seed);
+            let biome = cached_biome_at(x, y, self.seed);
             let p = biome_params(biome);
             if p.cactus > 0.0 {
                 let rc = hash2(x, y, self.seed.wrapping_add(0xCAC7_CAC7)) as f32 / u32::MAX as f32;
@@ -298,7 +352,7 @@ impl World {
                     .add_modifier(Modifier::BOLD),
             ),
             Tile::Dock => ('=', Style::default().fg(Color::LightYellow)),
-            Tile::Grass => grass_anim(x, y, tick, biome_at(x, y, self.seed)),
+            Tile::Grass => grass_anim(x, y, tick, cached_biome_at(x, y, self.seed)),
             Tile::Water => {
                 if matches!(self.get(x, y - 1), Tile::Sand) {
                     shore_anim(x, 1, tick)
@@ -370,7 +424,7 @@ fn is_big_rock_anchor(x: i32, y: i32, seed: u32, density: f32) -> bool {
     if y >= 4 {
         return false;
     }
-    if water_body_at(x, y, seed) {
+    if cached_water_body_at(x, y, seed) {
         return false;
     }
     let r = hash2(x, y, seed.wrapping_add(0xBEEF_FACE)) as f32 / u32::MAX as f32;
@@ -437,7 +491,7 @@ fn is_tree_anchor(x: i32, y: i32, seed: u32, density: f32) -> bool {
     if y >= 4 || y <= -1000 {
         return false;
     }
-    if water_body_at(x, y, seed) {
+    if cached_water_body_at(x, y, seed) {
         return false;
     }
     let r = hash2(x, y, seed.wrapping_add(0xC0DE_C0DE)) as f32 / u32::MAX as f32;
@@ -496,7 +550,7 @@ fn tree_at(x: i32, y: i32, seed: u32, density: f32) -> Option<Tile> {
         for dx in -1..=1i32 {
             let ax = x + dx;
             let ay = y + dy;
-            let local_density = biome_params(biome_at(ax, ay, seed)).tree;
+            let local_density = biome_params(cached_biome_at(ax, ay, seed)).tree;
             // anchor uses biome's own density (an anchor is local to its own biome)
             // density param is for the cell-of-interest; not used here
             let _ = density;
@@ -522,7 +576,7 @@ fn find_tree_anchor(x: i32, y: i32, seed: u32) -> Option<(i32, i32, TreeSpecies,
         for dx in -1..=1i32 {
             let ax = x + dx;
             let ay = y + dy;
-            let density = biome_params(biome_at(ax, ay, seed)).tree;
+            let density = biome_params(cached_biome_at(ax, ay, seed)).tree;
             if !is_tree_anchor(ax, ay, seed, density) {
                 continue;
             }
@@ -698,7 +752,7 @@ fn is_medium_rock_anchor(x: i32, y: i32, seed: u32, density: f32) -> bool {
     if y >= 4 {
         return false;
     }
-    if water_body_at(x, y, seed) {
+    if cached_water_body_at(x, y, seed) {
         return false;
     }
     let h = hash2(x, y, seed.wrapping_add(0xDEAF_BEAD)) as f32 / u32::MAX as f32;
@@ -711,7 +765,7 @@ fn medium_rock_at(x: i32, y: i32, seed: u32, density: f32) -> bool {
 }
 
 fn medium_rock_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
-    let p = biome_params(biome_at(x, y, seed));
+    let p = biome_params(cached_biome_at(x, y, seed));
     let density = p.medium_rock;
     let (anchor_x, _) = if is_medium_rock_anchor(x, y, seed, density) {
         (x, y)
@@ -757,7 +811,7 @@ fn big_rock_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
         for dx in 0..2i32 {
             let ax = x - dx;
             let ay = y - dy;
-            let density = biome_params(biome_at(ax, ay, seed)).big_rock;
+            let density = biome_params(cached_biome_at(ax, ay, seed)).big_rock;
             if is_big_rock_anchor(ax, ay, seed, density) {
                 anchor = (ax, ay);
                 found = true;
@@ -1031,7 +1085,7 @@ fn well_at(x: i32, y: i32, seed: u32) -> bool {
     if y >= 4 {
         return false;
     }
-    if water_body_at(x, y, seed) {
+    if cached_water_body_at(x, y, seed) {
         return false;
     }
     let cx = x.div_euclid(WELL_CELL);
