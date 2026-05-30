@@ -404,6 +404,10 @@ impl App {
                         g.input_down(key.kind);
                         return;
                     }
+                    KeyCode::Char(' ') | KeyCode::Char('f') => {
+                        g.input_action(key.kind);
+                        return;
+                    }
                     _ => {}
                 }
             }
