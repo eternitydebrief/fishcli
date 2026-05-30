@@ -8,9 +8,9 @@ use crate::world::{Tile, World};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
-    widgets::{Block, Borders, Paragraph},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders, Clear, Paragraph},
 };
 
 pub enum Scene {
@@ -21,10 +21,17 @@ pub enum Scene {
     Fishdex(Fishdex),
 }
 
+pub enum Mode {
+    Insert,
+    Normal,
+    Command(String),
+}
+
 pub struct App {
     pub world: World,
     pub player: Player,
     pub scene: Scene,
+    pub mode: Mode,
     pub running: bool,
     pub anim_tick: u64,
     pub rng_state: u32,
@@ -37,10 +44,12 @@ impl App {
         let mut narrator = Narrator::new();
         narrator.say("You arrive at the village.");
         narrator.say("Yellow D west = rod shop. Pink D east = fishing school. Dock is south.");
+        narrator.say("Esc → Normal mode. : for commands (:w :wq :q :q! :s :m :h).");
         Self {
             world: World::new(0xDEAD_BEEF),
             player: Player::spawn(),
             scene: Scene::Overworld,
+            mode: Mode::Insert,
             running: true,
             anim_tick: 0,
             rng_state: 0xC0FF_EE42,
@@ -57,65 +66,155 @@ impl App {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
-        match &mut self.scene {
-            Scene::Fishing(g) => {
-                let mut leave = false;
+        if matches!(self.mode, Mode::Insert) {
+            if let Scene::Fishing(g) = &mut self.scene {
                 match key.code {
-                    KeyCode::Char('k') | KeyCode::Up => g.input_up(key.kind),
-                    KeyCode::Char('j') | KeyCode::Down => g.input_down(key.kind),
-                    KeyCode::Esc | KeyCode::Char('q') if key.kind == KeyEventKind::Press => {
-                        leave = true;
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        g.input_up(key.kind);
+                        return;
+                    }
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        g.input_down(key.kind);
+                        return;
                     }
                     _ => {}
-                }
-                if leave {
-                    let fish_ref: &'static crate::fish::FishDef = g.fish;
-                    let caught = matches!(g.finished, Some(FishingResult::Caught));
-                    if caught {
-                        if let Some(i) = FISH.iter().position(|f| std::ptr::eq(f, fish_ref)) {
-                            self.caught[i] = true;
-                        }
-                        self.player.inventory.push(fish_ref);
-                        self.narrator
-                            .say(format!("You reel in a {}!", fish_ref.name));
-                        self.narrator
-                            .say(format!("Added to your basket ({} fish).", self.player.inventory.len()));
-                    } else if matches!(g.finished, Some(FishingResult::Escaped)) {
-                        self.narrator
-                            .say(format!("The {} slips away.", fish_ref.name));
-                    } else {
-                        self.narrator.say("You leave the line slack and step away.");
-                    }
-                    self.scene = Scene::Overworld;
-                }
-            }
-            Scene::Fishdex(d) => {
-                if key.kind != KeyEventKind::Press && key.kind != KeyEventKind::Repeat {
-                    return;
-                }
-                match key.code {
-                    KeyCode::Char('j') | KeyCode::Down => d.cursor_down(),
-                    KeyCode::Char('k') | KeyCode::Up => d.cursor_up(),
-                    KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('e') => {
-                        self.scene = Scene::Overworld;
-                    }
-                    _ => {}
-                }
-            }
-            Scene::Overworld => {
-                if key.kind == KeyEventKind::Press {
-                    self.handle_overworld(key.code);
-                }
-            }
-            Scene::RodShop | Scene::FishingSchool => {
-                if key.kind == KeyEventKind::Press
-                    && matches!(key.code, KeyCode::Esc | KeyCode::Char('q'))
-                {
-                    self.narrator.say("You step back outside.");
-                    self.scene = Scene::Overworld;
                 }
             }
         }
+
+        if key.kind != KeyEventKind::Press && key.kind != KeyEventKind::Repeat {
+            return;
+        }
+
+        match &mut self.mode {
+            Mode::Insert => self.insert_key(key.code),
+            Mode::Normal => self.normal_key(key.code),
+            Mode::Command(_) => self.command_key(key.code),
+        }
+    }
+
+    fn insert_key(&mut self, code: KeyCode) {
+        if code == KeyCode::Esc {
+            match self.scene {
+                Scene::Overworld => {
+                    self.mode = Mode::Normal;
+                    self.narrator.say("-- NORMAL -- (i to play, : for command)");
+                }
+                _ => self.exit_subscene(),
+            }
+            return;
+        }
+        match &mut self.scene {
+            Scene::Overworld => self.handle_overworld(code),
+            Scene::Fishdex(d) => match code {
+                KeyCode::Char('j') | KeyCode::Down => d.cursor_down(),
+                KeyCode::Char('k') | KeyCode::Up => d.cursor_up(),
+                KeyCode::Char('q') | KeyCode::Char('e') => self.exit_subscene(),
+                _ => {}
+            },
+            Scene::RodShop | Scene::FishingSchool => {
+                if matches!(code, KeyCode::Char('q')) {
+                    self.exit_subscene();
+                }
+            }
+            Scene::Fishing(_) => {
+                if matches!(code, KeyCode::Char('q')) {
+                    self.exit_subscene();
+                }
+            }
+        }
+    }
+
+    fn normal_key(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Char('i') | KeyCode::Char('a') => {
+                self.mode = Mode::Insert;
+            }
+            KeyCode::Char(':') => {
+                self.mode = Mode::Command(String::new());
+            }
+            _ => {}
+        }
+    }
+
+    fn command_key(&mut self, code: KeyCode) {
+        let Mode::Command(buf) = &mut self.mode else {
+            return;
+        };
+        match code {
+            KeyCode::Esc => {
+                self.mode = Mode::Normal;
+            }
+            KeyCode::Enter => {
+                let cmd = std::mem::take(buf);
+                self.mode = Mode::Normal;
+                self.execute_command(&cmd);
+            }
+            KeyCode::Backspace => {
+                buf.pop();
+            }
+            KeyCode::Char(c) => {
+                buf.push(c);
+            }
+            _ => {}
+        }
+    }
+
+    fn execute_command(&mut self, cmd: &str) {
+        let trimmed = cmd.trim();
+        match trimmed {
+            "w" => self.narrator.say("Saved. (placeholder — save lands next commit)"),
+            "wq" | "x" => {
+                self.narrator.say("Saving and quitting.");
+                self.running = false;
+            }
+            "q" => {
+                self.narrator.say("Quitting.");
+                self.running = false;
+            }
+            "q!" => {
+                self.running = false;
+            }
+            "s" => self.narrator.say("Stats screen — coming in a later commit."),
+            "m" => self.narrator.say("Settings — coming in a later commit."),
+            "h" | "help" => self
+                .narrator
+                .say("commands: :w  :wq  :q  :q!  :s  :m  :h"),
+            "" => {}
+            other => self.narrator.say(format!("Unknown command: :{other}")),
+        }
+    }
+
+    fn exit_subscene(&mut self) {
+        match &self.scene {
+            Scene::Fishing(g) => {
+                let fish_ref: &'static crate::fish::FishDef = g.fish;
+                let caught = matches!(g.finished, Some(FishingResult::Caught));
+                let escaped = matches!(g.finished, Some(FishingResult::Escaped));
+                if caught {
+                    if let Some(i) = FISH.iter().position(|f| std::ptr::eq(f, fish_ref)) {
+                        self.caught[i] = true;
+                    }
+                    self.player.inventory.push(fish_ref);
+                    self.narrator
+                        .say(format!("You reel in a {}!", fish_ref.name));
+                    self.narrator.say(format!(
+                        "Added to your basket ({} fish).",
+                        self.player.inventory.len()
+                    ));
+                } else if escaped {
+                    self.narrator
+                        .say(format!("The {} slips away.", fish_ref.name));
+                } else {
+                    self.narrator.say("You leave the line slack and step away.");
+                }
+            }
+            Scene::RodShop | Scene::FishingSchool => {
+                self.narrator.say("You step back outside.");
+            }
+            _ => {}
+        }
+        self.scene = Scene::Overworld;
     }
 
     fn handle_overworld(&mut self, code: KeyCode) {
@@ -187,7 +286,7 @@ impl App {
                 let map_widget = Paragraph::new(lines).block(block);
                 frame.render_widget(map_widget, chunks[0]);
                 let help = Paragraph::new(
-                    "hjkl/arrows: move    e: fishdex    walk into door/dock to enter    q: quit",
+                    "hjkl/arrows: move    e: fishdex    walk into door/dock to enter    esc: normal mode",
                 )
                 .block(
                     Block::default()
@@ -199,47 +298,87 @@ impl App {
             Scene::RodShop => render_placeholder(
                 frame,
                 " rod shop ",
-                "rod upgrades coming soon\n\nesc/q: leave",
+                "rod upgrades coming soon\n\nq or esc: leave",
             ),
             Scene::FishingSchool => render_placeholder(
                 frame,
                 " fishing school ",
-                "techniques coming soon\n\nesc/q: leave",
+                "techniques coming soon\n\nq or esc: leave",
             ),
             Scene::Fishing(g) => g.render(frame, anim_tick),
             Scene::Fishdex(d) => d.render(frame, &caught_snapshot),
         }
+
         let full = frame.area();
+        let cmdline_h = 1u16;
+        let effective_h = full.height.saturating_sub(cmdline_h);
 
         let valu_str = format_valu(self.player.valu);
         let valu_w = (valu_str.len() as u16 + 4).max(14).min(full.width);
-        let valu_h = 3u16.min(full.height);
+        let valu_h = 3u16.min(effective_h);
+        let mut valu_w_taken = 0u16;
         if valu_w >= 8 && valu_h >= 3 {
             let valu_area = Rect {
                 x: full.x + full.width - valu_w,
-                y: full.y + full.height - valu_h,
+                y: full.y + effective_h - valu_h,
                 width: valu_w,
                 height: valu_h,
             };
             render_valu(frame, valu_area, &valu_str);
+            valu_w_taken = valu_w;
         }
 
-        let log_w = 42u16.min(full.width.saturating_sub(valu_w));
-        let log_h = 10u16.min(full.height);
+        let log_w = 42u16.min(full.width.saturating_sub(valu_w_taken));
+        let log_h = 10u16.min(effective_h);
         if log_w > 4 && log_h > 2 {
             let log_area = Rect {
                 x: full.x,
-                y: full.y + full.height - log_h,
+                y: full.y + effective_h - log_h,
                 width: log_w,
                 height: log_h,
             };
             self.narrator.render(frame, log_area);
         }
+
+        if cmdline_h > 0 && full.height >= cmdline_h {
+            let cmd_area = Rect {
+                x: full.x,
+                y: full.y + full.height - cmdline_h,
+                width: full.width,
+                height: cmdline_h,
+            };
+            render_cmdline(frame, cmd_area, &self.mode);
+        }
     }
 }
 
+fn render_cmdline(frame: &mut Frame, area: Rect, mode: &Mode) {
+    frame.render_widget(Clear, area);
+    let (text, style) = match mode {
+        Mode::Insert => (
+            "-- INSERT --".to_string(),
+            Style::default().fg(Color::DarkGray),
+        ),
+        Mode::Normal => (
+            "-- NORMAL --".to_string(),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Mode::Command(buf) => (
+            format!(":{buf}"),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+    };
+    let p = Paragraph::new(text)
+        .style(style)
+        .alignment(Alignment::Left);
+    frame.render_widget(p, area);
+}
+
 fn render_valu(frame: &mut Frame, area: Rect, text: &str) {
-    use ratatui::widgets::Clear;
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
@@ -249,9 +388,9 @@ fn render_valu(frame: &mut Frame, area: Rect, text: &str) {
         .style(
             Style::default()
                 .fg(Color::Yellow)
-                .add_modifier(ratatui::style::Modifier::BOLD),
+                .add_modifier(Modifier::BOLD),
         )
-        .alignment(ratatui::layout::Alignment::Right)
+        .alignment(Alignment::Right)
         .block(block);
     frame.render_widget(p, area);
 }
@@ -277,6 +416,17 @@ pub fn format_valu(v: u64) -> String {
     short(v as f64 / 1_000_000_000_000.0, "T")
 }
 
+fn render_placeholder(frame: &mut Frame, title: &str, body: &str) {
+    let area = frame.area();
+    let widget = Paragraph::new(body.to_owned()).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(title.to_owned())
+            .border_style(Style::default().fg(Color::Cyan)),
+    );
+    frame.render_widget(widget, area);
+}
+
 #[cfg(test)]
 mod tests {
     use super::format_valu;
@@ -289,15 +439,4 @@ mod tests {
         assert_eq!(format_valu(29_000_000), "29M$V");
         assert_eq!(format_valu(1_200_000_000), "1.2B$V");
     }
-}
-
-fn render_placeholder(frame: &mut Frame, title: &str, body: &str) {
-    let area = frame.area();
-    let widget = Paragraph::new(body.to_owned()).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(title.to_owned())
-            .border_style(Style::default().fg(Color::Cyan)),
-    );
-    frame.render_widget(widget, area);
 }
