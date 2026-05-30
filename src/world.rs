@@ -129,7 +129,12 @@ impl World {
                 if shore {
                     foam_anim(x, tick)
                 } else {
-                    (',', Style::default().fg(Color::Yellow))
+                    let g = match hash2(x, y, 0x5A1D_5A1D) % 3 {
+                        0 => ',',
+                        1 => '.',
+                        _ => '`',
+                    };
+                    (g, Style::default().fg(shade((220, 200, 130), x, y, 0x5A1D_5A1D, 20)))
                 }
             }
             Tile::TreeTrunk => trunk_glyph(x, y),
@@ -223,23 +228,33 @@ fn canopy_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
         }
     }
     let v = anchor_seed % 4;
-    let (g, c) = match v {
-        0 => ('#', Color::Rgb(40, 130, 40)),
-        1 => ('#', Color::Rgb(60, 160, 60)),
-        2 => ('%', Color::Rgb(50, 140, 30)),
-        _ => ('&', Color::Rgb(70, 170, 50)),
+    let (g, base) = match v {
+        0 => ('#', (40, 130, 40)),
+        1 => ('#', (60, 160, 60)),
+        2 => ('%', (50, 140, 30)),
+        _ => ('&', (70, 170, 50)),
     };
-    (g, Style::default().fg(c).add_modifier(Modifier::BOLD))
+    (
+        g,
+        Style::default()
+            .fg(shade(base, x, y, 0xAA55_AA56, 18))
+            .add_modifier(Modifier::BOLD),
+    )
 }
 
 fn rock_glyph(x: i32, y: i32) -> (char, Style) {
     let v = hash2(x, y, 0xF00D_F00D) % 3;
-    let (g, c) = match v {
-        0 => ('o', Color::Rgb(110, 110, 110)),
-        1 => ('O', Color::Rgb(140, 140, 140)),
-        _ => ('@', Color::Rgb(100, 100, 100)),
+    let (g, base) = match v {
+        0 => ('o', (110, 110, 110)),
+        1 => ('O', (140, 140, 140)),
+        _ => ('@', (100, 100, 100)),
     };
-    (g, Style::default().fg(c).add_modifier(Modifier::BOLD))
+    (
+        g,
+        Style::default()
+            .fg(shade(base, x, y, 0xF00D_F00D, 18))
+            .add_modifier(Modifier::BOLD),
+    )
 }
 
 fn pebble_glyph(x: i32, y: i32) -> (char, Style) {
@@ -249,7 +264,7 @@ fn pebble_glyph(x: i32, y: i32) -> (char, Style) {
         1 => ',',
         _ => '`',
     };
-    (g, Style::default().fg(Color::Rgb(130, 120, 100)))
+    (g, Style::default().fg(shade((130, 120, 100), x, y, 0xABCD_1234, 20)))
 }
 
 fn flower_glyph(x: i32, y: i32) -> (char, Style) {
@@ -323,6 +338,22 @@ fn village_tile(x: i32, y: i32) -> Option<Tile> {
     None
 }
 
+fn jitter(x: i32, y: i32, salt: u32, range: i32) -> i32 {
+    let h = hash2(x, y, salt);
+    (h as i32 % (range * 2 + 1)) - range
+}
+
+fn shade(base: (u8, u8, u8), x: i32, y: i32, salt: u32, range: i32) -> Color {
+    let dr = jitter(x, y, salt, range);
+    let dg = jitter(x, y, salt.wrapping_add(1), range);
+    let db = jitter(x, y, salt.wrapping_add(2), range);
+    Color::Rgb(
+        (base.0 as i32 + dr).clamp(0, 255) as u8,
+        (base.1 as i32 + dg).clamp(0, 255) as u8,
+        (base.2 as i32 + db).clamp(0, 255) as u8,
+    )
+}
+
 fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
     let phase =
         (x.unsigned_abs() as u64 + (y.unsigned_abs() as u64) * 3 + tick / 4) % 12;
@@ -334,13 +365,13 @@ fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
         9 => '-',
         _ => '~',
     };
-    let color = match phase {
-        0..=2 => Color::Blue,
-        3..=5 => Color::LightBlue,
-        6..=8 => Color::Cyan,
-        _ => Color::Blue,
+    let base = match phase {
+        0..=2 => (20, 60, 160),
+        3..=5 => (40, 110, 200),
+        6..=8 => (60, 180, 220),
+        _ => (30, 80, 180),
     };
-    (glyph, Style::default().fg(color))
+    (glyph, Style::default().fg(shade(base, x, y, 0xA11_BABE, 18)))
 }
 
 fn grass_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
@@ -348,27 +379,29 @@ fn grass_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
         .wrapping_mul(7)
         .wrapping_add((y.unsigned_abs() as u64).wrapping_mul(13));
     let phase = (seed + tick / 25) % 41;
-    match phase {
-        0 => (',', Style::default().fg(Color::LightGreen)),
-        1 => ('\'', Style::default().fg(Color::LightGreen)),
-        2 => ('`', Style::default().fg(Color::Green)),
-        _ => ('.', Style::default().fg(Color::Green)),
-    }
+    let g = match phase {
+        0 => ',',
+        1 => '\'',
+        2 => '`',
+        _ => '.',
+    };
+    (g, Style::default().fg(shade((50, 130, 50), x, y, 0x6C00_6C00, 25)))
 }
 
 fn foam_anim(x: i32, tick: u64) -> (char, Style) {
     let phase = (x.unsigned_abs() as u64 * 3 + tick / 6) % 17;
-    match phase {
-        0 => (
-            '*',
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        ),
-        1 => ('o', Style::default().fg(Color::Gray)),
-        2 => ('.', Style::default().fg(Color::White)),
-        _ => (',', Style::default().fg(Color::Yellow)),
-    }
+    let (g, base) = match phase {
+        0 => ('*', (240, 240, 240)),
+        1 => ('o', (200, 200, 200)),
+        2 => ('.', (230, 230, 230)),
+        _ => (',', (210, 190, 130)),
+    };
+    (
+        g,
+        Style::default()
+            .fg(shade(base, x, 0, 0xF0AA_F0AA, 12))
+            .add_modifier(Modifier::BOLD),
+    )
 }
 
 #[cfg(test)]
