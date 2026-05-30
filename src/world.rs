@@ -564,23 +564,28 @@ fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
 }
 
 fn grass_anim(x: i32, y: i32, tick: u64, biome: Biome) -> (char, Style) {
-    // each tuft has its own random phase and period so waves are scattered
-    let h = hash2(x, y, 0x6C00_6C00) as u64;
-    let period = 90 + (h % 110);
-    let local = (tick + h) % period;
-    let g = match local {
-        0 => '\'',
-        1 => '`',
-        2 => ',',
-        _ => '.',
-    };
     let base = match biome {
         Biome::Meadow => (65, 105, 65),
         Biome::Forest => (45, 80, 50),
         Biome::Rocky => (95, 100, 70),
         Biome::Scrub => (110, 105, 75),
     };
-    (g, Style::default().fg(shade(base, x, y, 0x6C00_6C00, 14)))
+    let style = Style::default().fg(shade(base, x, y, 0x6C00_6C00, 14));
+
+    // only a small fraction of tufts ever wave. the rest stay still.
+    let h = hash2(x, y, 0x6C00_6C00) as u64;
+    if h % 24 != 0 {
+        return ('.', style);
+    }
+    // capable tufts wave briefly every ~10-20 seconds (at 30 tick/s)
+    let period = 320 + (h / 24) % 280;
+    let local = (tick + h) % period;
+    let g = match local {
+        0..=2 => '\'',
+        3..=5 => '`',
+        _ => '.',
+    };
+    (g, style)
 }
 
 fn shore_anim(x: i32, tick: u64) -> (char, Style) {
