@@ -11,7 +11,7 @@ use crate::player::Player;
 use crate::quest;
 use crate::save::{self, SaveData};
 use std::collections::HashMap;
-use crate::world::{Tile, World, WorldView};
+use crate::world::{biome_at, Biome, Tile, World, WorldView};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
     Frame,
@@ -87,6 +87,10 @@ pub struct App {
     pub quest_progress: HashMap<String, u32>,
     /// quest ids that have been completed and rewarded
     pub quest_done: Vec<String>,
+    /// most recent biome the player stepped into
+    pub current_biome: Option<Biome>,
+    /// shown when biome changes, ticks down to 0
+    pub biome_popup_ticks: u32,
     held_dir: Option<(i32, i32)>,
     held_until_tick: u64,
     last_step_tick: u64,
@@ -129,6 +133,8 @@ impl App {
             narrator,
             quest_progress: HashMap::new(),
             quest_done: Vec::new(),
+            current_biome: None,
+            biome_popup_ticks: 0,
             held_dir: None,
             held_until_tick: 0,
             last_step_tick: 0,
@@ -233,6 +239,9 @@ impl App {
 
     pub fn tick(&mut self) {
         self.anim_tick = self.anim_tick.wrapping_add(1);
+        if self.biome_popup_ticks > 0 {
+            self.biome_popup_ticks -= 1;
+        }
 
         let movement_allowed =
             matches!(self.mode, Mode::Insert) && matches!(self.scene, Scene::Overworld);
@@ -698,8 +707,18 @@ impl App {
             t if t.walkable() => {
                 self.player.x = nx;
                 self.player.y = ny;
+                self.check_biome_change();
             }
             _ => {}
+        }
+    }
+
+    fn check_biome_change(&mut self) {
+        let b = biome_at(self.player.x, self.player.y, self.world.seed);
+        if self.current_biome != Some(b) {
+            self.current_biome = Some(b);
+            self.biome_popup_ticks = 90; // ~3s at 30fps
+            self.narrator.say(format!("Entered: {}", b.label()));
         }
     }
 
@@ -794,7 +813,44 @@ impl App {
             };
             render_cmdline(frame, cmd_area, &self.mode);
         }
+
+        if self.biome_popup_ticks > 0 {
+            if let Some(b) = self.current_biome {
+                render_biome_popup(frame, b);
+            }
+        }
     }
+}
+
+fn render_biome_popup(frame: &mut Frame, biome: Biome) {
+    let area = frame.area();
+    let label = biome.label();
+    let w = (label.len() as u16 + 6).min(area.width);
+    let h = 3u16.min(area.height);
+    if w < 6 || h < 3 {
+        return;
+    }
+    let x = area.x + area.width.saturating_sub(w) / 2;
+    let y = area.y + 1;
+    let popup = Rect {
+        x,
+        y,
+        width: w,
+        height: h,
+    };
+    frame.render_widget(Clear, popup);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+    let p = Paragraph::new(label)
+        .style(
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )
+        .alignment(Alignment::Center)
+        .block(block);
+    frame.render_widget(p, popup);
 }
 
 fn direction_for(code: KeyCode) -> Option<(i32, i32)> {

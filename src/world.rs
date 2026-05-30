@@ -16,6 +16,20 @@ pub enum Biome {
     Swamp,
 }
 
+impl Biome {
+    pub fn label(self) -> &'static str {
+        match self {
+            Biome::Meadow => "Meadow",
+            Biome::Forest => "Forest",
+            Biome::Rocky => "Rocky Plain",
+            Biome::Scrub => "Scrubland",
+            Biome::Desert => "Desert",
+            Biome::Tundra => "Tundra",
+            Biome::Swamp => "Swamp",
+        }
+    }
+}
+
 struct BiomeParams {
     tree: f32,
     big_rock: f32,
