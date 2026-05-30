@@ -1,6 +1,8 @@
 use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
     style::{Color, Modifier, Style},
-    text::{Line, Span},
+    widgets::Widget,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,6 +53,38 @@ pub struct World {
     pub seed: u32,
 }
 
+pub struct WorldView<'a> {
+    pub world: &'a World,
+    pub player: (i32, i32),
+    pub tick: u64,
+}
+
+impl<'a> Widget for WorldView<'a> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        if area.width == 0 || area.height == 0 {
+            return;
+        }
+        let half_w = (area.width as i32) / 2;
+        let half_h = (area.height as i32) / 2;
+        let player_style = Style::default().fg(Color::White).add_modifier(Modifier::BOLD);
+        for sy in 0..area.height {
+            for sx in 0..area.width {
+                let cx = area.x + sx;
+                let cy = area.y + sy;
+                let cell = &mut buf[(cx, cy)];
+                if sx as i32 == half_w && sy as i32 == half_h {
+                    cell.set_char('@').set_style(player_style);
+                } else {
+                    let wx = self.player.0 - half_w + sx as i32;
+                    let wy = self.player.1 - half_h + sy as i32;
+                    let (g, s) = self.world.render_tile(wx, wy, self.tick);
+                    cell.set_char(g).set_style(s);
+                }
+            }
+        }
+    }
+}
+
 impl World {
     pub fn new(seed: u32) -> Self {
         Self { seed }
@@ -87,42 +121,7 @@ impl World {
         Tile::Grass
     }
 
-    pub fn render_viewport(
-        &self,
-        player: (i32, i32),
-        viewport_w: usize,
-        viewport_h: usize,
-        tick: u64,
-    ) -> Vec<Line<'static>> {
-        if viewport_w == 0 || viewport_h == 0 {
-            return Vec::new();
-        }
-        let half_w = (viewport_w as i32) / 2;
-        let half_h = (viewport_h as i32) / 2;
-        (0..viewport_h as i32)
-            .map(|sy| {
-                let spans: Vec<Span<'static>> = (0..viewport_w as i32)
-                    .map(|sx| {
-                        if sx == half_w && sy == half_h {
-                            return Span::styled(
-                                "@".to_string(),
-                                Style::default()
-                                    .fg(Color::White)
-                                    .add_modifier(Modifier::BOLD),
-                            );
-                        }
-                        let wx = player.0 - half_w + sx;
-                        let wy = player.1 - half_h + sy;
-                        let (g, s) = self.render_tile(wx, wy, tick);
-                        Span::styled(g.to_string(), s)
-                    })
-                    .collect();
-                Line::from(spans)
-            })
-            .collect()
-    }
-
-    fn render_tile(&self, x: i32, y: i32, tick: u64) -> (char, Style) {
+    pub fn render_tile(&self, x: i32, y: i32, tick: u64) -> (char, Style) {
         match self.get(x, y) {
             Tile::Wall => ('#', Style::default().fg(Color::Gray)),
             Tile::DoorRod => (

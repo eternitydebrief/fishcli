@@ -5,7 +5,7 @@ use crate::fishlist::FISH;
 use crate::narrator::Narrator;
 use crate::player::Player;
 use crate::save::{self, SaveData};
-use crate::world::{Tile, World};
+use crate::world::{Tile, World, WorldView};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
     Frame,
@@ -471,14 +471,15 @@ impl App {
                     ))
                     .border_style(Style::default().fg(Color::Cyan));
                 let inner = block.inner(area);
-                let lines = self.world.render_viewport(
-                    (self.player.x, self.player.y),
-                    inner.width as usize,
-                    inner.height as usize,
-                    anim_tick,
+                frame.render_widget(block, area);
+                frame.render_widget(
+                    WorldView {
+                        world: &self.world,
+                        player: (self.player.x, self.player.y),
+                        tick: anim_tick,
+                    },
+                    inner,
                 );
-                let map_widget = Paragraph::new(lines).block(block);
-                frame.render_widget(map_widget, area);
             }
             Scene::RodShop => render_placeholder(
                 frame,
