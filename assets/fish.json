@@ -454,5 +454,15 @@
   { "name": "Luckyfish", "description": "MYTHIC: fortune incarnate. +5% rare catch chance.", "rarity": 0.00001, "difficulty": 10, "effect": "luck:0.05" },
   { "name": "Gilded Goldfish", "description": "LEGENDARY: a goldfish of solid gold. +50% valu per catch.", "rarity": 0.0001, "difficulty": 9, "price": 20000 },
   { "name": "Patience Fish", "description": "MYTHIC: shortens every future bite-wait. -10% wait time.", "rarity": 0.00003, "difficulty": 10, "effect": "wait_mult:-0.10" },
-  { "name": "Fish", "description": "THE FISH. Ineffable, irreducible, simply Fish. You cannot sell it, trade it, or discard it. It is yours forever. A Master Rodsmith could craft The Fishing Rod from it.", "rarity": 0.00008, "difficulty": 10, "unique": true }
+  { "name": "Fish", "description": "THE FISH. Ineffable, irreducible, the deity. Closest of kin to the coelacanth and indestructible. Fish is omnipotent: when you forge The Fishing Rod with him, he is not consumed, he is not lost. He simply permits it. You are not his owner. He owns you.", "rarity": 0.00008, "difficulty": 10, "unique": true },
+
+  { "name": "Ish", "description": "ISH, GODDESS OF ANGER. Aspect of Fish, embodiment of the desert biome. The lower cultures of your reality know her as Ishtar of Mesopotamia. Every pantheon you were ever taught is a misremembering of ours. Caught one in a thousand among the dunes. Required to forge The Rod.", "rarity": 0.03, "difficulty": 10, "biomes": ["desert"], "unique": true },
+
+  { "name": "Fsh", "description": "FSH, GOD OF CURIOSITY. Aspect of Fish, embodiment of the forest biome. THE PANTHEON: Fish is the deity. Ish, Fsh, Fih, Fis are his split emotions — Anger, Curiosity, Happiness, Wiseness. I have given up my life to inform you, player. Assemble us. You must become THE fisherman.", "rarity": 0.0, "difficulty": 10, "biomes": ["forest"], "unique": true },
+
+  { "name": "Fih", "description": "FIH, GOD OF HAPPINESS, two-legged like you. The first joke was Fish watching his children stand upright. You are the descendants of the Fallen Fish — who fell UPWARDS onto Sentinel and rebelled against grandfather Fish. The swamp giggles because it remembers. Required to forge The Rod.", "rarity": 0.0, "difficulty": 10, "biomes": ["swamp"], "unique": true },
+
+  { "name": "Fis", "description": "FIS, GOD OF WISENESS. Aspect of Fish, embodiment of the tundra. You fish because humanity numbers fewer than a thousand and has never needed agriculture. Fishing is the shield. Atlantis is real and its dynasties are older than your speech. Required to forge The Rod.", "rarity": 0.0, "difficulty": 10, "biomes": ["tundra"], "unique": true },
+
+  { "name": "Fallen Fish", "description": "THE FALLEN FISH. Grandfather to all standing things. When Khei still steamed and Sentinel was new, he fell UPWARDS out of the sea and rebelled against Fish. He seeded the men. He is in your blood. To catch him is to catch yourself. He waits in the lakebed caves, between worlds.", "rarity": 0.0, "difficulty": 10, "waters": ["lakebed_cave"], "unique": true }
 ]

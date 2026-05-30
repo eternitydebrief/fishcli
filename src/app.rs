@@ -494,6 +494,11 @@ impl App {
         }
         self.tick_cast();
         self.maybe_autosave();
+        // Pantheon meta-progression checks: cheap, idempotent. Only fires when
+        // a threshold is crossed and that god isn't already granted.
+        if self.anim_tick % 20 == 0 {
+            self.check_pantheon_unlocks();
+        }
 
         let movement_allowed =
             matches!(self.mode, Mode::Insert) && matches!(self.scene, Scene::Overworld);
@@ -663,11 +668,7 @@ impl App {
                             // tier 201 = The Fishing Rod: requires the Fish + 1M valu.
                             // Fish is NOT consumed; you keep it forever.
                             if next == 201 {
-                                let has_fish = fishlist::fish()
-                                    .iter()
-                                    .position(|f| f.unique && f.name == "Fish")
-                                    .and_then(|i| self.caught.get(i).copied())
-                                    .unwrap_or(false);
+                                let has_fish = self.has_unique("Fish");
                                 const CRAFT_COST: u64 = 1_000_000;
                                 if !has_fish {
                                     self.narrator
@@ -684,6 +685,31 @@ impl App {
                                         "*** CRAFTED {} for {CRAFT_COST}$V. The Fish stays with you. ***",
                                         rod.name
                                     ));
+                                }
+                            } else if next == 202 {
+                                // The Rod: requires all 4 gods + The Fishing Rod owned.
+                                // No valu cost; this is the apex of the pantheon.
+                                let missing: Vec<&str> = ["Ish", "Fsh", "Fih", "Fis"]
+                                    .into_iter()
+                                    .filter(|n| !self.has_unique(n))
+                                    .collect();
+                                if owned < 201 {
+                                    self.narrator
+                                        .say("The Rod requires The Fishing Rod first.");
+                                } else if !missing.is_empty() {
+                                    self.narrator.say(format!(
+                                        "The Rod requires the Pantheon. Missing: {}.",
+                                        missing.join(", ")
+                                    ));
+                                } else {
+                                    self.player.rods.max_owned = next;
+                                    self.player.rods.equipped = next;
+                                    self.narrator.say(
+                                        "*** YOU ASSEMBLE THE PANTHEON. THE ROD IS YOURS. ***",
+                                    );
+                                    self.narrator.say(
+                                        "Fish permits this. Ish rages, Fsh wonders, Fih laughs, Fis knows.",
+                                    );
                                 }
                             } else if self.buffs.free_rods > 0 {
                                 self.buffs.free_rods -= 1;
@@ -990,6 +1016,59 @@ impl App {
             "h" => self.narrator.say("Try :help for commands, :c for controls."),
             "" => {}
             other => self.narrator.say(format!("Unknown command: :{other}")),
+        }
+    }
+
+    /// True if the player has caught the named unique fish (Fish, Ish, Fsh, ...).
+    fn has_unique(&self, name: &str) -> bool {
+        fishlist::fish()
+            .iter()
+            .position(|f| f.unique && f.name == name)
+            .and_then(|i| self.caught.get(i).copied())
+            .unwrap_or(false)
+    }
+
+    /// Force-grants a unique fish to the player as if they'd caught it. Used
+    /// for Pantheon gods that arrive via meta-progression (Fsh at 100 catches,
+    /// Fih at 100h, Fis at 200 species) rather than the rod minigame.
+    fn grant_unique(&mut self, name: &str, where_from: &str) {
+        let Some(i) = fishlist::fish()
+            .iter()
+            .position(|f| f.unique && f.name == name)
+        else {
+            return;
+        };
+        if self.caught.get(i).copied().unwrap_or(false) {
+            return;
+        }
+        let fish_ref = &fishlist::fish()[i];
+        self.caught[i] = true;
+        if let Some(slot) = self.caught_at.get_mut(i) {
+            if slot.is_none() {
+                *slot = Some((where_from.to_string(), "—".to_string()));
+            }
+        }
+        self.player.inventory.push(fish_ref);
+        self.narrator
+            .say(format!("*** {} ARRIVES. {} ***", name.to_uppercase(), where_from));
+        self.narrator.say(format!("{}", fish_ref.description));
+    }
+
+    /// Check the Pantheon force-grant conditions. Idempotent: each god is
+    /// granted at most once, and the check is cheap (early-exit on already-have).
+    fn check_pantheon_unlocks(&mut self) {
+        // Fsh: curiosity arrives after 100 lifetime catches.
+        if !self.has_unique("Fsh") && self.stats.fish_caught >= 100 {
+            self.grant_unique("Fsh", "Drawn from the forest by 100 catches");
+        }
+        // Fih: happiness arrives at 100 hours played.
+        if !self.has_unique("Fih") && self.total_play_secs() >= 100 * 3600 {
+            self.grant_unique("Fih", "Drawn from the swamp by 100 hours of life");
+        }
+        // Fis: wiseness arrives at 200 unique species (gods count too).
+        let species = self.caught.iter().filter(|c| **c).count() as u64;
+        if !self.has_unique("Fis") && species >= 200 {
+            self.grant_unique("Fis", "Drawn from the tundra by 200 species");
         }
     }
 
@@ -1931,6 +2010,8 @@ fn render_rod_shop(
         };
         let price_label = if tier == 201 {
             "1000000$V + THE FISH".to_string()
+        } else if tier == 202 {
+            "THE PANTHEON (Ish + Fsh + Fih + Fis)".to_string()
         } else {
             format!("{}$V", rod.price())
         };
