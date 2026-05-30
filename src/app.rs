@@ -683,6 +683,19 @@ impl App {
                 self.scene = Scene::Help(HelpTopic::Commands);
                 self.mode = Mode::Insert;
             }
+            "s" | "stats" => {
+                self.scene = Scene::Stats;
+                self.mode = Mode::Insert;
+            }
+            "m" | "map" => {
+                self.mark_seen_around_player();
+                self.scene = Scene::Map;
+                self.mode = Mode::Insert;
+            }
+            "o" | "options" | "settings" => {
+                self.scene = Scene::Settings;
+                self.mode = Mode::Insert;
+            }
             "h" => self.narrator.say("Try :help for commands, :c for controls."),
             "" => {}
             other => self.narrator.say(format!("Unknown command: :{other}")),
