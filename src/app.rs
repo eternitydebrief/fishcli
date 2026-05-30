@@ -71,7 +71,7 @@ pub enum Mode {
     Command(String),
 }
 
-const MOVE_INTERVAL: u64 = 4;
+const MOVE_INTERVAL: u64 = 3;
 
 pub struct App {
     pub world: World,
@@ -336,14 +336,19 @@ impl App {
     fn handle_movement(&mut self, dir: (i32, i32), kind: KeyEventKind) {
         match kind {
             KeyEventKind::Press => {
-                self.step(dir.0, dir.1);
+                // step immediately on a fresh press or direction change;
+                // os-repeat presses just extend the hold without re-stepping
+                let fresh = self.held_dir != Some(dir);
+                if fresh {
+                    self.step(dir.0, dir.1);
+                    self.last_step_tick = self.anim_tick;
+                }
                 self.held_dir = Some(dir);
-                self.held_until_tick = self.anim_tick + 5;
-                self.last_step_tick = self.anim_tick;
+                self.held_until_tick = self.anim_tick + 10;
             }
             KeyEventKind::Repeat => {
                 self.held_dir = Some(dir);
-                self.held_until_tick = self.anim_tick + 5;
+                self.held_until_tick = self.anim_tick + 10;
             }
             KeyEventKind::Release => {
                 if self.held_dir == Some(dir) {
