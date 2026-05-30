@@ -543,34 +543,36 @@ fn shade(base: (u8, u8, u8), x: i32, y: i32, salt: u32, range: i32) -> Color {
 }
 
 fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
-    let phase =
-        (x.unsigned_abs() as u64 + (y.unsigned_abs() as u64) * 3 + tick / 4) % 12;
-    let glyph = match phase {
-        0 | 1 => '~',
-        2 | 3 => '-',
-        4 => '.',
-        5..=8 => '~',
-        9 => '-',
-        _ => '~',
+    let t = tick as f32 * 0.06;
+    let fx = x as f32;
+    let fy = y as f32;
+    // two interfering wave trains travelling in non-axis-aligned directions
+    let w1 = (fx * 0.35 + fy * 0.55 + t * 1.2).sin();
+    let w2 = (fx * 0.62 - fy * 0.27 + t * 0.85).sin() * 0.75;
+    let h = w1 + w2; // ~ -1.75 .. 1.75
+    let (glyph, base) = if h > 0.95 {
+        ('~', (95, 140, 175))
+    } else if h > 0.25 {
+        ('~', (70, 110, 155))
+    } else if h > -0.25 {
+        ('-', (50, 85, 135))
+    } else if h > -0.95 {
+        ('.', (35, 65, 115))
+    } else {
+        ('.', (25, 50, 100))
     };
-    let base = match phase {
-        0..=2 => (35, 60, 110),
-        3..=5 => (55, 90, 140),
-        6..=8 => (75, 115, 150),
-        _ => (40, 70, 120),
-    };
-    (glyph, Style::default().fg(shade(base, x, y, 0xA11_BABE, 14)))
+    (glyph, Style::default().fg(shade(base, x, y, 0xA11_BABE, 8)))
 }
 
 fn grass_anim(x: i32, y: i32, tick: u64, biome: Biome) -> (char, Style) {
-    let seed = (x.unsigned_abs() as u64)
-        .wrapping_mul(7)
-        .wrapping_add((y.unsigned_abs() as u64).wrapping_mul(13));
-    let phase = (seed + tick / 25) % 41;
-    let g = match phase {
-        0 => ',',
-        1 => '\'',
-        2 => '`',
+    // each tuft has its own random phase and period so waves are scattered
+    let h = hash2(x, y, 0x6C00_6C00) as u64;
+    let period = 90 + (h % 110);
+    let local = (tick + h) % period;
+    let g = match local {
+        0 => '\'',
+        1 => '`',
+        2 => ',',
         _ => '.',
     };
     let base = match biome {
