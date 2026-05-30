@@ -50,8 +50,14 @@ pub struct SaveData {
     pub items: Vec<Item>,
     #[serde(default)]
     pub pinned_quest: Option<String>,
+    /// Legacy single-dimension seen-cells (used for save backcompat — old
+    /// saves only ever explored the Surface). New saves use `seen_by_dim`.
     #[serde(default)]
     pub seen_cells: Vec<(i32, i32)>,
+    /// Per-dimension fog of war. Tuples of (dim, x, y) so serde can store
+    /// the dim enum inline without needing a HashMap codec.
+    #[serde(default)]
+    pub seen_by_dim: Vec<(Dimension, i32, i32)>,
     #[serde(default)]
     pub stats: Stats,
     #[serde(default)]

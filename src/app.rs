@@ -149,7 +149,12 @@ pub struct App {
     /// id of the quest currently pinned to the top-left tracker
     pub pinned_quest: Option<String>,
     /// coarse map cells (each 4w x 2h world cells) the player has explored
-    pub seen_cells: std::collections::HashSet<(i32, i32)>,
+    /// Per-dimension fog of war. Each dim keeps its own discovered tiles so
+    /// surface exploration doesn't reveal the mines, and vice versa.
+    pub seen_cells: std::collections::HashMap<
+        crate::world::Dimension,
+        std::collections::HashSet<(i32, i32)>,
+    >,
     pub stats: Stats,
     pub skills: Skills,
     pub buffs: crate::buffs::Buffs,
@@ -210,7 +215,7 @@ impl App {
             session_start: std::time::Instant::now(),
             saved_play_secs: 0,
             pinned_quest: None,
-            seen_cells: std::collections::HashSet::new(),
+            seen_cells: std::collections::HashMap::new(),
             stats: Stats::default(),
             skills: Skills::default(),
             buffs: crate::buffs::Buffs::default(),
@@ -303,7 +308,19 @@ impl App {
         self.lifetime_valu = data.lifetime_valu_earned;
         self.saved_play_secs = data.play_time_secs;
         self.pinned_quest = data.pinned_quest.clone();
-        self.seen_cells = data.seen_cells.iter().copied().collect();
+        // Backcompat: old saves wrote a flat seen_cells (surface only). New
+        // saves use seen_by_dim with the dimension stored per-cell.
+        self.seen_cells.clear();
+        let surface_set = self
+            .seen_cells
+            .entry(crate::world::Dimension::Surface)
+            .or_default();
+        for &(x, y) in &data.seen_cells {
+            surface_set.insert((x, y));
+        }
+        for &(dim, x, y) in &data.seen_by_dim {
+            self.seen_cells.entry(dim).or_default().insert((x, y));
+        }
         self.stats = data.stats.clone();
         self.skills = data.skills.clone();
         self.buffs = data.buffs.clone();
@@ -339,7 +356,17 @@ impl App {
             quest_done: self.quest_done.clone(),
             items: self.player.items.clone(),
             pinned_quest: self.pinned_quest.clone(),
-            seen_cells: self.seen_cells.iter().copied().collect(),
+            // legacy field — surface tiles only, written for old loaders
+            seen_cells: self
+                .seen_cells
+                .get(&crate::world::Dimension::Surface)
+                .map(|s| s.iter().copied().collect())
+                .unwrap_or_default(),
+            seen_by_dim: self
+                .seen_cells
+                .iter()
+                .flat_map(|(d, set)| set.iter().map(move |(x, y)| (*d, *x, *y)))
+                .collect(),
             stats: self.stats.clone(),
             skills: self.skills.clone(),
             rods: self.player.rods,
@@ -1420,10 +1447,12 @@ impl App {
         const VIEW_W: i32 = 50;
         const VIEW_H: i32 = 18;
         let (px, py) = (self.player.x, self.player.y);
+        let dim = self.world.dim;
+        let set = self.seen_cells.entry(dim).or_default();
         for dy in -VIEW_H / 2..=VIEW_H / 2 {
             for dx in -VIEW_W / 2..=VIEW_W / 2 {
                 let cc = coarse_cell(px + dx, py + dy);
-                self.seen_cells.insert(cc);
+                set.insert(cc);
             }
         }
     }
@@ -1529,13 +1558,17 @@ impl App {
                 &self.quest_done,
                 self.pinned_quest.as_deref(),
             ),
-            Scene::Map { offset } => render_map(
-                frame,
-                &self.world,
-                (self.player.x, self.player.y),
-                *offset,
-                &self.seen_cells,
-            ),
+            Scene::Map { offset } => {
+                let empty = std::collections::HashSet::new();
+                let set = self.seen_cells.get(&self.world.dim).unwrap_or(&empty);
+                render_map(
+                    frame,
+                    &self.world,
+                    (self.player.x, self.player.y),
+                    *offset,
+                    set,
+                );
+            }
             Scene::Debug { cursor } => render_debug_console(
                 frame,
                 *cursor,
@@ -1794,7 +1827,12 @@ fn biome_map_bg(b: crate::world::Biome) -> Color {
 }
 
 fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
-    let bg = biome_map_bg(world.biome(x, y));
+    use crate::world::Dimension;
+    let bg = match world.dim {
+        Dimension::Surface => biome_map_bg(world.biome(x, y)),
+        Dimension::Mines => Color::Rgb(28, 18, 14),
+        Dimension::Atlantis => Color::Rgb(10, 28, 60),
+    };
     let t = world.get(x, y);
     let (g, fg) = match t {
         Tile::Water => ('~', Color::Rgb(120, 170, 220)),

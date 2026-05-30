@@ -67,7 +67,7 @@ fn cached_water_body_at(x: i32, y: i32, seed: u32) -> bool {
 /// Same (x, y) maps to the same procedural cell in every dimension, so a
 /// mine entrance at (10, -3) on Surface drops you onto (10, -3) in Mines.
 #[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize,
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
 )]
 pub enum Dimension {
     #[default]
