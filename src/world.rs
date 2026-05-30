@@ -74,6 +74,9 @@ pub enum Dimension {
     Surface,
     Mines,
     Atlantis,
+    /// Hellish reflection of the Mines, reached after 100 well casts. Lava
+    /// instead of water; only infernal-variant fish bite.
+    Inferno,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -218,6 +221,12 @@ pub enum Tile {
     /// the way back to the surface from inside the mines, placed at the
     /// same coord as the surface MineEntrance that brought you down.
     MineExit,
+    /// red-hot inferno wall (charred basalt)
+    InfernoWall,
+    /// inferno floor (cracked, hot)
+    InfernoFloor,
+    /// lava pool — fishable like MineralWater but in the inferno dim
+    Lava,
     // --- atlantis plane ---
     Seabed,
     /// trunk-equivalent for coral; pairs with CoralCanopy in a 4-cell shape
@@ -245,6 +254,7 @@ impl Tile {
                 | Tile::Seabed
                 | Tile::DeepWater
                 | Tile::Kelp
+                | Tile::InfernoFloor
         )
     }
 
@@ -285,6 +295,9 @@ impl Tile {
             Tile::Kelp => "Tall kelp, swaying with the current.",
             Tile::DeepWater => "The open deep. You can fish here, anywhere.",
             Tile::Anemone => "An anemone, blooming and waiting.",
+            Tile::InfernoWall => "Basalt, hot to the touch. The deeper rock remembers the fire.",
+            Tile::InfernoFloor => "Cracked ground, glowing dimly between the seams.",
+            Tile::Lava => "Lava. Something black drifts under the surface. You can fish it.",
         }
     }
 }
@@ -373,6 +386,7 @@ impl World {
             Dimension::Surface => self.surface_get(x, y),
             Dimension::Mines => self.mines_get(x, y),
             Dimension::Atlantis => self.atlantis_get(x, y),
+            Dimension::Inferno => self.inferno_get(x, y),
         }
     }
 
@@ -506,6 +520,38 @@ impl World {
             return Tile::Kelp;
         }
         Tile::DeepWater
+    }
+
+    /// The Inferno: reskinned mines with lava pockets instead of mineral
+    /// pools, and a much higher density of fishable lava. Reached after
+    /// 100 lifetime well casts.
+    fn inferno_get(&self, x: i32, y: i32) -> Tile {
+        // The exit mirrors the mines: same anchor positions act as exits.
+        if is_mine_entrance_anchor(x, y, self.seed) {
+            return Tile::MineExit;
+        }
+        let open = cave_open_at(x, y, self.seed.wrapping_add(0x1AFE_5A00));
+        let r = hash2(x, y, self.seed.wrapping_add(0xF1AE_F1AE)) % 1000;
+        if !open {
+            if r < 20 {
+                return Tile::OreRock;
+            }
+            if r < 50 {
+                return Tile::Stalactite;
+            }
+            return Tile::InfernoWall;
+        }
+        if r < 25 {
+            return Tile::Stalagmite;
+        }
+        if r < 45 {
+            return Tile::Rock;
+        }
+        // Lava is much more common here than mineral water in the mines.
+        if lava_pool_at(x, y, self.seed) {
+            return Tile::Lava;
+        }
+        Tile::InfernoFloor
     }
 
     #[allow(dead_code)]
@@ -650,6 +696,9 @@ impl World {
                 };
                 (g, Style::default().fg(Color::Rgb(r, gc, b)).add_modifier(Modifier::BOLD))
             }
+            Tile::InfernoWall => inferno_wall_glyph(x, y),
+            Tile::InfernoFloor => inferno_floor_glyph(x, y),
+            Tile::Lava => lava_glyph(x, y, tick),
         }
     }
 }
@@ -866,6 +915,69 @@ fn deep_water_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
         ' '
     };
     (g, Style::default().fg(Color::Rgb(60, 110, 180)))
+}
+
+fn inferno_floor_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0x1FF_F100);
+    let g = match h % 7 {
+        0 => '.',
+        1 => ',',
+        2 => '`',
+        3 => '\'',
+        4 => '_',
+        5 => '~',
+        _ => ' ',
+    };
+    // dim red glow with seam variation
+    let r = 90 + (h % 60) as u8;
+    let gc = 30 + (h % 25) as u8;
+    let b = 20 + (h % 15) as u8;
+    (g, Style::default().fg(Color::Rgb(r + 30, gc, b)))
+}
+
+fn inferno_wall_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0x1FF_5A11);
+    let g = match h % 8 {
+        0 => '#',
+        1 => '%',
+        2 => '&',
+        3 => 'M',
+        4 => 'N',
+        5 => 'W',
+        6 => '8',
+        _ => 'B',
+    };
+    let shade = 90 + (h % 50) as u8;
+    (
+        g,
+        Style::default()
+            .fg(Color::Rgb(shade + 30, shade.saturating_sub(40), 30))
+            .add_modifier(Modifier::BOLD),
+    )
+}
+
+fn lava_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
+    // pulsing lava: glyph + color shift over time so the pool moves
+    let phase = ((tick / 6) as i32 + x * 2 + y).rem_euclid(4);
+    let g = match (hash2(x, y, 0x1A0A_1A0A) + tick as u32 / 8) % 5 {
+        0 => '~',
+        1 => '*',
+        2 => '.',
+        3 => '&',
+        _ => '~',
+    };
+    let (r, gc, b) = match phase {
+        0 => (255, 110, 30),
+        1 => (255, 140, 50),
+        2 => (220, 80, 20),
+        _ => (240, 100, 25),
+    };
+    (
+        g,
+        Style::default()
+            .fg(Color::Rgb(r, gc, b))
+            .add_modifier(Modifier::BOLD),
+    )
 }
 
 fn mine_frame_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
@@ -1535,6 +1647,15 @@ fn mineral_pool_at(x: i32, y: i32, seed: u32) -> bool {
     let s = (fx * 0.18 + fy * 0.15 + (seed as f32 * 0.0011)).sin();
     let t = (fx * 0.09 - fy * 0.22 + (seed as f32 * 0.0013)).cos();
     s + t > 1.4
+}
+
+/// Lava pockets in the inferno: noticeably more common than mineral pools.
+fn lava_pool_at(x: i32, y: i32, seed: u32) -> bool {
+    let fx = x as f32;
+    let fy = y as f32;
+    let s = (fx * 0.14 + fy * 0.16 + (seed as f32 * 0.0019)).sin();
+    let t = (fx * 0.11 - fy * 0.19 + (seed as f32 * 0.0023)).cos();
+    s + t > 0.8
 }
 
 /// Sand bars under the ocean — rounded patches of light seabed in the deep.

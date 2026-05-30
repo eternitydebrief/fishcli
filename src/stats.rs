@@ -12,6 +12,10 @@ pub struct Stats {
     pub npcs_talked: u64,
     pub valu_earned: u64,
     pub fish_sold: u64,
+    /// Lifetime well casts. At 100, the next well interaction drops the
+    /// player into the Inferno (one-time portal opens then stays open).
+    #[serde(default)]
+    pub well_casts: u64,
 }
 
 /// Skill XP totals. Levels are derived from xp via [`xp_to_level`].

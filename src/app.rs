@@ -47,6 +47,10 @@ pub enum Scene {
     /// Cursor selects an editable field or action; h/l adjust by step,
     /// H/L by big step, enter triggers actions.
     Debug { cursor: usize },
+    /// The Rod's loot-pool selector. Pressing `k` while in overworld with
+    /// tier 202 equipped opens this. Picking a pool sets
+    /// `current_pool_override` and lets the player fish anywhere.
+    LootPool { cursor: usize },
 }
 
 #[derive(Clone, Copy)]
@@ -158,6 +162,10 @@ pub struct App {
     pub stats: Stats,
     pub skills: Skills,
     pub buffs: crate::buffs::Buffs,
+    /// When set, all future casts ignore biome/water and pull from this
+    /// named loot pool ("cosmic", "infernal", "angelic", "mineral", ...).
+    /// Only settable by The Rod's k-menu and cleared by selecting Default.
+    pub current_pool_override: Option<String>,
     /// background autosave channel - thread coalesces and writes.
     autosave_tx: mpsc::Sender<SaveData>,
     last_autosave_at: Instant,
@@ -219,6 +227,7 @@ impl App {
             stats: Stats::default(),
             skills: Skills::default(),
             buffs: crate::buffs::Buffs::default(),
+            current_pool_override: None,
             autosave_tx: spawn_autosaver(),
             last_autosave_at: Instant::now(),
             last_autosave_hash: 0,
@@ -831,6 +840,33 @@ impl App {
                     _ => {}
                 }
             }
+            Scene::LootPool { cursor } => {
+                let n = LOOT_POOLS.len();
+                match code {
+                    KeyCode::Esc | KeyCode::Char('q') => self.scene = Scene::Overworld,
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        *cursor = (*cursor + 1).min(n.saturating_sub(1));
+                    }
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        *cursor = cursor.saturating_sub(1);
+                    }
+                    KeyCode::Enter | KeyCode::Char(' ') => {
+                        let pool = LOOT_POOLS[*cursor];
+                        if pool.0.is_empty() {
+                            self.current_pool_override = None;
+                            self.narrator.say("Pool cleared - normal fishing.");
+                        } else {
+                            self.current_pool_override = Some(pool.0.to_string());
+                            self.narrator.say(format!(
+                                "Pool locked to {}. The Rod lets you fish anywhere.",
+                                pool.1
+                            ));
+                        }
+                        self.scene = Scene::Overworld;
+                    }
+                    _ => {}
+                }
+            }
             Scene::Debug { cursor } => {
                 let entries = debug_entries_count();
                 match code {
@@ -1282,6 +1318,12 @@ impl App {
                 }
             }
             KeyCode::Char(' ') => self.cast_action(),
+            KeyCode::Char('k') if self.player.rods.equipped >= 202 => {
+                self.scene = Scene::LootPool { cursor: 0 };
+                self.mode = Mode::Insert;
+                self.narrator
+                    .say("THE ROD hums. Choose your pool.");
+            }
             KeyCode::Esc if self.cast.is_some() => self.cancel_cast(),
             _ => {}
         }
@@ -1400,9 +1442,31 @@ impl App {
             | Tile::Water
             | Tile::Well
             | Tile::MineralWater
-            | Tile::DeepWater => {
+            | Tile::DeepWater
+            | Tile::Lava => {
+                // Wells unlock the inferno: at 100 lifetime well casts, the
+                // next interaction with a well drops you into the inferno
+                // instead of fishing.
+                if matches!(self.world.get(nx, ny), Tile::Well)
+                    && self.world.dim == crate::world::Dimension::Surface
+                {
+                    self.stats.well_casts = self.stats.well_casts.saturating_add(1);
+                    if self.stats.well_casts >= 100 {
+                        self.narrator
+                            .say("*** The well's bottom opens. You fall into the Inferno. ***");
+                        self.world.dim = crate::world::Dimension::Inferno;
+                        return;
+                    }
+                }
                 let (water_kind, biome) = fishing_context(&self.world, nx, ny);
-                let f = fish::pick_fish(&mut self.rng_state, fishlist::fish(), &biome, water_kind);
+                let pool_override = self.current_pool_override.clone();
+                let f = crate::fish::pick_fish_with_pool(
+                    &mut self.rng_state,
+                    fishlist::fish(),
+                    &biome,
+                    water_kind,
+                    pool_override.as_deref(),
+                );
                 self.narrator.say("Casting line - aim for the green!");
                 self.stats.casts += 1;
                 self.cast = Some(CastState {
@@ -1416,7 +1480,38 @@ impl App {
                     bite_ticks_left: 0,
                 });
             }
-            _ => self.narrator.say("Nothing to interact with."),
+            _ => {
+                // The Rod + a chosen pool: fish on any tile (Grass, CaveFloor,
+                // even dry dirt). The rod bends reality.
+                if self.player.rods.equipped >= 202
+                    && self.current_pool_override.is_some()
+                {
+                    let pool_override = self.current_pool_override.clone();
+                    let (water_kind, biome) = fishing_context(&self.world, nx, ny);
+                    let f = crate::fish::pick_fish_with_pool(
+                        &mut self.rng_state,
+                        fishlist::fish(),
+                        &biome,
+                        water_kind,
+                        pool_override.as_deref(),
+                    );
+                    self.narrator
+                        .say(format!("THE ROD pierces reality. Pool: {}.", pool_override.as_deref().unwrap_or("?")));
+                    self.stats.casts += 1;
+                    self.cast = Some(CastState {
+                        phase: CastPhase::Casting,
+                        fish: f,
+                        bobber: (nx, ny),
+                        cast_pos: 0.0,
+                        cast_vel: 0.10,
+                        cast_strength: 0.0,
+                        wait_ticks_left: 0,
+                        bite_ticks_left: 0,
+                    });
+                } else {
+                    self.narrator.say("Nothing to interact with.");
+                }
+            }
         }
     }
 
@@ -1577,6 +1672,11 @@ impl App {
                 &self.stats,
                 &self.skills,
                 &self.buffs,
+            ),
+            Scene::LootPool { cursor } => render_loot_pool(
+                frame,
+                *cursor,
+                self.current_pool_override.as_deref(),
             ),
         }
 
@@ -1832,6 +1932,7 @@ fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
         Dimension::Surface => biome_map_bg(world.biome(x, y)),
         Dimension::Mines => Color::Rgb(28, 18, 14),
         Dimension::Atlantis => Color::Rgb(10, 28, 60),
+        Dimension::Inferno => Color::Rgb(40, 12, 8),
     };
     let t = world.get(x, y);
     let (g, fg) = match t {
@@ -1863,6 +1964,8 @@ fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
         Tile::Kelp => ('i', Color::Rgb(80, 200, 130)),
         Tile::DeepWater => ('~', Color::Rgb(80, 130, 200)),
         Tile::Anemone => ('o', Color::Rgb(255, 150, 90)),
+        Tile::InfernoWall | Tile::InfernoFloor => ('#', Color::Rgb(180, 70, 30)),
+        Tile::Lava => ('~', Color::Rgb(255, 110, 30)),
     };
     // water cells override the biome bg with deep blue
     let final_bg = if matches!(t, Tile::Water) {
@@ -2267,6 +2370,60 @@ fn render_location_popup(frame: &mut Frame, label: &str) {
     frame.render_widget(p, popup);
 }
 
+// ---- The Rod loot pool selector ---------------------------------------
+
+/// (pool_id, label_shown_to_player). Empty pool_id = clear override.
+const LOOT_POOLS: &[(&str, &str)] = &[
+    ("", "Default (biome / water)"),
+    ("forest", "Forest pool"),
+    ("desert", "Desert pool"),
+    ("tundra", "Tundra pool"),
+    ("swamp", "Swamp pool"),
+    ("cosmic", "Cosmic (Astral)"),
+    ("infernal", "Divine - Infernal"),
+    ("angelic", "Divine - Angelic"),
+    ("mineral", "Mineral (Sapphire/Ruby/Topaz/Opal/Emerald/Onyx/Diamond)"),
+    ("mineral_pool", "Mineral pool (mines water)"),
+    ("lava", "Lava (inferno only)"),
+    ("atlantis", "Atlantis"),
+];
+
+fn render_loot_pool(frame: &mut Frame, cursor: usize, current: Option<&str>) {
+    use ratatui::widgets::Paragraph;
+    let area = frame.area();
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" THE ROD - select loot pool (j/k browse, enter pick, q close) ")
+        .border_style(Style::default().fg(Color::Magenta));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let lines: Vec<ratatui::text::Line> = LOOT_POOLS
+        .iter()
+        .enumerate()
+        .map(|(i, (id, label))| {
+            let selected = i == cursor;
+            let active = current.map(|c| c == *id).unwrap_or(id.is_empty() && current.is_none());
+            let mark = if active { "* " } else { "  " };
+            let prefix = if selected { "> " } else { "  " };
+            let style = if selected {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD)
+            } else if active {
+                Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            ratatui::text::Line::from(ratatui::text::Span::styled(
+                format!("{prefix}{mark}{label}"),
+                style,
+            ))
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
 // ---- hidden debug console ---------------------------------------------
 
 /// SHA-512 digest of the magic command string. Anyone reading this source
@@ -2367,7 +2524,8 @@ impl App {
                     self.world.dim = match self.world.dim {
                         crate::world::Dimension::Surface => crate::world::Dimension::Mines,
                         crate::world::Dimension::Mines => crate::world::Dimension::Atlantis,
-                        crate::world::Dimension::Atlantis => crate::world::Dimension::Surface,
+                        crate::world::Dimension::Atlantis => crate::world::Dimension::Inferno,
+                        crate::world::Dimension::Inferno => crate::world::Dimension::Surface,
                     };
                 }
             }
@@ -2421,7 +2579,8 @@ impl App {
                 self.world.dim = match self.world.dim {
                     crate::world::Dimension::Surface => crate::world::Dimension::Mines,
                     crate::world::Dimension::Mines => crate::world::Dimension::Atlantis,
-                    crate::world::Dimension::Atlantis => crate::world::Dimension::Surface,
+                    crate::world::Dimension::Atlantis => crate::world::Dimension::Inferno,
+                    crate::world::Dimension::Inferno => crate::world::Dimension::Surface,
                 };
             }
             _ => {}
@@ -2451,6 +2610,7 @@ fn render_debug_console(
         crate::world::Dimension::Surface => "Surface",
         crate::world::Dimension::Mines => "Mines",
         crate::world::Dimension::Atlantis => "Atlantis",
+        crate::world::Dimension::Inferno => "Inferno",
     };
     let rows: Vec<(String, String)> = debug_entries()
         .iter()
@@ -2528,6 +2688,9 @@ fn water_kind_at(world: &World, x: i32, y: i32) -> &'static str {
     if matches!(t, Tile::MineralWater) {
         return "mineral_pool";
     }
+    if matches!(t, Tile::Lava) {
+        return "lava";
+    }
     if matches!(t, Tile::DeepWater | Tile::Seabed | Tile::Kelp | Tile::Anemone) {
         return "atlantis";
     }
@@ -2547,6 +2710,7 @@ fn fishing_context(world: &World, x: i32, y: i32) -> (&'static str, String) {
         }
         crate::world::Dimension::Mines => ("mineral_pool", "Mines".to_string()),
         crate::world::Dimension::Atlantis => ("atlantis", "Atlantis".to_string()),
+        crate::world::Dimension::Inferno => ("lava", "Inferno".to_string()),
     }
 }
 
