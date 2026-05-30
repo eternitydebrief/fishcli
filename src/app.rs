@@ -43,6 +43,10 @@ pub enum Scene {
     Settings,
     Quests { cursor: usize },
     Map { offset: (i32, i32) },
+    /// Hidden developer console. Only reachable via a SHA-512 gated command.
+    /// Cursor selects an editable field or action; h/l adjust by step,
+    /// H/L by big step, enter triggers actions.
+    Debug { cursor: usize },
 }
 
 #[derive(Clone, Copy)]
@@ -800,6 +804,41 @@ impl App {
                     _ => {}
                 }
             }
+            Scene::Debug { cursor } => {
+                let entries = debug_entries_count();
+                match code {
+                    KeyCode::Esc | KeyCode::Char('q') => {
+                        self.scene = Scene::Overworld;
+                    }
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        *cursor = (*cursor + 1).min(entries.saturating_sub(1));
+                    }
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        *cursor = cursor.saturating_sub(1);
+                    }
+                    KeyCode::Char('h') | KeyCode::Left => {
+                        let c = *cursor;
+                        self.debug_adjust(c, -1);
+                    }
+                    KeyCode::Char('l') | KeyCode::Right => {
+                        let c = *cursor;
+                        self.debug_adjust(c, 1);
+                    }
+                    KeyCode::Char('H') => {
+                        let c = *cursor;
+                        self.debug_adjust(c, -100);
+                    }
+                    KeyCode::Char('L') => {
+                        let c = *cursor;
+                        self.debug_adjust(c, 100);
+                    }
+                    KeyCode::Enter | KeyCode::Char(' ') => {
+                        let c = *cursor;
+                        self.debug_action(c);
+                    }
+                    _ => {}
+                }
+            }
             Scene::Inventory { tab } => match code {
                 KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('i') => {
                     self.scene = Scene::Overworld;
@@ -961,6 +1000,16 @@ impl App {
 
     fn execute_command(&mut self, cmd: &str) {
         let trimmed = cmd.trim();
+        // Hidden developer console gate. Any command longer than 5 chars is
+        // hashed (SHA-512) and compared to a hardcoded digest; on match,
+        // open the debug scene. The plaintext command is never written to
+        // source, so reading this file doesn't reveal the magic string.
+        if trimmed.len() > 5 && debug_command_matches(trimmed) {
+            self.scene = Scene::Debug { cursor: 0 };
+            self.mode = Mode::Insert;
+            self.narrator.say("*** developer console opened ***");
+            return;
+        }
         match trimmed {
             "w" => {
                 self.do_save();
@@ -1486,6 +1535,15 @@ impl App {
                 (self.player.x, self.player.y),
                 *offset,
                 &self.seen_cells,
+            ),
+            Scene::Debug { cursor } => render_debug_console(
+                frame,
+                *cursor,
+                self.player.valu,
+                self.world.dim,
+                &self.stats,
+                &self.skills,
+                &self.buffs,
             ),
         }
 
@@ -2169,6 +2227,255 @@ fn render_location_popup(frame: &mut Frame, label: &str) {
         .alignment(Alignment::Center)
         .block(block);
     frame.render_widget(p, popup);
+}
+
+// ---- hidden debug console ---------------------------------------------
+
+/// SHA-512 digest of the magic command string. Anyone reading this source
+/// cannot recover the plaintext, only verify a guess. The guard threshold
+/// `len > 5` keeps short common commands (`:w`, `:q!`, etc.) out of the
+/// hashing path entirely.
+const DEBUG_CMD_HASH: &str = "0d3793fad9237a4782b78a431be27eb8ede517670026151fbf94d6d0bbaadfade41aaf3396b325724d1e2d805616dd77ee9ef213392bccd5910cb09a33760e6b";
+
+fn debug_command_matches(input: &str) -> bool {
+    use sha2::{Digest, Sha512};
+    let mut h = Sha512::new();
+    h.update(input.as_bytes());
+    let got = h.finalize();
+    let hex: String = got.iter().map(|b| format!("{:02x}", b)).collect();
+    hex == DEBUG_CMD_HASH
+}
+
+/// Editable / actionable rows in the debug console. Order is the row order
+/// rendered + the cursor index. Adjust step values are tuned per-row.
+#[derive(Clone, Copy)]
+enum DebugEntry {
+    DimCycle,
+    Valu,
+    LifetimeValu,
+    FishCaught,
+    FishEscaped,
+    FishSold,
+    Casts,
+    Steps,
+    NpcsTalked,
+    QuestsCompleted,
+    FishingXp,
+    WalkingXp,
+    NegotiationXp,
+    MiningXp,
+    WoodcuttingXp,
+    GrantUniqueFish,
+    GrantUniqueIsh,
+    GrantUniqueFsh,
+    GrantUniqueFih,
+    GrantUniqueFis,
+    GrantUniqueFallen,
+    MarkAllSpecies,
+    ClearAllSpecies,
+}
+
+fn debug_entries() -> &'static [DebugEntry] {
+    &[
+        DebugEntry::DimCycle,
+        DebugEntry::Valu,
+        DebugEntry::LifetimeValu,
+        DebugEntry::FishCaught,
+        DebugEntry::FishEscaped,
+        DebugEntry::FishSold,
+        DebugEntry::Casts,
+        DebugEntry::Steps,
+        DebugEntry::NpcsTalked,
+        DebugEntry::QuestsCompleted,
+        DebugEntry::FishingXp,
+        DebugEntry::WalkingXp,
+        DebugEntry::NegotiationXp,
+        DebugEntry::MiningXp,
+        DebugEntry::WoodcuttingXp,
+        DebugEntry::GrantUniqueFish,
+        DebugEntry::GrantUniqueIsh,
+        DebugEntry::GrantUniqueFsh,
+        DebugEntry::GrantUniqueFih,
+        DebugEntry::GrantUniqueFis,
+        DebugEntry::GrantUniqueFallen,
+        DebugEntry::MarkAllSpecies,
+        DebugEntry::ClearAllSpecies,
+    ]
+}
+
+fn debug_entries_count() -> usize {
+    debug_entries().len()
+}
+
+impl App {
+    fn debug_adjust(&mut self, cursor: usize, step: i64) {
+        use DebugEntry::*;
+        let entry = match debug_entries().get(cursor) {
+            Some(e) => *e,
+            None => return,
+        };
+        // For value rows the step is a multiplier; for action rows it's a no-op.
+        let bump = |v: &mut u64, s: i64, scale: i64| {
+            let delta = s.saturating_mul(scale);
+            if delta >= 0 {
+                *v = v.saturating_add(delta as u64);
+            } else {
+                *v = v.saturating_sub((-delta) as u64);
+            }
+        };
+        match entry {
+            DimCycle => {
+                if step != 0 {
+                    self.world.dim = match self.world.dim {
+                        crate::world::Dimension::Surface => crate::world::Dimension::Mines,
+                        crate::world::Dimension::Mines => crate::world::Dimension::Atlantis,
+                        crate::world::Dimension::Atlantis => crate::world::Dimension::Surface,
+                    };
+                }
+            }
+            Valu => bump(&mut self.player.valu, step, 10_000),
+            LifetimeValu => bump(&mut self.lifetime_valu, step, 10_000),
+            FishCaught => bump(&mut self.stats.fish_caught, step, 1),
+            FishEscaped => bump(&mut self.stats.fish_escaped, step, 1),
+            FishSold => bump(&mut self.stats.fish_sold, step, 1),
+            Casts => bump(&mut self.stats.casts, step, 1),
+            Steps => bump(&mut self.stats.steps, step, 1),
+            NpcsTalked => bump(&mut self.stats.npcs_talked, step, 1),
+            QuestsCompleted => bump(&mut self.stats.quests_completed, step, 1),
+            FishingXp => bump(&mut self.skills.fishing_xp, step, 100),
+            WalkingXp => bump(&mut self.skills.walking_xp, step, 100),
+            NegotiationXp => bump(&mut self.skills.negotiation_xp, step, 100),
+            MiningXp => bump(&mut self.skills.mining_xp, step, 100),
+            WoodcuttingXp => bump(&mut self.skills.woodcutting_xp, step, 100),
+            _ => {}
+        }
+    }
+
+    fn debug_action(&mut self, cursor: usize) {
+        use DebugEntry::*;
+        let entry = match debug_entries().get(cursor) {
+            Some(e) => *e,
+            None => return,
+        };
+        match entry {
+            GrantUniqueFish => self.grant_unique("Fish", "Debug console"),
+            GrantUniqueIsh => self.grant_unique("Ish", "Debug console"),
+            GrantUniqueFsh => self.grant_unique("Fsh", "Debug console"),
+            GrantUniqueFih => self.grant_unique("Fih", "Debug console"),
+            GrantUniqueFis => self.grant_unique("Fis", "Debug console"),
+            GrantUniqueFallen => self.grant_unique("Fallen Fish", "Debug console"),
+            MarkAllSpecies => {
+                for c in self.caught.iter_mut() {
+                    *c = true;
+                }
+                self.narrator.say("Debug: marked every species caught.");
+            }
+            ClearAllSpecies => {
+                for c in self.caught.iter_mut() {
+                    *c = false;
+                }
+                for s in self.caught_at.iter_mut() {
+                    *s = None;
+                }
+                self.narrator.say("Debug: cleared fishdex.");
+            }
+            DimCycle => {
+                self.world.dim = match self.world.dim {
+                    crate::world::Dimension::Surface => crate::world::Dimension::Mines,
+                    crate::world::Dimension::Mines => crate::world::Dimension::Atlantis,
+                    crate::world::Dimension::Atlantis => crate::world::Dimension::Surface,
+                };
+            }
+            _ => {}
+        }
+    }
+}
+
+fn render_debug_console(
+    frame: &mut Frame,
+    cursor: usize,
+    valu: u64,
+    dim: crate::world::Dimension,
+    stats: &Stats,
+    skills: &Skills,
+    _buffs: &crate::buffs::Buffs,
+) {
+    use ratatui::widgets::Paragraph;
+    let area = frame.area();
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" developer console - h/l adjust, H/L big step, enter action, q/esc close ")
+        .border_style(Style::default().fg(Color::Magenta));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let dim_label = match dim {
+        crate::world::Dimension::Surface => "Surface",
+        crate::world::Dimension::Mines => "Mines",
+        crate::world::Dimension::Atlantis => "Atlantis",
+    };
+    let rows: Vec<(String, String)> = debug_entries()
+        .iter()
+        .map(|e| match e {
+            DebugEntry::DimCycle => ("Dimension (h/l/enter cycles)".to_string(), dim_label.to_string()),
+            DebugEntry::Valu => ("Valu".to_string(), valu.to_string()),
+            DebugEntry::LifetimeValu => {
+                ("Lifetime valu earned".to_string(), stats.valu_earned.to_string())
+            }
+            DebugEntry::FishCaught => ("Fish caught".to_string(), stats.fish_caught.to_string()),
+            DebugEntry::FishEscaped => ("Fish escaped".to_string(), stats.fish_escaped.to_string()),
+            DebugEntry::FishSold => ("Fish sold".to_string(), stats.fish_sold.to_string()),
+            DebugEntry::Casts => ("Casts".to_string(), stats.casts.to_string()),
+            DebugEntry::Steps => ("Steps walked".to_string(), stats.steps.to_string()),
+            DebugEntry::NpcsTalked => ("NPCs talked".to_string(), stats.npcs_talked.to_string()),
+            DebugEntry::QuestsCompleted => {
+                ("Quests completed".to_string(), stats.quests_completed.to_string())
+            }
+            DebugEntry::FishingXp => ("Fishing XP".to_string(), skills.fishing_xp.to_string()),
+            DebugEntry::WalkingXp => ("Walking XP".to_string(), skills.walking_xp.to_string()),
+            DebugEntry::NegotiationXp => {
+                ("Negotiation XP".to_string(), skills.negotiation_xp.to_string())
+            }
+            DebugEntry::MiningXp => ("Mining XP".to_string(), skills.mining_xp.to_string()),
+            DebugEntry::WoodcuttingXp => {
+                ("Woodcutting XP".to_string(), skills.woodcutting_xp.to_string())
+            }
+            DebugEntry::GrantUniqueFish => ("[enter] Grant Fish".to_string(), String::new()),
+            DebugEntry::GrantUniqueIsh => ("[enter] Grant Ish".to_string(), String::new()),
+            DebugEntry::GrantUniqueFsh => ("[enter] Grant Fsh".to_string(), String::new()),
+            DebugEntry::GrantUniqueFih => ("[enter] Grant Fih".to_string(), String::new()),
+            DebugEntry::GrantUniqueFis => ("[enter] Grant Fis".to_string(), String::new()),
+            DebugEntry::GrantUniqueFallen => {
+                ("[enter] Grant Fallen Fish".to_string(), String::new())
+            }
+            DebugEntry::MarkAllSpecies => {
+                ("[enter] Mark every species caught".to_string(), String::new())
+            }
+            DebugEntry::ClearAllSpecies => {
+                ("[enter] Clear fishdex".to_string(), String::new())
+            }
+        })
+        .collect();
+    let lines: Vec<ratatui::text::Line> = rows
+        .into_iter()
+        .enumerate()
+        .map(|(i, (label, value))| {
+            let prefix = if i == cursor { "> " } else { "  " };
+            let style = if i == cursor {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            ratatui::text::Line::from(vec![
+                ratatui::text::Span::styled(format!("{prefix}{:<32}", label), style),
+                ratatui::text::Span::styled(value, Style::default().fg(Color::LightYellow)),
+            ])
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 fn water_kind_at(world: &World, x: i32, y: i32) -> &'static str {
