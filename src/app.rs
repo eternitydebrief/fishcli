@@ -579,13 +579,16 @@ impl App {
             "e" => {
                 self.narrator.say("You leaf through the fishdex.");
                 self.scene = Scene::Fishdex(Fishdex::new());
+                self.mode = Mode::Insert;
             }
             "n" | "notes" => {
                 self.narrator.say("You open your notebook.");
                 self.scene = Scene::Notes(NotesBuf::from_text(&notes::load()));
+                self.mode = Mode::Insert;
             }
             "i" | "inv" | "inventory" => {
                 self.scene = Scene::Inventory { tab: 0 };
+                self.mode = Mode::Insert;
             }
             "h" | "help" => self
                 .narrator
