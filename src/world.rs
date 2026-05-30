@@ -11,6 +11,9 @@ pub enum Biome {
     Forest,
     Rocky,
     Scrub,
+    Desert,
+    Tundra,
+    Swamp,
 }
 
 struct BiomeParams {
@@ -19,37 +22,39 @@ struct BiomeParams {
     rock: f32,
     pebble: f32,
     flower: f32,
+    cactus: f32,
+    puddle_bonus: f32,
 }
 
 fn biome_params(b: Biome) -> BiomeParams {
     match b {
         Biome::Meadow => BiomeParams {
-            tree: 0.025,
-            big_rock: 0.002,
-            rock: 0.010,
-            pebble: 0.040,
-            flower: 0.012,
+            tree: 0.025, big_rock: 0.002, rock: 0.010, pebble: 0.040, flower: 0.012,
+            cactus: 0.0, puddle_bonus: 0.0,
         },
         Biome::Forest => BiomeParams {
-            tree: 0.090,
-            big_rock: 0.002,
-            rock: 0.008,
-            pebble: 0.020,
-            flower: 0.003,
+            tree: 0.090, big_rock: 0.002, rock: 0.008, pebble: 0.020, flower: 0.003,
+            cactus: 0.0, puddle_bonus: 0.0,
         },
         Biome::Rocky => BiomeParams {
-            tree: 0.008,
-            big_rock: 0.012,
-            rock: 0.045,
-            pebble: 0.120,
-            flower: 0.001,
+            tree: 0.008, big_rock: 0.012, rock: 0.045, pebble: 0.120, flower: 0.001,
+            cactus: 0.0, puddle_bonus: 0.0,
         },
         Biome::Scrub => BiomeParams {
-            tree: 0.005,
-            big_rock: 0.001,
-            rock: 0.006,
-            pebble: 0.020,
-            flower: 0.002,
+            tree: 0.005, big_rock: 0.001, rock: 0.006, pebble: 0.020, flower: 0.002,
+            cactus: 0.0, puddle_bonus: 0.0,
+        },
+        Biome::Desert => BiomeParams {
+            tree: 0.0, big_rock: 0.004, rock: 0.020, pebble: 0.110, flower: 0.0,
+            cactus: 0.012, puddle_bonus: 0.0,
+        },
+        Biome::Tundra => BiomeParams {
+            tree: 0.012, big_rock: 0.005, rock: 0.025, pebble: 0.080, flower: 0.001,
+            cactus: 0.0, puddle_bonus: 0.0,
+        },
+        Biome::Swamp => BiomeParams {
+            tree: 0.050, big_rock: 0.001, rock: 0.004, pebble: 0.015, flower: 0.006,
+            cactus: 0.0, puddle_bonus: 0.18,
         },
     }
 }
@@ -60,11 +65,14 @@ const BIOME_CELL_H: i32 = 14;
 pub fn biome_at(x: i32, y: i32, seed: u32) -> Biome {
     let cx = x.div_euclid(BIOME_CELL_W);
     let cy = y.div_euclid(BIOME_CELL_H);
-    match hash2(cx, cy, seed.wrapping_add(0xB10E_B10E)) % 10 {
+    match hash2(cx, cy, seed.wrapping_add(0xB10E_B10E)) % 16 {
         0..=4 => Biome::Meadow,
         5..=6 => Biome::Forest,
         7..=8 => Biome::Rocky,
-        _ => Biome::Scrub,
+        9 => Biome::Scrub,
+        10..=11 => Biome::Desert,
+        12..=13 => Biome::Tundra,
+        _ => Biome::Swamp,
     }
 }
 
@@ -83,6 +91,7 @@ pub enum Tile {
     BigRock,
     Pebble,
     Flower,
+    Cactus,
 }
 
 impl Tile {
@@ -108,6 +117,7 @@ impl Tile {
             Tile::BigRock => "A massive outcrop of weather-worn stone.",
             Tile::Pebble => "Small stones. They click underfoot.",
             Tile::Flower => "A wildflower, swaying. You feel a little better just looking.",
+            Tile::Cactus => "A wary cactus, spines dry and bristling.",
         }
     }
 }
@@ -169,6 +179,12 @@ impl World {
         if !in_village_zone(x, y) {
             let biome = biome_at(x, y, self.seed);
             let p = biome_params(biome);
+            if p.cactus > 0.0 {
+                let rc = hash2(x, y, self.seed.wrapping_add(0xCAC7_CAC7)) as f32 / u32::MAX as f32;
+                if rc < p.cactus {
+                    return Tile::Cactus;
+                }
+            }
             if let Some(part) = tree_at(x, y, self.seed, p.tree) {
                 return part;
             }
@@ -232,6 +248,7 @@ impl World {
             Tile::BigRock => big_rock_glyph(x, y, self.seed),
             Tile::Pebble => pebble_glyph(x, y),
             Tile::Flower => flower_glyph(x, y),
+            Tile::Cactus => cactus_glyph(x, y),
         }
     }
 }
@@ -639,8 +656,26 @@ fn grass_anim(x: i32, y: i32, _tick: u64, biome: Biome) -> (char, Style) {
         Biome::Forest => (45, 80, 50),
         Biome::Rocky => (95, 100, 70),
         Biome::Scrub => (110, 105, 75),
+        Biome::Desert => (170, 145, 95),
+        Biome::Tundra => (170, 175, 175),
+        Biome::Swamp => (60, 75, 50),
     };
     ('.', Style::default().fg(shade(base, x, y, 0x6C00_6C00, 14)))
+}
+
+fn cactus_glyph(x: i32, y: i32) -> (char, Style) {
+    let v = hash2(x, y, 0xCAC7_F00D) % 3;
+    let g = match v {
+        0 => 'Y',
+        1 => 'T',
+        _ => 'i',
+    };
+    (
+        g,
+        Style::default()
+            .fg(shade((85, 120, 65), x, y, 0xCAC7_F00D, 10))
+            .add_modifier(Modifier::BOLD),
+    )
 }
 
 fn shore_anim(x: i32, tick: u64) -> (char, Style) {
