@@ -23,7 +23,6 @@ use aes_gcm::{
     AeadCore, Aes256Gcm, Key, Nonce,
 };
 use anyhow::{anyhow, Result};
-use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
@@ -78,13 +77,45 @@ fn derive_key(name: &str) -> Key<Aes256Gcm> {
     *Key::<Aes256Gcm>::from_slice(&hash)
 }
 
-#[derive(Serialize, Deserialize)]
-struct Envelope {
-    v: u8,
-    /// Player name in cleartext so we can derive the key on load.
-    name: String,
-    nonce: String,
-    body: String,
+// Custom opaque binary format. No JSON, no labels, no recognizable
+// fields. An XOR mask derived from SECRET is applied over the whole
+// file, so even the structure isn't visible without knowing the secret.
+//
+// On-wire layout (XORed):
+//   [0..4]   magic = MAGIC (after XOR)
+//   [4..5]   version (1)
+//   [5..6]   name length (u8)
+//   [6..6+n] name bytes (utf-8)
+//   [..+12]  AES-GCM nonce
+//   [..]     AES-GCM ciphertext + 16-byte auth tag
+
+const MAGIC: [u8; 4] = [0xF1, 0x5C, 0xCC, 0x11];
+
+fn xor_mask(secret_extra: u8, len: usize) -> Vec<u8> {
+    // stream of bytes from SHA256(SECRET || counter || secret_extra)
+    let mut out = Vec::with_capacity(len);
+    let mut counter: u32 = 0;
+    while out.len() < len {
+        let mut h = Sha256::new();
+        h.update(SECRET);
+        h.update(&counter.to_le_bytes());
+        h.update([secret_extra]);
+        let block = h.finalize();
+        for &b in block.iter() {
+            if out.len() >= len {
+                break;
+            }
+            out.push(b);
+        }
+        counter = counter.wrapping_add(1);
+    }
+    out
+}
+
+fn xor_in_place(buf: &mut [u8], mask: &[u8]) {
+    for (b, m) in buf.iter_mut().zip(mask.iter().cycle()) {
+        *b ^= m;
+    }
 }
 
 pub fn save_to_disk(data: &SaveData) -> Result<()> {
@@ -99,21 +130,30 @@ pub fn save_to_disk(data: &SaveData) -> Result<()> {
     let ct = cipher
         .encrypt(&nonce, json.as_ref())
         .map_err(|e| anyhow!("encrypt failed: {e}"))?;
-    let env = Envelope {
-        v: 1,
-        name: data.name.clone(),
-        nonce: B64.encode(nonce.as_slice()),
-        body: B64.encode(ct),
-    };
-    let serialized = serde_json::to_vec_pretty(&env)?;
-    std::fs::write(path, serialized)?;
+
+    let name_bytes = data.name.as_bytes();
+    if name_bytes.len() > 255 {
+        return Err(anyhow!("name too long"));
+    }
+    let mut buf = Vec::with_capacity(4 + 1 + 1 + name_bytes.len() + 12 + ct.len());
+    buf.extend_from_slice(&MAGIC);
+    buf.push(1); // version
+    buf.push(name_bytes.len() as u8);
+    buf.extend_from_slice(name_bytes);
+    buf.extend_from_slice(nonce.as_slice());
+    buf.extend_from_slice(&ct);
+
+    let mask = xor_mask(0x7E, buf.len());
+    xor_in_place(&mut buf, &mask);
+
+    std::fs::write(path, buf)?;
     Ok(())
 }
 
 pub fn load_from_disk() -> Option<SaveData> {
     let path = save_path()?;
     if let Ok(bytes) = std::fs::read(&path) {
-        if let Some(d) = decrypt_envelope(&bytes) {
+        if let Some(d) = decrypt_opaque(&bytes) {
             return Some(d);
         }
     }
@@ -121,8 +161,6 @@ pub fn load_from_disk() -> Option<SaveData> {
     let lp = legacy_save_path()?;
     if let Ok(json) = std::fs::read_to_string(&lp) {
         if let Ok(d) = serde_json::from_str::<SaveData>(&json) {
-            // re-save in encrypted form, leave the old file alone for the
-            // user to delete manually
             let _ = save_to_disk(&d);
             return Some(d);
         }
@@ -130,19 +168,32 @@ pub fn load_from_disk() -> Option<SaveData> {
     None
 }
 
-fn decrypt_envelope(bytes: &[u8]) -> Option<SaveData> {
-    let env: Envelope = serde_json::from_slice(bytes).ok()?;
-    if env.v != 1 {
+fn decrypt_opaque(bytes: &[u8]) -> Option<SaveData> {
+    if bytes.len() < 4 + 1 + 1 + 12 + 16 {
         return None;
     }
-    let key = derive_key(&env.name);
+    let mut buf = bytes.to_vec();
+    let mask = xor_mask(0x7E, buf.len());
+    xor_in_place(&mut buf, &mask);
+
+    if buf[0..4] != MAGIC {
+        return None;
+    }
+    if buf[4] != 1 {
+        return None;
+    }
+    let name_len = buf[5] as usize;
+    if buf.len() < 6 + name_len + 12 + 16 {
+        return None;
+    }
+    let name = std::str::from_utf8(&buf[6..6 + name_len]).ok()?.to_string();
+    let nonce_start = 6 + name_len;
+    let nonce_end = nonce_start + 12;
+    let nonce = Nonce::from_slice(&buf[nonce_start..nonce_end]);
+    let ct = &buf[nonce_end..];
+
+    let key = derive_key(&name);
     let cipher = Aes256Gcm::new(&key);
-    let nonce_bytes = B64.decode(env.nonce.as_bytes()).ok()?;
-    if nonce_bytes.len() != 12 {
-        return None;
-    }
-    let nonce = Nonce::from_slice(&nonce_bytes);
-    let ct = B64.decode(env.body.as_bytes()).ok()?;
-    let pt = cipher.decrypt(nonce, ct.as_ref()).ok()?;
+    let pt = cipher.decrypt(nonce, ct).ok()?;
     serde_json::from_slice(&pt).ok()
 }
