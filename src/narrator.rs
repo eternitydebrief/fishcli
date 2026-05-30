@@ -41,8 +41,8 @@ impl Narrator {
         }
 
         let max_lines = inner.height as usize;
-        let style = Style::default().fg(Color::Gray);
-        // newest messages last; pad with blanks at the top so newest sits at bottom
+        // newest messages last; pad with blanks at the top so newest sits at bottom.
+        // styled as a brightness gradient: newest brightest, older fade out.
         let n = self.messages.len();
         let start = n.saturating_sub(max_lines);
         let mut lines: Vec<Line<'static>> = Vec::with_capacity(max_lines);
@@ -50,7 +50,18 @@ impl Narrator {
         for _ in visible.len()..max_lines {
             lines.push(Line::from(""));
         }
-        for m in &visible {
+        let last = visible.len().saturating_sub(1);
+        for (i, m) in visible.iter().enumerate() {
+            let age = last - i;
+            let gray = match age {
+                0 => 0xb0,
+                1 => 0x90,
+                2 => 0x70,
+                3 => 0x50,
+                4 => 0x40,
+                _ => 0x20,
+            };
+            let style = Style::default().fg(Color::Rgb(gray, gray, gray));
             lines.push(Line::from(Span::styled(format!("> {m}"), style)));
         }
         let p = Paragraph::new(lines).wrap(Wrap { trim: false });
