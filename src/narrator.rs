@@ -1,7 +1,7 @@
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
@@ -41,23 +41,18 @@ impl Narrator {
         }
 
         let max_lines = inner.height as usize;
-        let recent: Vec<&String> = self.messages.iter().rev().take(max_lines).collect();
+        let style = Style::default().fg(Color::Gray);
+        // newest messages last; pad with blanks at the top so newest sits at bottom
+        let n = self.messages.len();
+        let start = n.saturating_sub(max_lines);
         let mut lines: Vec<Line<'static>> = Vec::with_capacity(max_lines);
-        for _ in recent.len()..max_lines {
+        let visible: Vec<&String> = self.messages.iter().skip(start).collect();
+        for _ in visible.len()..max_lines {
             lines.push(Line::from(""));
         }
-        for (i, m) in recent.iter().rev().enumerate() {
-            let age = recent.len() - 1 - i;
-            let style = match age {
-                0 => Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-                1 | 2 => Style::default().fg(Color::Gray),
-                _ => Style::default().fg(Color::DarkGray),
-            };
+        for m in &visible {
             lines.push(Line::from(Span::styled(format!("> {m}"), style)));
         }
-
         let p = Paragraph::new(lines).wrap(Wrap { trim: false });
         frame.render_widget(p, inner);
     }
