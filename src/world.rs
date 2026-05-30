@@ -743,15 +743,7 @@ fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
     } else {
         ('`', (30, 50, 75))
     };
-    let fg = shade(base, x, y, 0xA11_BABE, 6);
-    // background fills the cell with a deeper version of the same blue so the
-    // glyph still reads as surface texture against it
-    let bg = Color::Rgb(
-        (base.0 as i32 * 55 / 100) as u8,
-        (base.1 as i32 * 55 / 100) as u8,
-        (base.2 as i32 * 55 / 100) as u8,
-    );
-    (glyph, Style::default().fg(fg).bg(bg))
+    (glyph, Style::default().fg(shade(base, x, y, 0xA11_BABE, 6)))
 }
 
 fn grass_anim(x: i32, y: i32, _tick: u64, biome: Biome) -> (char, Style) {
