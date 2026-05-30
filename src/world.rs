@@ -662,18 +662,18 @@ fn shade(base: (u8, u8, u8), x: i32, y: i32, salt: u32, range: i32) -> Color {
 }
 
 fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
-    let t = tick as f32 * 0.045;
+    let t = tick as f32 * 0.012;
     let fx = x as f32;
     let fy = y as f32;
-    // sines give flow direction, but the bulk of the chaos comes from two
-    // time-varying noise layers that change phase fast enough to shimmer.
+    // sines give flow direction, the noise layer changes phase slowly so the
+    // shimmer reads as moving water without strobing.
     let w1 = (fx * 0.731 + fy * 1.117 + t * 1.27).sin() * 0.4;
     let w2 = (fx * 1.289 - fy * 0.583 + t * 0.94).sin() * 0.3;
     let slow_noise =
         (hash2(x, y, 0xA11_BABE) as f32 / u32::MAX as f32 - 0.5) * 1.2;
     let fast_noise = (hash2(
-        x.wrapping_add((tick as i32 / 3).wrapping_mul(7919)),
-        y.wrapping_add((tick as i32 / 5).wrapping_mul(6113)),
+        x.wrapping_add((tick as i32 / 14).wrapping_mul(7919)),
+        y.wrapping_add((tick as i32 / 18).wrapping_mul(6113)),
         0xBAD_C0DE,
     ) as f32
         / u32::MAX as f32
