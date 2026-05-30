@@ -550,36 +550,52 @@ fn village_oak_glyph(x: i32, y: i32) -> Option<(char, Style)> {
         let dx = x - ax;
         let dy = y - ay;
         let anchor_hash = hash2(ax, ay, 0xCACE_F00D);
-        // trunk
+        // trunk - paired [ ] stacked two rows tall
         if (dy == 0 || dy == -1) && (dx == 0 || dx == 1) {
+            let g = if dx == 0 { '[' } else { ']' };
             let r = 145 + (anchor_hash % 25) as u8;
             let gc = 100 + (anchor_hash % 22) as u8;
             let b = 60 + (anchor_hash % 18) as u8;
             return Some((
-                '#',
+                g,
                 Style::default()
                     .fg(Color::Rgb(r, gc, b))
                     .add_modifier(Modifier::BOLD),
             ));
         }
+        // canopy cells get one of 4 leaf bases per-cell for variety
+        let cell_hash = hash2(x, y, anchor_hash.wrapping_add(0x9AAA));
+        let base = match cell_hash % 5 {
+            0 => (95, 160, 85),   // bright green
+            1 => (115, 145, 60),  // yellow-green
+            2 => (70, 130, 70),   // deep green
+            3 => (135, 155, 70),  // olive
+            _ => (90, 145, 95),   // muted teal-green
+        };
         // wide canopy
         if (dy == -2 || dy == -3) && (-2..=3).contains(&dx) {
-            let g = match ((dx + 2 + dy * 5).rem_euclid(4) as u32) % 4 {
+            let g = match cell_hash % 6 {
                 0 => '%',
                 1 => '@',
                 2 => '#',
-                _ => '&',
+                3 => '&',
+                4 => '*',
+                _ => 'o',
             };
-            return Some(leaf_style(g, anchor_hash, (95, 160, 85), x, y));
+            return Some(leaf_style(g, anchor_hash, base, x, y));
         }
         // top canopy
         if dy == -4 && (-1..=2).contains(&dx) {
             let g = match dx {
                 -1 => '/',
                 2 => '\\',
-                _ => '#',
+                _ => match cell_hash % 3 {
+                    0 => '#',
+                    1 => '%',
+                    _ => '&',
+                },
             };
-            return Some(leaf_style(g, anchor_hash, (115, 170, 95), x, y));
+            return Some(leaf_style(g, anchor_hash, base, x, y));
         }
     }
     None
@@ -813,12 +829,16 @@ fn village_tile(x: i32, y: i32) -> Option<Tile> {
     None
 }
 
+// anchor positions chosen so the 4-tall canopy (dy=-4) stays clear of
+// the top wall (y=-17) and the trunk (dy=0) stays clear of the bottom
+// wall row (y=4). horizontal span dx in [-2, 3] kept clear of walls and
+// houses too.
 const VILLAGE_OAKS: &[(i32, i32)] = &[
-    (-44, 2), (44, 2),
+    (-44, 3), (44, 3),
     (-30, 3), (30, 3),
     (-14, 3), (14, 3),
-    (-40, -12), (40, -12),
-    (-12, -13), (12, -13),
+    (-40, -10), (40, -10),
+    (-12, -10), (12, -10),
 ];
 
 fn village_oak_at(x: i32, y: i32) -> Option<Tile> {
