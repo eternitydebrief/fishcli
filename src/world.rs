@@ -763,17 +763,19 @@ fn cactus_glyph(x: i32, y: i32) -> (char, Style) {
 }
 
 fn shore_anim(x: i32, tick: u64) -> (char, Style) {
-    // a slow wave travelling along the shore. envelope drives wash glyphs.
+    // wave runs UP the shore (south->north) then retreats. the whole
+    // foam strip pulses together with only a small per-cell jitter so
+    // motion reads as vertical wash rather than a sideways-travelling crest.
     let t = tick as f32 * 0.045;
-    let env = ((x as f32) * 0.20 + t).sin()
-        + ((x as f32) * 0.08 - t * 0.6).sin() * 0.5;
-    let (g, base) = if env > 1.1 {
+    let jitter = ((x as f32) * 0.27).sin() * 0.18;
+    let env = (t).sin() + jitter;
+    let (g, base) = if env > 0.85 {
         ('~', (160, 180, 200))
-    } else if env > 0.55 {
+    } else if env > 0.35 {
         ('*', (210, 210, 200))
-    } else if env > -0.1 {
+    } else if env > -0.15 {
         (',', (170, 155, 115))
-    } else if env > -0.7 {
+    } else if env > -0.65 {
         ('.', (185, 170, 125))
     } else {
         ('`', (195, 180, 135))
