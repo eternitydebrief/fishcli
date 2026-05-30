@@ -1,0 +1,21 @@
+[
+  { "_comment": "schema: name (string, lowercase), description (one short flavour line), rarity (float weight, larger = more common; 1.0 abundant, 0.5 common, 0.1 uncommon, 0.05 rare, 0.005 legendary, 0.0005 mythic), difficulty (int 1..=10, scales minigame). order doesn't matter. add as many as you like." },
+
+  { "name": "common carp",     "description": "a humble pond dweller. abundant year-round.", "rarity": 1.00, "difficulty": 1 },
+  { "name": "bluegill",        "description": "scrappy little panfish. always hungry.",      "rarity": 0.95, "difficulty": 1 },
+  { "name": "yellow perch",    "description": "stripey and curious.",                        "rarity": 0.80, "difficulty": 2 },
+  { "name": "crappie",         "description": "schools like silver coins in dim water.",     "rarity": 0.75, "difficulty": 2 },
+
+  { "name": "rainbow trout",   "description": "speckled like a wet rainbow.",                "rarity": 0.65, "difficulty": 3 },
+  { "name": "brown trout",     "description": "wary, deep-pool dweller.",                    "rarity": 0.55, "difficulty": 4 },
+  { "name": "smallmouth bass", "description": "fights twice its weight.",                    "rarity": 0.45, "difficulty": 4 },
+
+  { "name": "walleye",         "description": "glowing eyes at dusk.",                       "rarity": 0.30, "difficulty": 5 },
+  { "name": "salmon",          "description": "leaping upstream, single-minded.",            "rarity": 0.20, "difficulty": 6 },
+  { "name": "northern pike",   "description": "all teeth and ambush.",                       "rarity": 0.18, "difficulty": 6 },
+
+  { "name": "muskellunge",     "description": "fish of ten thousand casts.",                 "rarity": 0.05, "difficulty": 8 },
+  { "name": "sturgeon",        "description": "armored relic of an older river.",            "rarity": 0.03, "difficulty": 9 },
+
+  { "name": "kraken's whisker","description": "a tendril of something far larger, briefly hooked.", "rarity": 0.001, "difficulty": 10 }
+]

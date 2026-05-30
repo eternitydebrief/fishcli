@@ -1,4 +1,4 @@
-use crate::fishlist::FISH;
+use crate::fishlist::fish;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout},
@@ -19,7 +19,7 @@ impl Fishdex {
     }
 
     pub fn cursor_down(&mut self) {
-        let len = FISH.len();
+        let len = fish().len();
         if len == 0 {
             return;
         }
@@ -34,7 +34,7 @@ impl Fishdex {
 
     pub fn render(&mut self, frame: &mut Frame, caught: &[bool]) {
         let area = frame.area();
-        let total = FISH.len();
+        let total = fish().len();
         let caught_count = caught.iter().filter(|c| **c).count();
         let title = format!(" fishdex ({}/{}) - j/k or arrows to browse, esc/q to leave ", caught_count, total);
         let outer = Block::default()
@@ -51,7 +51,7 @@ impl Fishdex {
             .constraints([Constraint::Length(list_w), Constraint::Min(8)])
             .split(inner);
 
-        let items: Vec<ListItem<'static>> = FISH
+        let items: Vec<ListItem<'static>> = fish()
             .iter()
             .enumerate()
             .map(|(i, f)| {
@@ -83,7 +83,7 @@ impl Fishdex {
         frame.render_stateful_widget(list, chunks[0], &mut self.state);
 
         let sel = self.state.selected().unwrap_or(0);
-        let detail_lines: Vec<Line> = if let Some(f) = FISH.get(sel) {
+        let detail_lines: Vec<Line> = if let Some(f) = fish().get(sel) {
             let known = caught.get(sel).copied().unwrap_or(false);
             if known {
                 vec![
@@ -102,7 +102,7 @@ impl Fishdex {
                         ),
                     ]),
                     Line::from(""),
-                    Line::from(f.description),
+                    Line::from(f.description.as_str()),
                 ]
             } else {
                 vec![

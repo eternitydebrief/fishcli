@@ -1,26 +1,26 @@
-#[derive(Clone, Copy, Debug)]
+use serde::Deserialize;
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default)]
 pub struct FishDef {
-    pub name: &'static str,
-    pub description: &'static str,
+    pub name: String,
+    pub description: String,
     pub rarity: f32,
     pub difficulty: u8,
 }
 
-impl FishDef {
-    pub const fn new(
-        name: &'static str,
-        description: &'static str,
-        rarity: f32,
-        difficulty: u8,
-    ) -> Self {
+impl Default for FishDef {
+    fn default() -> Self {
         Self {
-            name,
-            description,
-            rarity,
-            difficulty,
+            name: String::new(),
+            description: String::new(),
+            rarity: 0.0,
+            difficulty: 1,
         }
     }
+}
 
+impl FishDef {
     fn t(&self) -> f32 {
         ((self.difficulty as f32 - 1.0) / 9.0).clamp(0.0, 1.0)
     }
@@ -38,17 +38,21 @@ impl FishDef {
     }
 }
 
-pub fn pick_fish(rng: &mut u32) -> &'static FishDef {
-    let total: f32 = crate::fishlist::FISH.iter().map(|f| f.rarity).sum();
+pub fn pick_fish<'a>(rng: &mut u32, fish: &'a [FishDef]) -> &'a FishDef {
+    let total: f32 = fish.iter().map(|f| f.rarity).sum();
+    if total <= 0.0 || fish.is_empty() {
+        // shouldn't happen but degrade gracefully
+        return &fish[0];
+    }
     let r = next_rand_f32(rng) * total;
     let mut acc = 0.0;
-    for f in crate::fishlist::FISH {
+    for f in fish {
         acc += f.rarity;
         if r <= acc {
             return f;
         }
     }
-    &crate::fishlist::FISH[crate::fishlist::FISH.len() - 1]
+    &fish[fish.len() - 1]
 }
 
 pub fn next_rand_f32(s: &mut u32) -> f32 {

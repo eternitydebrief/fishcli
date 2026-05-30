@@ -1,7 +1,7 @@
 use crate::fish;
 use crate::fishdex::Fishdex;
 use crate::fishing::{Fishing, FishingResult};
-use crate::fishlist::FISH;
+use crate::fishlist;
 use crate::narrator::Narrator;
 use crate::player::Player;
 use crate::save::{self, SaveData};
@@ -79,7 +79,7 @@ impl App {
             running: true,
             anim_tick: 0,
             rng_state: 0xC0FF_EE42,
-            caught: vec![false; FISH.len()],
+            caught: vec![false; fishlist::fish().len()],
             narrator,
             held_dir: None,
             held_until_tick: 0,
@@ -95,7 +95,7 @@ impl App {
         self.player.inventory = data
             .inventory
             .iter()
-            .filter_map(|n| FISH.iter().find(|f| f.name == n.as_str()))
+            .filter_map(|n| fishlist::fish().iter().find(|f| &f.name == n))
             .collect();
         if data.caught.len() == self.caught.len() {
             self.caught = data.caught.clone();
@@ -365,7 +365,7 @@ impl App {
                 let caught = matches!(g.finished, Some(FishingResult::Caught));
                 let escaped = matches!(g.finished, Some(FishingResult::Escaped));
                 if caught {
-                    if let Some(i) = FISH.iter().position(|f| std::ptr::eq(f, fish_ref)) {
+                    if let Some(i) = fishlist::fish().iter().position(|f| std::ptr::eq(f, fish_ref)) {
                         self.caught[i] = true;
                     }
                     self.player.inventory.push(fish_ref);
@@ -443,7 +443,7 @@ impl App {
                 self.scene = Scene::FishingSchool;
             }
             Tile::Dock => {
-                let f = fish::pick_fish(&mut self.rng_state);
+                let f = fish::pick_fish(&mut self.rng_state, fishlist::fish());
                 self.narrator.say("You cast your line.");
                 self.narrator
                     .say(format!("Something tugs the line - a {}!", f.name));
