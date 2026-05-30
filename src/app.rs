@@ -2,12 +2,13 @@ use crate::fish;
 use crate::fishdex::Fishdex;
 use crate::fishing::{Fishing, FishingResult};
 use crate::fishlist::FISH;
+use crate::narrator::Narrator;
 use crate::player::Player;
 use crate::world::{Tile, World};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
     widgets::{Block, Borders, Paragraph},
 };
@@ -28,10 +29,13 @@ pub struct App {
     pub anim_tick: u64,
     pub rng_state: u32,
     pub caught: Vec<bool>,
+    pub narrator: Narrator,
 }
 
 impl App {
     pub fn new() -> Self {
+        let mut narrator = Narrator::new();
+        narrator.say("You arrive at the village.");
         Self {
             world: World::new(0xDEAD_BEEF),
             player: Player::spawn(),
@@ -40,6 +44,7 @@ impl App {
             anim_tick: 0,
             rng_state: 0xC0FF_EE42,
             caught: vec![false; FISH.len()],
+            narrator,
         }
     }
 
@@ -63,10 +68,19 @@ impl App {
                     _ => {}
                 }
                 if leave {
-                    if matches!(g.finished, Some(FishingResult::Caught)) {
+                    let fish_name = g.fish.name;
+                    let caught = matches!(g.finished, Some(FishingResult::Caught));
+                    if caught {
                         if let Some(i) = FISH.iter().position(|f| std::ptr::eq(f, g.fish)) {
                             self.caught[i] = true;
                         }
+                        self.narrator
+                            .say(format!("You reel in a {}!", fish_name));
+                    } else if matches!(g.finished, Some(FishingResult::Escaped)) {
+                        self.narrator
+                            .say(format!("The {} slips away.", fish_name));
+                    } else {
+                        self.narrator.say("You leave the line slack and step away.");
                     }
                     self.scene = Scene::Overworld;
                 }
@@ -93,6 +107,7 @@ impl App {
                 if key.kind == KeyEventKind::Press
                     && matches!(key.code, KeyCode::Esc | KeyCode::Char('q'))
                 {
+                    self.narrator.say("You step back outside.");
                     self.scene = Scene::Overworld;
                 }
             }
@@ -102,7 +117,10 @@ impl App {
     fn handle_overworld(&mut self, code: KeyCode) {
         match code {
             KeyCode::Char('q') => self.running = false,
-            KeyCode::Char('e') => self.scene = Scene::Fishdex(Fishdex::new()),
+            KeyCode::Char('e') => {
+                self.narrator.say("You leaf through the fishdex.");
+                self.scene = Scene::Fishdex(Fishdex::new());
+            }
             KeyCode::Char('h') | KeyCode::Left => self.step(-1, 0),
             KeyCode::Char('j') | KeyCode::Down => self.step(0, 1),
             KeyCode::Char('k') | KeyCode::Up => self.step(0, -1),
@@ -115,10 +133,19 @@ impl App {
         let nx = self.player.x + dx;
         let ny = self.player.y + dy;
         match self.world.get(nx, ny) {
-            Tile::DoorRod => self.scene = Scene::RodShop,
-            Tile::DoorSchool => self.scene = Scene::FishingSchool,
+            Tile::DoorRod => {
+                self.narrator.say("You step into the rod shop.");
+                self.scene = Scene::RodShop;
+            }
+            Tile::DoorSchool => {
+                self.narrator.say("You step into the fishing school.");
+                self.scene = Scene::FishingSchool;
+            }
             Tile::Dock => {
                 let f = fish::pick_fish(&mut self.rng_state);
+                self.narrator.say("You cast your line.");
+                self.narrator
+                    .say(format!("Something tugs the line — a {}!", f.name));
                 self.scene = Scene::Fishing(Fishing::new(f, self.rng_state));
             }
             t if t.walkable() => {
@@ -177,6 +204,18 @@ impl App {
             ),
             Scene::Fishing(g) => g.render(frame, anim_tick),
             Scene::Fishdex(d) => d.render(frame, &caught_snapshot),
+        }
+        let full = frame.area();
+        let log_w = 42u16.min(full.width);
+        let log_h = 10u16.min(full.height);
+        if log_w > 4 && log_h > 2 {
+            let log_area = Rect {
+                x: full.x + full.width - log_w,
+                y: full.y + full.height - log_h,
+                width: log_w,
+                height: log_h,
+            };
+            self.narrator.render(frame, log_area);
         }
     }
 }

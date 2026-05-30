@@ -14,6 +14,7 @@ mod fish;
 mod fishdex;
 mod fishing;
 mod fishlist;
+mod narrator;
 mod player;
 mod world;
 
