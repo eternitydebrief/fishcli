@@ -116,6 +116,7 @@ pub fn biome_at(x: i32, y: i32, seed: u32) -> Biome {
 pub enum Tile {
     Grass,
     Wall,
+    Roof,
     DoorRod,
     DoorSchool,
     Water,
@@ -143,6 +144,7 @@ impl Tile {
         match self {
             Tile::Grass => "Grass. Soft and quiet underfoot.",
             Tile::Wall => "A timber wall, weathered by salt air.",
+            Tile::Roof => "A brick roof - russet tiles overlapping like fish scales.",
             Tile::DoorRod => "A creaky door. The Rod Shop sign hangs above it.",
             Tile::DoorSchool => "A formal door. The Fishing School's crest is painted on the lintel.",
             Tile::Water => "Dark water. Something moves below.",
@@ -261,7 +263,8 @@ impl World {
 
     pub fn render_tile(&self, x: i32, y: i32, tick: u64) -> (char, Style) {
         match self.get(x, y) {
-            Tile::Wall => ('#', Style::default().fg(Color::Gray)),
+            Tile::Wall => wall_glyph(x, y),
+            Tile::Roof => roof_glyph(x, y),
             Tile::DoorRod => (
                 'D',
                 Style::default()
@@ -638,12 +641,18 @@ fn village_tile(x: i32, y: i32) -> Option<Tile> {
         if x == -20 && y == 1 {
             return Some(Tile::DoorRod);
         }
+        if y == -3 {
+            return Some(Tile::Roof);
+        }
         return Some(Tile::Wall);
     }
     let in_right_house = (18..=22).contains(&x) && (-3..=1).contains(&y);
     if in_right_house {
         if x == 20 && y == 1 {
             return Some(Tile::DoorSchool);
+        }
+        if y == -3 {
+            return Some(Tile::Roof);
         }
         return Some(Tile::Wall);
     }
@@ -745,6 +754,37 @@ fn grass_anim(x: i32, y: i32, _tick: u64, biome: Biome) -> (char, Style) {
         Biome::Swamp => (60, 75, 50),
     };
     ('.', Style::default().fg(shade(base, x, y, 0x6C00_6C00, 14)))
+}
+
+fn wall_glyph(x: i32, y: i32) -> (char, Style) {
+    let v = hash2(x, y, 0x1A11_F00D) % 4;
+    let g = match v {
+        0 => '|',
+        1 => 'H',
+        2 => '|',
+        _ => '#',
+    };
+    (
+        g,
+        Style::default()
+            .fg(shade((125, 90, 55), x, y, 0x1A11_F00D, 12))
+            .add_modifier(Modifier::BOLD),
+    )
+}
+
+fn roof_glyph(x: i32, y: i32) -> (char, Style) {
+    let v = hash2(x, y, 0x720F_720F) % 3;
+    let g = match v {
+        0 => '#',
+        1 => '%',
+        _ => '#',
+    };
+    (
+        g,
+        Style::default()
+            .fg(shade((160, 75, 55), x, y, 0x720F_720F, 12))
+            .add_modifier(Modifier::BOLD),
+    )
 }
 
 fn cactus_glyph(x: i32, y: i32) -> (char, Style) {
