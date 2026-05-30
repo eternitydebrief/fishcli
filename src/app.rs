@@ -85,6 +85,24 @@ pub enum Mode {
     Command(String),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CastPhase {
+    Casting,
+    Waiting,
+    Biting,
+}
+
+pub struct CastState {
+    pub phase: CastPhase,
+    pub fish: &'static crate::fish::FishDef,
+    pub bobber: (i32, i32),
+    pub cast_pos: f32,
+    pub cast_vel: f32,
+    pub cast_strength: f32,
+    pub wait_ticks_left: u32,
+    pub bite_ticks_left: u32,
+}
+
 /// Horizontal movement interval (ticks/step). Smaller because terminal cells
 /// are roughly 2:1 - a vertical step covers ~2x the visual distance of a horizontal one.
 const MOVE_INTERVAL_H: u64 = 2;
@@ -128,6 +146,7 @@ pub struct App {
     autosave_tx: mpsc::Sender<SaveData>,
     last_autosave_at: Instant,
     last_autosave_hash: u64,
+    pub cast: Option<CastState>,
     held_dir: Option<(i32, i32)>,
     held_until_tick: u64,
     last_step_tick: u64,
@@ -184,6 +203,7 @@ impl App {
             autosave_tx: spawn_autosaver(),
             last_autosave_at: Instant::now(),
             last_autosave_hash: 0,
+            cast: None,
             held_dir: None,
             held_until_tick: 0,
             last_step_tick: 0,
@@ -325,6 +345,96 @@ impl App {
         self.xp_popup = Some((skill, gained, total_xp, level, 100));
     }
 
+    fn tick_cast(&mut self) {
+        let Some(c) = self.cast.as_mut() else { return; };
+        match c.phase {
+            CastPhase::Casting => {
+                c.cast_pos += c.cast_vel;
+                if c.cast_pos > 1.0 {
+                    c.cast_pos = 1.0;
+                    c.cast_vel = -c.cast_vel.abs();
+                }
+                if c.cast_pos < 0.0 {
+                    c.cast_pos = 0.0;
+                    c.cast_vel = c.cast_vel.abs();
+                }
+            }
+            CastPhase::Waiting => {
+                if c.wait_ticks_left > 0 {
+                    c.wait_ticks_left -= 1;
+                } else {
+                    c.phase = CastPhase::Biting;
+                    c.bite_ticks_left = 40;
+                }
+            }
+            CastPhase::Biting => {
+                if c.bite_ticks_left > 0 {
+                    c.bite_ticks_left -= 1;
+                } else {
+                    let name = c.fish.name.clone();
+                    self.cast = None;
+                    self.narrator.say(format!("The {name} slipped off the hook."));
+                    self.stats.fish_escaped += 1;
+                }
+            }
+        }
+    }
+
+    fn cast_action(&mut self) {
+        let Some(c) = self.cast.as_mut() else { return; };
+        match c.phase {
+            CastPhase::Casting => {
+                c.cast_strength = c.cast_pos.clamp(0.0, 1.0);
+                // bobber distance: 1..=5 cells based on strength
+                let max_d = 1 + (c.cast_strength * 4.0).round() as i32;
+                let (fx, fy) = self.player.facing;
+                let mut bd = 1;
+                for d in 1..=max_d {
+                    let bx = self.player.x + fx * d;
+                    let by = self.player.y + fy * d;
+                    if matches!(
+                        self.world.get(bx, by),
+                        Tile::Water | Tile::Dock | Tile::Well
+                    ) {
+                        bd = d;
+                    } else {
+                        break;
+                    }
+                }
+                c.bobber = (self.player.x + fx * bd, self.player.y + fy * bd);
+                // geometric wait length
+                let r = crate::fish::next_rand_f32(&mut self.rng_state);
+                let k = (1.0f32 - r * 0.9999).ln() / 0.75f32.ln();
+                let secs = (k.ceil() as u32).clamp(1, 30) as f32;
+                let scaled = secs * (1.0 - c.cast_strength * 0.5);
+                c.wait_ticks_left = (scaled * 20.0).max(20.0) as u32;
+                c.phase = CastPhase::Waiting;
+                self.narrator
+                    .say(format!("Cast lands {} tiles out. Waiting...", bd));
+            }
+            CastPhase::Biting => {
+                let fish = c.fish;
+                self.cast = None;
+                self.narrator
+                    .say(format!("Hooked a {}!", fish.name));
+                self.scene = Scene::Fishing(Fishing::new(
+                    fish,
+                    self.rng_state,
+                    self.skills.fishing_level(),
+                    self.player.rods.equipped,
+                ));
+            }
+            CastPhase::Waiting => {}
+        }
+    }
+
+    fn cancel_cast(&mut self) {
+        if self.cast.is_some() {
+            self.cast = None;
+            self.narrator.say("Reeled in the empty line.");
+        }
+    }
+
     fn maybe_autosave(&mut self) {
         // every ~5s, send a snapshot to the background thread, but only if
         // the save has actually changed since the last write.
@@ -355,6 +465,7 @@ impl App {
                 self.xp_popup = None;
             }
         }
+        self.tick_cast();
         self.maybe_autosave();
 
         let movement_allowed =
@@ -402,10 +513,6 @@ impl App {
                     }
                     KeyCode::Char('j') | KeyCode::Down => {
                         g.input_down(key.kind);
-                        return;
-                    }
-                    KeyCode::Char(' ') | KeyCode::Char('f') => {
-                        g.input_action(key.kind);
                         return;
                     }
                     _ => {}
@@ -895,7 +1002,15 @@ impl App {
             }
             KeyCode::Char('x') => self.inspect_surroundings(),
             KeyCode::Char('g') => self.pickup_here(),
-            KeyCode::Char('f') => self.interact_facing(),
+            KeyCode::Char('f') => {
+                if self.cast.is_some() {
+                    // f during cast = no-op so player doesn't restart
+                } else {
+                    self.interact_facing();
+                }
+            }
+            KeyCode::Char(' ') => self.cast_action(),
+            KeyCode::Esc if self.cast.is_some() => self.cancel_cast(),
             _ => {}
         }
     }
@@ -990,22 +1105,18 @@ impl App {
             }
             Tile::Dock | Tile::Water | Tile::Well => {
                 let f = fish::pick_fish(&mut self.rng_state, fishlist::fish());
-                let spot = match self.world.get(nx, ny) {
-                    Tile::Dock => "off the dock",
-                    Tile::Water => "into the water",
-                    Tile::Well => "down the well",
-                    _ => "out",
-                };
-                self.narrator.say(format!("You cast {spot}."));
-                self.narrator
-                    .say(format!("Something tugs the line - a {}!", f.name));
+                self.narrator.say("Casting line - aim for the green!");
                 self.stats.casts += 1;
-                self.scene = Scene::Fishing(Fishing::new(
-                    f,
-                    self.rng_state,
-                    self.skills.fishing_level(),
-                    self.player.rods.equipped,
-                ));
+                self.cast = Some(CastState {
+                    phase: CastPhase::Casting,
+                    fish: f,
+                    bobber: (nx, ny),
+                    cast_pos: 0.0,
+                    cast_vel: 0.10,
+                    cast_strength: 0.0,
+                    wait_ticks_left: 0,
+                    bite_ticks_left: 0,
+                });
             }
             _ => self.narrator.say("Nothing to interact with."),
         }
@@ -1063,6 +1174,15 @@ impl App {
                     },
                     inner,
                 );
+                if let Some(c) = &self.cast {
+                    render_cast_overlay(
+                        frame,
+                        inner,
+                        (self.player.x, self.player.y),
+                        c,
+                        anim_tick,
+                    );
+                }
             }
             Scene::RodShop { cursor } => render_rod_shop(
                 frame,
@@ -1504,6 +1624,81 @@ fn render_quests(
         Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }),
         inner,
     );
+}
+
+fn render_cast_overlay(
+    frame: &mut Frame,
+    area: Rect,
+    player: (i32, i32),
+    c: &CastState,
+    anim_tick: u64,
+) {
+    let half_w = (area.width as i32) / 2;
+    let half_h = (area.height as i32) / 2;
+    let player_sx = area.x as i32 + half_w;
+    let player_sy = area.y as i32 + half_h;
+
+    match c.phase {
+        CastPhase::Casting => {
+            // 8-row vertical bar floating directly above the player
+            let bar_h = 8i32;
+            let marker_row = ((1.0 - c.cast_pos) * (bar_h - 1) as f32).round() as i32;
+            for row in 0..bar_h {
+                let sy = player_sy - bar_h - 1 + row;
+                if sy < area.y as i32 || sy >= (area.y + area.height) as i32 {
+                    continue;
+                }
+                let sx = player_sx;
+                if sx < area.x as i32 || sx >= (area.x + area.width) as i32 {
+                    continue;
+                }
+                let frac = 1.0 - (row as f32 / (bar_h - 1) as f32);
+                let color = lerp_red_green(frac);
+                let ch = if row == marker_row { '<' } else { '#' };
+                frame.buffer_mut()[(sx as u16, sy as u16)]
+                    .set_char(ch)
+                    .set_style(Style::default().fg(color).add_modifier(Modifier::BOLD));
+            }
+        }
+        CastPhase::Waiting | CastPhase::Biting => {
+            // bobber lives on the world cell. project to screen.
+            let bsx = player_sx + (c.bobber.0 - player.0);
+            let bsy = player_sy + (c.bobber.1 - player.1);
+            if bsx < area.x as i32
+                || bsy < area.y as i32
+                || bsx >= (area.x + area.width) as i32
+                || bsy >= (area.y + area.height) as i32
+            {
+                return;
+            }
+            let (ch, style) = match c.phase {
+                CastPhase::Biting => (
+                    '!',
+                    Style::default()
+                        .fg(Color::Red)
+                        .bg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                _ => {
+                    let on = (anim_tick / 10) % 2 == 0;
+                    let col = if on { Color::Red } else { Color::White };
+                    (
+                        '*',
+                        Style::default().fg(col).add_modifier(Modifier::BOLD),
+                    )
+                }
+            };
+            frame.buffer_mut()[(bsx as u16, bsy as u16)]
+                .set_char(ch)
+                .set_style(style);
+        }
+    }
+}
+
+fn lerp_red_green(frac: f32) -> Color {
+    let r = ((1.0 - frac) * 230.0) as u8;
+    let g = (frac * 220.0) as u8;
+    Color::Rgb(r, g, 30)
 }
 
 fn render_rod_shop(

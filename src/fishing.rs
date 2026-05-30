@@ -36,30 +36,10 @@ fn scene_water(x: usize, y: usize, tick: u64) -> (char, Style) {
     (glyph, Style::default().fg(color))
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Phase {
-    Casting,
-    Waiting,
-    Biting,
-    Reeling,
-}
-
 pub struct Fishing {
     pub fish: &'static FishDef,
     pub fishing_level: u32,
     pub rod_tier: u32,
-    pub phase: Phase,
-
-    // casting bar (vertical, 0.0=bottom/red, 1.0=top/green)
-    cast_pos: f32,
-    cast_vel: f32,
-    pub cast_strength: f32,
-
-    // wait + bite timing
-    wait_ticks_remaining: u32,
-    bite_ticks_remaining: u32,
-
-    // reeling state (only used in Reeling phase)
     pub bar_h: usize,
     pub rect_h: f32,
     pub rect_y: f32,
@@ -95,12 +75,6 @@ impl Fishing {
             fish,
             fishing_level,
             rod_tier,
-            phase: Phase::Casting,
-            cast_pos: 0.0,
-            cast_vel: 0.08,
-            cast_strength: 0.0,
-            wait_ticks_remaining: 0,
-            bite_ticks_remaining: 0,
             bar_h,
             rect_h,
             rect_y,
@@ -120,33 +94,7 @@ impl Fishing {
         }
     }
 
-    pub fn input_action(&mut self, kind: KeyEventKind) {
-        if kind != KeyEventKind::Press {
-            return;
-        }
-        match self.phase {
-            Phase::Casting => {
-                self.cast_strength = self.cast_pos.clamp(0.0, 1.0);
-                // wait length: geometric sample over 1..=30 seconds, then scaled
-                // by 1 - strength*0.5 (better cast = shorter wait)
-                let r = next_rand_f32(&mut self.rng_state);
-                let k = (1.0 - r * 0.9999).ln() / 0.75f32.ln();
-                let secs = (k.ceil() as u32).clamp(1, 30) as f32;
-                let scaled = secs * (1.0 - self.cast_strength * 0.5);
-                self.wait_ticks_remaining = (scaled * 20.0).max(20.0) as u32;
-                self.phase = Phase::Waiting;
-            }
-            Phase::Biting => {
-                self.phase = Phase::Reeling;
-            }
-            _ => {}
-        }
-    }
-
     pub fn input_up(&mut self, kind: KeyEventKind) {
-        if self.phase != Phase::Reeling {
-            return;
-        }
         match kind {
             KeyEventKind::Press => {
                 self.rect_vy -= 0.35;
@@ -164,9 +112,6 @@ impl Fishing {
     }
 
     pub fn input_down(&mut self, kind: KeyEventKind) {
-        if self.phase != Phase::Reeling {
-            return;
-        }
         match kind {
             KeyEventKind::Press => {
                 self.rect_vy += 0.35;
@@ -184,93 +129,58 @@ impl Fishing {
     }
 
     pub fn tick(&mut self) {
+        if self.finished.is_some() {
+            return;
+        }
         self.tick_count += 1;
-        match self.phase {
-            Phase::Casting => {
-                self.cast_pos += self.cast_vel;
-                if self.cast_pos > 1.0 {
-                    self.cast_pos = 1.0;
-                    self.cast_vel = -self.cast_vel.abs();
-                }
-                if self.cast_pos < 0.0 {
-                    self.cast_pos = 0.0;
-                    self.cast_vel = self.cast_vel.abs();
-                }
-            }
-            Phase::Waiting => {
-                if self.wait_ticks_remaining > 0 {
-                    self.wait_ticks_remaining -= 1;
-                } else {
-                    self.phase = Phase::Biting;
-                    self.bite_ticks_remaining = BITE_WINDOW_TICKS;
-                }
-            }
-            Phase::Biting => {
-                if self.bite_ticks_remaining > 0 {
-                    self.bite_ticks_remaining -= 1;
-                } else {
-                    self.finished = Some(FishingResult::Escaped);
-                }
-            }
-            Phase::Reeling => {
-                if self.finished.is_some() {
-                    return;
-                }
-                if self.up_held && self.tick_count > self.up_held_until {
-                    self.up_held = false;
-                }
-                if self.down_held && self.tick_count > self.down_held_until {
-                    self.down_held = false;
-                }
-                if self.up_held {
-                    self.rect_vy -= 0.45;
-                }
-                if self.down_held {
-                    self.rect_vy += 0.45;
-                }
-
-                let gravity = 0.22;
-                let damping = 0.85;
-                self.rect_vy += gravity;
-                self.rect_vy *= damping;
-                self.rect_y += self.rect_vy;
-
-                let max_top = (self.bar_h as f32) - self.rect_h;
-                if self.rect_y < 0.0 {
-                    self.rect_y = 0.0;
-                    self.rect_vy = 0.0;
-                }
-                if self.rect_y > max_top {
-                    self.rect_y = max_top;
-                    self.rect_vy = 0.0;
-                }
-
-                if self.tick_count % self.target_change_ticks == 0 {
-                    self.fish_target_y = self.next_target();
-                }
-                let dy = self.fish_target_y - self.fish_y;
-                if dy.abs() > self.fish_speed {
-                    self.fish_y += self.fish_speed * dy.signum();
-                } else {
-                    self.fish_y = self.fish_target_y;
-                }
-
-                let in_rect =
-                    self.fish_y >= self.rect_y && self.fish_y <= self.rect_y + self.rect_h;
-                let fishing_mult = 1.0 + (self.fishing_level as f32) * 0.0025;
-                if in_rect {
-                    self.progress += 0.8 * fishing_mult;
-                } else {
-                    self.progress -= 0.4;
-                }
-                if self.progress >= 100.0 {
-                    self.progress = 100.0;
-                    self.finished = Some(FishingResult::Caught);
-                } else if self.progress <= 0.0 {
-                    self.progress = 0.0;
-                    self.finished = Some(FishingResult::Escaped);
-                }
-            }
+        if self.up_held && self.tick_count > self.up_held_until {
+            self.up_held = false;
+        }
+        if self.down_held && self.tick_count > self.down_held_until {
+            self.down_held = false;
+        }
+        if self.up_held {
+            self.rect_vy -= 0.45;
+        }
+        if self.down_held {
+            self.rect_vy += 0.45;
+        }
+        let gravity = 0.22;
+        let damping = 0.85;
+        self.rect_vy += gravity;
+        self.rect_vy *= damping;
+        self.rect_y += self.rect_vy;
+        let max_top = (self.bar_h as f32) - self.rect_h;
+        if self.rect_y < 0.0 {
+            self.rect_y = 0.0;
+            self.rect_vy = 0.0;
+        }
+        if self.rect_y > max_top {
+            self.rect_y = max_top;
+            self.rect_vy = 0.0;
+        }
+        if self.tick_count % self.target_change_ticks == 0 {
+            self.fish_target_y = self.next_target();
+        }
+        let dy = self.fish_target_y - self.fish_y;
+        if dy.abs() > self.fish_speed {
+            self.fish_y += self.fish_speed * dy.signum();
+        } else {
+            self.fish_y = self.fish_target_y;
+        }
+        let in_rect = self.fish_y >= self.rect_y && self.fish_y <= self.rect_y + self.rect_h;
+        let fishing_mult = 1.0 + (self.fishing_level as f32) * 0.0025;
+        if in_rect {
+            self.progress += 0.8 * fishing_mult;
+        } else {
+            self.progress -= 0.4;
+        }
+        if self.progress >= 100.0 {
+            self.progress = 100.0;
+            self.finished = Some(FishingResult::Caught);
+        } else if self.progress <= 0.0 {
+            self.progress = 0.0;
+            self.finished = Some(FishingResult::Escaped);
         }
     }
 
@@ -281,163 +191,15 @@ impl Fishing {
 
     pub fn render(&self, frame: &mut Frame, anim_tick: u64) {
         let area = frame.area();
-        let title = match self.phase {
-            Phase::Casting => " fishing - cast! (space to throw) ".to_string(),
-            Phase::Waiting => " fishing - waiting for a bite... ".to_string(),
-            Phase::Biting => " fishing - BITE! press space! ".to_string(),
-            Phase::Reeling => {
-                let stars = "*".repeat(self.fish.difficulty as usize);
-                format!(" fishing - {} {} ", self.fish.name, stars)
-            }
-        };
+        let stars = "*".repeat(self.fish.difficulty as usize);
+        let title = format!(" fishing - {} {} ", self.fish.name, stars);
         let outer = Block::default()
             .borders(Borders::ALL)
             .title(title)
             .border_style(Style::default().fg(Color::Cyan));
         let inner = outer.inner(area);
         frame.render_widget(outer, area);
-
-        match self.phase {
-            Phase::Casting => self.render_casting(frame, inner),
-            Phase::Waiting | Phase::Biting => self.render_waiting(frame, inner, anim_tick),
-            Phase::Reeling => self.render_reeling(frame, inner, anim_tick),
-        }
-    }
-
-    fn render_casting(&self, frame: &mut Frame, inner: ratatui::layout::Rect) {
-        // vertical bar in the middle. green at top, red at bottom. moving '>' marker.
-        let bar_h = (inner.height as usize).saturating_sub(2).max(8);
-        let marker_row = ((1.0 - self.cast_pos) * (bar_h - 1) as f32).round() as usize;
-        let mut lines: Vec<Line<'static>> = Vec::with_capacity(bar_h);
-        for r in 0..bar_h {
-            let frac = 1.0 - (r as f32 / (bar_h - 1) as f32);
-            let color = lerp_red_green(frac);
-            let bar_char = if r == marker_row { '<' } else { '#' };
-            lines.push(Line::from(vec![
-                Span::raw("           "),
-                Span::styled(
-                    bar_char.to_string(),
-                    Style::default().fg(color).add_modifier(Modifier::BOLD),
-                ),
-            ]));
-        }
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "  Press [SPACE] to cast - aim for the green!",
-            Style::default().fg(Color::White),
-        )));
-        frame.render_widget(Paragraph::new(lines), inner);
-    }
-
-    fn render_waiting(
-        &self,
-        frame: &mut Frame,
-        inner: ratatui::layout::Rect,
-        anim_tick: u64,
-    ) {
-        // dock scene with bobber that blinks
-        let scene_lines = self.render_scene_with_bobber(anim_tick);
-        let scene = Paragraph::new(scene_lines).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" dock ")
-                .border_style(Style::default().fg(Color::DarkGray)),
-        );
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(1), Constraint::Length(3)])
-            .split(inner);
-        frame.render_widget(scene, chunks[0]);
-
-        let (msg, color) = match self.phase {
-            Phase::Waiting => (
-                format!("waiting... ({}s)", self.wait_ticks_remaining / 20),
-                Color::Gray,
-            ),
-            Phase::Biting => (
-                format!("FISH ON! press [SPACE] ({}t)", self.bite_ticks_remaining),
-                Color::Red,
-            ),
-            _ => ("...".into(), Color::Gray),
-        };
-        let status = Paragraph::new(msg).style(Style::default().fg(color)).block(
-            Block::default().borders(Borders::ALL).title(" status "),
-        );
-        frame.render_widget(status, chunks[1]);
-    }
-
-    fn render_scene_with_bobber(&self, anim_tick: u64) -> Vec<Line<'static>> {
-        const PLAYER_POS: (usize, usize) = (16, 4);
-        const ROD_TIP: (usize, usize) = (10, 10);
-        const WATER_TOP: usize = 11;
-        let bobber_y = WATER_TOP + 2;
-        let bobber_x = ROD_TIP.0;
-
-        // bobber blink/state
-        let (bch, bstyle) = match self.phase {
-            Phase::Biting => (
-                '!',
-                Style::default()
-                    .fg(Color::Red)
-                    .bg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            _ => {
-                // blink red/white once per second
-                let on = (anim_tick / 10) % 2 == 0;
-                let c = if on { Color::Red } else { Color::White };
-                (
-                    '*',
-                    Style::default().fg(c).add_modifier(Modifier::BOLD),
-                )
-            }
-        };
-
-        (0..SCENE_H)
-            .map(|y| {
-                let spans = (0..SCENE_W)
-                    .map(|x| {
-                        if (x, y) == PLAYER_POS {
-                            return Span::styled(
-                                "@".to_string(),
-                                Style::default()
-                                    .fg(Color::White)
-                                    .add_modifier(Modifier::BOLD),
-                            );
-                        }
-                        if y > PLAYER_POS.1 && y <= ROD_TIP.1 {
-                            let dy = (y - PLAYER_POS.1) as i32;
-                            let total_dy = (ROD_TIP.1 - PLAYER_POS.1) as i32;
-                            let dx = ((PLAYER_POS.0 as i32 - ROD_TIP.0 as i32) * dy
-                                + total_dy / 2)
-                                / total_dy;
-                            let rod_x = PLAYER_POS.0 as i32 - dx;
-                            if rod_x >= 0 && x == rod_x as usize {
-                                return Span::styled(
-                                    "\\".to_string(),
-                                    Style::default().fg(Color::Yellow),
-                                );
-                            }
-                        }
-                        if (x, y) == (bobber_x, bobber_y) {
-                            return Span::styled(bch.to_string(), bstyle);
-                        }
-                        if x == bobber_x && y > ROD_TIP.1 && y < bobber_y {
-                            return Span::styled(
-                                "|".to_string(),
-                                Style::default().fg(Color::Gray),
-                            );
-                        }
-                        if y >= WATER_TOP {
-                            let (g, s) = scene_water(x, y, anim_tick);
-                            return Span::styled(g.to_string(), s);
-                        }
-                        Span::raw(" ")
-                    })
-                    .collect::<Vec<_>>();
-                Line::from(spans)
-            })
-            .collect()
+        self.render_reeling(frame, inner, anim_tick);
     }
 
     fn render_reeling(
@@ -446,34 +208,13 @@ impl Fishing {
         inner: ratatui::layout::Rect,
         anim_tick: u64,
     ) {
-        let show_scene = inner.width >= 55;
-        let constraints: Vec<Constraint> = if show_scene {
-            vec![
-                Constraint::Length(SCENE_W as u16 + 2),
-                Constraint::Length(5),
-                Constraint::Min(20),
-            ]
-        } else {
-            vec![Constraint::Length(5), Constraint::Min(15)]
-        };
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints(constraints)
+            .constraints(vec![Constraint::Length(5), Constraint::Min(15)])
             .split(inner);
+        let (bar_idx, right_idx) = (0usize, 1usize);
 
-        let (bar_idx, right_idx) = if show_scene {
-            let scene = Paragraph::new(self.render_scene_with_bobber(anim_tick)).block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(" dock ")
-                    .border_style(Style::default().fg(Color::DarkGray)),
-            );
-            frame.render_widget(scene, chunks[0]);
-            (1usize, 2usize)
-        } else {
-            (0usize, 1usize)
-        };
-
+        let _ = anim_tick;
         let bar = Paragraph::new(self.render_bar())
             .alignment(Alignment::Center)
             .block(
