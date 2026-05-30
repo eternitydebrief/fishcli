@@ -25,7 +25,7 @@ mod world;
 
 use app::App;
 
-const TICK_RATE: Duration = Duration::from_millis(33);
+const TICK_RATE: Duration = Duration::from_millis(50);
 
 fn main() -> Result<()> {
     let mut terminal = ratatui::init();
