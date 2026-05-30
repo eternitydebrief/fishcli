@@ -13,7 +13,15 @@ const CACHE_CAP: usize = 16384;
 
 thread_local! {
     static BIOME_CACHE: RefCell<HashMap<(i32, i32), Biome>> = RefCell::new(HashMap::with_capacity(CACHE_CAP));
-    static WATER_CACHE: RefCell<HashMap<(i32, i32), bool>> = RefCell::new(HashMap::with_capacity(CACHE_CAP));
+    static WATER_CACHE: RefCell<HashMap<(i32, i32), CellWaterInfo>> = RefCell::new(HashMap::with_capacity(CACHE_CAP));
+}
+
+#[derive(Clone, Copy, Default)]
+struct CellWaterInfo {
+    in_water: bool,
+    island_grass: bool,
+    island_sand: bool,
+    in_ring: bool,
 }
 
 fn cached_biome_at(x: i32, y: i32, seed: u32) -> Biome {
@@ -31,7 +39,7 @@ fn cached_biome_at(x: i32, y: i32, seed: u32) -> Biome {
     })
 }
 
-fn cached_water_body_at(x: i32, y: i32, seed: u32) -> bool {
+fn cached_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
     WATER_CACHE.with(|c| {
         let mut c = c.borrow_mut();
         if let Some(&b) = c.get(&(x, y)) {
@@ -40,10 +48,14 @@ fn cached_water_body_at(x: i32, y: i32, seed: u32) -> bool {
         if c.len() >= CACHE_CAP {
             c.clear();
         }
-        let b = water_body_at(x, y, seed);
+        let b = compute_water_info(x, y, seed);
         c.insert((x, y), b);
         b
     })
+}
+
+fn cached_water_body_at(x: i32, y: i32, seed: u32) -> bool {
+    cached_water_info(x, y, seed).in_water
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -290,7 +302,14 @@ impl World {
         if y == 5 {
             return Tile::Sand;
         }
-        if water_body_at(x, y, self.seed) {
+        let winfo = cached_water_info(x, y, self.seed);
+        if winfo.island_grass {
+            return Tile::Grass;
+        }
+        if winfo.island_sand {
+            return Tile::Sand;
+        }
+        if winfo.in_water {
             return Tile::Water;
         }
         if well_at(x, y, self.seed) {
@@ -491,22 +510,35 @@ fn is_tree_anchor(x: i32, y: i32, seed: u32, density: f32) -> bool {
     if y >= 4 || y <= -1000 {
         return false;
     }
-    if cached_water_body_at(x, y, seed) {
+    let info = cached_water_info(x, y, seed);
+    if info.in_water || info.island_grass || info.island_sand {
         return false;
     }
+    // cells in the ring zone around any water body get boosted tree density
+    let effective = if info.in_ring {
+        density.max(0.42)
+    } else {
+        density
+    };
     let r = hash2(x, y, seed.wrapping_add(0xC0DE_C0DE)) as f32 / u32::MAX as f32;
-    r < density
+    r < effective
 }
 
 const WATER_CELL_W: i32 = 36;
 const WATER_CELL_H: i32 = 22;
+const RING_OUTER: f32 = 1.40;
 
 fn water_body_at(x: i32, y: i32, seed: u32) -> bool {
+    compute_water_info(x, y, seed).in_water
+}
+
+fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
+    let mut info = CellWaterInfo::default();
     if in_village_zone(x, y) {
-        return false;
+        return info;
     }
     if y >= 5 {
-        return false; // ocean strip handled elsewhere
+        return info;
     }
     let cx = x.div_euclid(WATER_CELL_W);
     let cy = y.div_euclid(WATER_CELL_H);
@@ -515,7 +547,6 @@ fn water_body_at(x: i32, y: i32, seed: u32) -> bool {
             let ccx = cx + dcx;
             let ccy = cy + dcy;
             let h = hash2(ccx, ccy, seed.wrapping_add(0xF00D_BEEF));
-            // ~12% of coarse cells host a water body
             if h % 8 != 0 {
                 continue;
             }
@@ -523,26 +554,48 @@ fn water_body_at(x: i32, y: i32, seed: u32) -> bool {
             let oy = ((h >> 12) as i32).rem_euclid(WATER_CELL_H);
             let ax = ccx * WATER_CELL_W + ox;
             let ay = ccy * WATER_CELL_H + oy;
-            // horizontal-elongated size classes: (rx, ry) where rx > ry.
-            // bumped ~2x and distribution shifted toward larger bodies.
-            let (rx, ry): (i32, i32) = match (h >> 20) % 10 {
-                0..=2 => (4, 2),   // puddle
-                3..=6 => (10, 4),  // pond
-                7..=8 => (16, 6),  // lake
-                _ => (24, 8),      // long lake
+            // 5 size classes including a HUGE lake that can host an island
+            let (rx, ry, is_huge): (i32, i32, bool) = match (h >> 20) % 12 {
+                0..=2 => (4, 2, false),     // puddle
+                3..=6 => (10, 4, false),    // pond
+                7..=8 => (16, 6, false),    // lake
+                9..=10 => (24, 8, false),   // long lake
+                _ => (40, 14, true),        // huge lake (with island)
             };
             if ay + ry >= 5 {
                 continue;
             }
-            // ellipse-ish test: stretched horizontally
-            let dx = (x - ax) as f32 / rx.max(1) as f32;
-            let dy = (y - ay) as f32 / ry.max(1) as f32;
-            if dx * dx + dy * dy <= 1.0 {
-                return true;
+            let dxf = (x - ax) as f32 / rx.max(1) as f32;
+            let dyf = (y - ay) as f32 / ry.max(1) as f32;
+            let d = dxf * dxf + dyf * dyf;
+            if d <= 1.0 {
+                info.in_water = true;
+                if is_huge {
+                    // island position derived from anchor hash, slightly off-center
+                    let iox = ((h >> 4) as i32 % 10) - 5;
+                    let ioy = ((h >> 8) as i32 % 6) - 3;
+                    let i_ax = ax + iox;
+                    let i_ay = ay + ioy;
+                    let i_rx = 5;
+                    let i_ry = 2;
+                    let idx = (x - i_ax) as f32 / i_rx as f32;
+                    let idy = (y - i_ay) as f32 / i_ry as f32;
+                    let id = idx * idx + idy * idy;
+                    if id <= 0.55 {
+                        info.island_grass = true;
+                    } else if id <= 1.0 {
+                        info.island_sand = true;
+                    }
+                }
+                // an island cell still has in_water=true (so it overrides
+                // ring/tree generation) but island flags take priority
+                // in the World::get dispatch below.
+            } else if d <= RING_OUTER * RING_OUTER {
+                info.in_ring = true;
             }
         }
     }
-    false
+    info
 }
 
 fn tree_at(x: i32, y: i32, seed: u32, density: f32) -> Option<Tile> {
