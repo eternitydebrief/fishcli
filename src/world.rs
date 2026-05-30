@@ -28,28 +28,28 @@ fn biome_params(b: Biome) -> BiomeParams {
             big_rock: 0.002,
             rock: 0.010,
             pebble: 0.040,
-            flower: 0.060,
+            flower: 0.012,
         },
         Biome::Forest => BiomeParams {
             tree: 0.090,
             big_rock: 0.002,
             rock: 0.008,
             pebble: 0.020,
-            flower: 0.012,
+            flower: 0.003,
         },
         Biome::Rocky => BiomeParams {
             tree: 0.008,
             big_rock: 0.012,
             rock: 0.045,
             pebble: 0.120,
-            flower: 0.005,
+            flower: 0.001,
         },
         Biome::Scrub => BiomeParams {
             tree: 0.005,
             big_rock: 0.001,
             rock: 0.006,
             pebble: 0.020,
-            flower: 0.010,
+            flower: 0.002,
         },
     }
 }
@@ -459,15 +459,11 @@ fn pebble_glyph(x: i32, y: i32) -> (char, Style) {
 }
 
 fn flower_glyph(x: i32, y: i32) -> (char, Style) {
-    let h = hash2(x, y, 0xFFEE_DD11) % 7;
+    let h = hash2(x, y, 0xFFEE_DD11) % 3;
     let color = match h {
-        0 => Color::Rgb(180, 90, 90),
-        1 => Color::Rgb(190, 150, 75),
-        2 => Color::Rgb(200, 190, 100),
-        3 => Color::Rgb(110, 170, 110),
-        4 => Color::Rgb(95, 135, 180),
-        5 => Color::Rgb(150, 110, 180),
-        _ => Color::Rgb(190, 130, 170),
+        0 => Color::Rgb(180, 175, 150),
+        1 => Color::Rgb(170, 150, 130),
+        _ => Color::Rgb(160, 140, 150),
     };
     ('*', Style::default().fg(color))
 }
