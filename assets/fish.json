@@ -119,7 +119,7 @@
   { "name": "yellowfin tuna", "description": "neon-fins, ocean speedster.", "rarity": 0.10, "difficulty": 7, "waters": ["ocean"] },
   { "name": "albacore tuna", "description": "long-finned tuna.", "rarity": 0.12, "difficulty": 6, "waters": ["ocean"] },
   { "name": "bigeye tuna", "description": "deep-water giant.", "rarity": 0.05, "difficulty": 8, "waters": ["ocean"] },
-  { "name": "bluefin tuna", "description": "colossal sushi-grade king. Bluefin nobility command Atlantean fleets — to land one is to assassinate a senator.", "rarity": 0.02, "difficulty": 10, "waters": ["ocean"] },
+  { "name": "bluefin tuna", "description": "colossal sushi-grade king. Bluefin are the Celestial Dragons — the royal bloodline of Coelacanth, born of the Five Elders. Every other fish kneels. To land one is regicide.", "rarity": 0.02, "difficulty": 10, "waters": ["ocean"] },
   { "name": "blue marlin", "description": "billed missile of the open sea.", "rarity": 0.02, "difficulty": 10, "waters": ["ocean"] },
   { "name": "black marlin", "description": "the heaviest of the marlins.", "rarity": 0.01, "difficulty": 10, "waters": ["ocean"] },
   { "name": "white marlin", "description": "agile billfish.", "rarity": 0.03, "difficulty": 9, "waters": ["ocean"] },
@@ -174,7 +174,7 @@
   { "name": "opah", "description": "moon-shaped warm-blooded oddity.", "rarity": 0.02, "difficulty": 9, "waters": ["ocean"] },
   { "name": "oarfish", "description": "the sea serpent of legend.", "rarity": 0.005, "difficulty": 10, "waters": ["ocean"] },
   { "name": "ocean sunfish", "description": "mola mola, the swimming head.", "rarity": 0.03, "difficulty": 8, "waters": ["ocean"] },
-  { "name": "coelacanth", "description": "thought extinct since the dinosaurs. Closest living kin of Fish himself. Coelacanths alone remember the dry years and what Sentinel cost Khei to raise.", "rarity": 0.002, "difficulty": 10, "waters": ["ocean"] },
+  { "name": "coelacanth", "description": "thought extinct since the dinosaurs. Closest living kin of Fish himself. Five of them form the Five Elders — the ruling council of Atlantis — and the rest are their kin. They alone remember the dry years and what Sentinel cost Khei to raise.", "rarity": 0.002, "difficulty": 10, "waters": ["ocean"] },
   { "name": "halibut", "description": "barn-door flatfish.", "rarity": 0.10, "difficulty": 8, "waters": ["ocean"] },
   { "name": "flounder", "description": "ambush flatfish.", "rarity": 0.35, "difficulty": 3, "waters": ["ocean"] },
   { "name": "sole", "description": "delicate flatfish.", "rarity": 0.35, "difficulty": 3, "waters": ["ocean"] },
@@ -454,7 +454,7 @@
   { "name": "Luckyfish", "description": "MYTHIC: fortune incarnate. +5% rare catch chance.", "rarity": 0.00001, "difficulty": 10, "effect": "luck:0.05" },
   { "name": "Gilded Goldfish", "description": "LEGENDARY: a goldfish of solid gold. +50% valu per catch.", "rarity": 0.0001, "difficulty": 9, "price": 20000 },
   { "name": "Patience Fish", "description": "MYTHIC: shortens every future bite-wait. -10% wait time.", "rarity": 0.00003, "difficulty": 10, "effect": "wait_mult:-0.10" },
-  { "name": "Fish", "description": "THE FISH. Ineffable, irreducible, the deity. Closest of kin to the coelacanth and indestructible. Fish is omnipotent: when you forge The Fishing Rod with him, he is not consumed, he is not lost. He simply permits it. You are not his owner. He owns you.", "rarity": 0.00008, "difficulty": 10, "unique": true },
+  { "name": "Fish", "description": "THE FISH. Ineffable, irreducible, the deity. Closest of kin to the coelacanth and indestructible. The land you call Gaia has a truer name — Khei — and only Fish would say it aloud. When you forge The Fishing Rod with him he is not consumed, he is not lost; he simply permits it. You are not his owner. He owns you.", "rarity": 0.00008, "difficulty": 10, "unique": true },
 
   { "name": "Ish", "description": "ISH, GODDESS OF ANGER. Aspect of Fish, embodiment of the desert biome. The lower cultures of your reality know her as Ishtar of Mesopotamia. Every pantheon you were ever taught is a misremembering of ours. Caught one in a thousand among the dunes. Required to forge The Rod.", "rarity": 0.03, "difficulty": 10, "biomes": ["desert"], "unique": true },
 
