@@ -1,4 +1,5 @@
 use crate::item::Item;
+use crate::stats::{Skills, Stats};
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -25,6 +26,10 @@ pub struct SaveData {
     pub pinned_quest: Option<String>,
     #[serde(default)]
     pub seen_cells: Vec<(i32, i32)>,
+    #[serde(default)]
+    pub stats: Stats,
+    #[serde(default)]
+    pub skills: Skills,
 }
 
 fn save_path() -> Option<PathBuf> {

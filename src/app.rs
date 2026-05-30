@@ -10,6 +10,7 @@ use crate::npc::{self, Npc};
 use crate::player::Player;
 use crate::quest;
 use crate::save::{self, SaveData};
+use crate::stats::{fish_catch_xp, level_to_xp, Skills, Stats};
 use std::collections::HashMap;
 use crate::world::{biome_at, Biome, Tile, World, WorldView};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
@@ -115,6 +116,8 @@ pub struct App {
     pub pinned_quest: Option<String>,
     /// coarse map cells (each 4w x 2h world cells) the player has explored
     pub seen_cells: std::collections::HashSet<(i32, i32)>,
+    pub stats: Stats,
+    pub skills: Skills,
     held_dir: Option<(i32, i32)>,
     held_until_tick: u64,
     last_step_tick: u64,
@@ -164,6 +167,8 @@ impl App {
             saved_play_secs: 0,
             pinned_quest: None,
             seen_cells: std::collections::HashSet::new(),
+            stats: Stats::default(),
+            skills: Skills::default(),
             held_dir: None,
             held_until_tick: 0,
             last_step_tick: 0,
@@ -196,6 +201,8 @@ impl App {
             if cur >= q.objective.count {
                 self.player.valu = self.player.valu.saturating_add(q.reward.valu);
                 self.lifetime_valu = self.lifetime_valu.saturating_add(q.reward.valu);
+                self.stats.valu_earned = self.stats.valu_earned.saturating_add(q.reward.valu);
+                self.stats.quests_completed += 1;
                 self.quest_done.push(q.id.clone());
                 self.narrator.say(format!(
                     "Task complete: {} (+{}$V)",
@@ -240,6 +247,8 @@ impl App {
         self.saved_play_secs = data.play_time_secs;
         self.pinned_quest = data.pinned_quest.clone();
         self.seen_cells = data.seen_cells.iter().copied().collect();
+        self.stats = data.stats.clone();
+        self.skills = data.skills.clone();
     }
 
     fn current_save(&self) -> SaveData {
@@ -268,6 +277,8 @@ impl App {
             items: self.player.items.clone(),
             pinned_quest: self.pinned_quest.clone(),
             seen_cells: self.seen_cells.iter().copied().collect(),
+            stats: self.stats.clone(),
+            skills: self.skills.clone(),
         }
     }
 
@@ -746,10 +757,20 @@ impl App {
                         "Added to your basket ({} fish).",
                         self.player.inventory.len()
                     ));
+                    let gained = fish_catch_xp(fish_ref.difficulty);
+                    self.stats.fish_caught += 1;
+                    let before = self.skills.fishing_level();
+                    self.skills.fishing_xp += gained;
+                    let after = self.skills.fishing_level();
+                    if after > before {
+                        self.narrator
+                            .say(format!("Fishing level up! Now level {after}."));
+                    }
                     self.quest_progress("catch", &name);
                 } else if escaped {
                     self.narrator
                         .say(format!("The {} slips away.", fish_ref.name));
+                    self.stats.fish_escaped += 1;
                 } else {
                     self.narrator.say("You leave the line slack and step away.");
                 }
@@ -801,7 +822,9 @@ impl App {
             self.player.y = ny;
             self.check_biome_change();
             self.mark_seen_around_player();
-            let weight = if dy != 0 { 2 } else { 1 };
+            let weight: u64 = if dy != 0 { 2 } else { 1 };
+            self.stats.steps += weight;
+            self.skills.walking_xp += weight;
             for _ in 0..weight {
                 self.quest_progress_silent("walk", "any");
                 if let Some(b) = self.current_biome {
@@ -832,6 +855,7 @@ impl App {
             if let Some(it) = item {
                 self.narrator.say(format!("You pick up a {}.", it.name));
                 self.player.items.push(it);
+                self.stats.items_picked += 1;
                 return;
             }
         }
@@ -847,6 +871,7 @@ impl App {
             let id = npc.id.clone();
             self.scene = Scene::Dialogue { npc, line: 0 };
             self.quest_progress("talk", &id);
+            self.stats.npcs_talked += 1;
             return;
         }
         match self.world.get(nx, ny) {
@@ -869,7 +894,12 @@ impl App {
                 self.narrator.say(format!("You cast {spot}."));
                 self.narrator
                     .say(format!("Something tugs the line - a {}!", f.name));
-                self.scene = Scene::Fishing(Fishing::new(f, self.rng_state));
+                self.stats.casts += 1;
+                self.scene = Scene::Fishing(Fishing::new(
+                    f,
+                    self.rng_state,
+                    self.skills.fishing_level(),
+                ));
             }
             _ => self.narrator.say("Nothing to interact with."),
         }

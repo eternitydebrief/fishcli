@@ -21,6 +21,7 @@ mod npc;
 mod player;
 mod quest;
 mod save;
+mod stats;
 mod world;
 
 use app::App;

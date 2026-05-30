@@ -37,6 +37,7 @@ fn scene_water(x: usize, y: usize, tick: u64) -> (char, Style) {
 
 pub struct Fishing {
     pub fish: &'static FishDef,
+    pub fishing_level: u32,
     pub bar_h: usize,
     pub rect_h: f32,
     pub rect_y: f32,
@@ -56,13 +57,14 @@ pub struct Fishing {
 }
 
 impl Fishing {
-    pub fn new(fish: &'static FishDef, rng_seed: u32) -> Self {
+    pub fn new(fish: &'static FishDef, rng_seed: u32, fishing_level: u32) -> Self {
         let bar_h = 22usize;
         let rect_h = fish.rect_h();
         let rect_y = (bar_h as f32 - rect_h) / 2.0;
         let mid = bar_h as f32 / 2.0;
         Self {
             fish,
+            fishing_level,
             bar_h,
             rect_h,
             rect_y,
@@ -162,8 +164,10 @@ impl Fishing {
         }
 
         let in_rect = self.fish_y >= self.rect_y && self.fish_y <= self.rect_y + self.rect_h;
+        // fishing level: +0.25% to in-rect progress per level
+        let fishing_mult = 1.0 + (self.fishing_level as f32) * 0.0025;
         if in_rect {
-            self.progress += 0.8;
+            self.progress += 0.8 * fishing_mult;
         } else {
             self.progress -= 0.4;
         }
