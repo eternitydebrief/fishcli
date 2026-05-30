@@ -214,7 +214,7 @@ impl World {
             Tile::Sand => {
                 let shore = matches!(self.get(x, y + 1), Tile::Water);
                 if shore {
-                    foam_anim(x, tick)
+                    shore_anim(x, tick)
                 } else {
                     let g = match hash2(x, y, 0x5A1D_5A1D) % 3 {
                         0 => ',',
@@ -584,15 +584,23 @@ fn grass_anim(x: i32, y: i32, tick: u64, biome: Biome) -> (char, Style) {
     (g, Style::default().fg(shade(base, x, y, 0x6C00_6C00, 14)))
 }
 
-fn foam_anim(x: i32, tick: u64) -> (char, Style) {
-    let phase = (x.unsigned_abs() as u64 * 3 + tick / 6) % 17;
-    let (g, base) = match phase {
-        0 => ('*', (200, 200, 200)),
-        1 => ('o', (170, 170, 170)),
-        2 => ('.', (190, 190, 190)),
-        _ => (',', (180, 165, 120)),
+fn shore_anim(x: i32, tick: u64) -> (char, Style) {
+    // a slow wave travelling along the shore. envelope drives wash glyphs.
+    let t = tick as f32 * 0.045;
+    let env = ((x as f32) * 0.20 + t).sin()
+        + ((x as f32) * 0.08 - t * 0.6).sin() * 0.5;
+    let (g, base) = if env > 1.1 {
+        ('~', (160, 180, 200))
+    } else if env > 0.55 {
+        ('*', (210, 210, 200))
+    } else if env > -0.1 {
+        (',', (170, 155, 115))
+    } else if env > -0.7 {
+        ('.', (185, 170, 125))
+    } else {
+        ('`', (195, 180, 135))
     };
-    (g, Style::default().fg(shade(base, x, 0, 0xF0AA_F0AA, 10)))
+    (g, Style::default().fg(shade(base, x, 0, 0xF0AA_F0AA, 8)))
 }
 
 #[cfg(test)]
