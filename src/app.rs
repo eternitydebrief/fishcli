@@ -3,6 +3,8 @@ use crate::fishdex::Fishdex;
 use crate::fishing::{Fishing, FishingResult};
 use crate::fishlist;
 use crate::narrator::Narrator;
+use crate::fish::FishDef;
+use crate::item::{Category, Item};
 use crate::notes;
 use crate::npc::{self, Npc};
 use crate::player::Player;
@@ -30,6 +32,9 @@ pub enum Scene {
         line: usize,
     },
     Notes(NotesBuf),
+    Inventory {
+        tab: usize,
+    },
 }
 
 pub struct NotesBuf {
@@ -182,6 +187,7 @@ impl App {
         }
         self.quest_progress = data.quest_progress.iter().cloned().collect();
         self.quest_done = data.quest_done.clone();
+        self.player.items = data.items.clone();
     }
 
     fn current_save(&self) -> SaveData {
@@ -207,6 +213,7 @@ impl App {
                 .map(|(k, v)| (k.clone(), *v))
                 .collect(),
             quest_done: self.quest_done.clone(),
+            items: self.player.items.clone(),
         }
     }
 
@@ -366,6 +373,18 @@ impl App {
                     self.exit_subscene();
                 }
             }
+            Scene::Inventory { tab } => match code {
+                KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('i') => {
+                    self.scene = Scene::Overworld;
+                }
+                KeyCode::Char('l') | KeyCode::Right | KeyCode::Tab => {
+                    *tab = (*tab + 1) % Category::all().len();
+                }
+                KeyCode::Char('h') | KeyCode::Left | KeyCode::BackTab => {
+                    *tab = (*tab + Category::all().len() - 1) % Category::all().len();
+                }
+                _ => {}
+            },
             Scene::Notes(buf) => {
                 match code {
                     KeyCode::Esc => {
@@ -540,6 +559,9 @@ impl App {
             "n" | "notes" => {
                 self.narrator.say("You open your notebook.");
                 self.scene = Scene::Notes(NotesBuf::from_text(&notes::load()));
+            }
+            "i" | "inv" | "inventory" => {
+                self.scene = Scene::Inventory { tab: 0 };
             }
             "h" | "help" => self
                 .narrator
@@ -720,6 +742,12 @@ impl App {
             Scene::NamePrompt(buf) => render_name_prompt(frame, buf),
             Scene::Dialogue { npc, line } => render_dialogue(frame, npc, *line),
             Scene::Notes(buf) => render_notes(frame, buf),
+            Scene::Inventory { tab } => render_inventory(
+                frame,
+                &self.player.inventory,
+                &self.player.items,
+                *tab,
+            ),
         }
 
         if matches!(self.scene, Scene::NamePrompt(_)) {
@@ -777,6 +805,101 @@ fn direction_for(code: KeyCode) -> Option<(i32, i32)> {
         KeyCode::Char('l') | KeyCode::Right => Some((1, 0)),
         _ => None,
     }
+}
+
+fn render_inventory(
+    frame: &mut Frame,
+    fish_inv: &[&'static FishDef],
+    items: &[Item],
+    tab_idx: usize,
+) {
+    let area = frame.area();
+    let cats = Category::all();
+    let cat = cats[tab_idx.min(cats.len() - 1)];
+    let outer = Block::default()
+        .borders(Borders::ALL)
+        .title(format!(
+            " inventory - {} (h/l or arrows to switch, q to leave) ",
+            cat.label()
+        ))
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = outer.inner(area);
+    frame.render_widget(outer, area);
+
+    let mut tab_spans: Vec<ratatui::text::Span> = Vec::with_capacity(cats.len() * 2);
+    for (i, c) in cats.iter().enumerate() {
+        let style = if i == tab_idx {
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        tab_spans.push(ratatui::text::Span::styled(
+            format!(" {} ", c.label()),
+            style,
+        ));
+        tab_spans.push(ratatui::text::Span::raw(" "));
+    }
+    let tab_area = Rect {
+        x: inner.x,
+        y: inner.y,
+        width: inner.width,
+        height: 1,
+    };
+    frame.render_widget(
+        Paragraph::new(ratatui::text::Line::from(tab_spans)),
+        tab_area,
+    );
+
+    let list_area = Rect {
+        x: inner.x,
+        y: inner.y + 2,
+        width: inner.width,
+        height: inner.height.saturating_sub(2),
+    };
+    let lines: Vec<ratatui::text::Line> = match cat {
+        Category::Fish => fish_inv
+            .iter()
+            .map(|f| {
+                ratatui::text::Line::from(vec![
+                    ratatui::text::Span::styled(
+                        f.name.clone(),
+                        Style::default().fg(Color::LightYellow),
+                    ),
+                    ratatui::text::Span::raw("  - "),
+                    ratatui::text::Span::raw(f.description.clone()),
+                ])
+            })
+            .collect(),
+        other => items
+            .iter()
+            .filter(|it| it.category == other)
+            .map(|it| {
+                ratatui::text::Line::from(vec![
+                    ratatui::text::Span::styled(
+                        it.name.clone(),
+                        Style::default().fg(Color::LightYellow),
+                    ),
+                    ratatui::text::Span::raw("  - "),
+                    ratatui::text::Span::raw(it.description.clone()),
+                ])
+            })
+            .collect(),
+    };
+    let body = if lines.is_empty() {
+        vec![ratatui::text::Line::from(ratatui::text::Span::styled(
+            "(empty)",
+            Style::default().fg(Color::DarkGray),
+        ))]
+    } else {
+        lines
+    };
+    frame.render_widget(
+        Paragraph::new(body).wrap(ratatui::widgets::Wrap { trim: false }),
+        list_area,
+    );
 }
 
 fn render_notes(frame: &mut Frame, buf: &NotesBuf) {

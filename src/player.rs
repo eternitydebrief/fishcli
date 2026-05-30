@@ -1,4 +1,5 @@
 use crate::fish::FishDef;
+use crate::item::Item;
 
 pub struct Player {
     pub x: i32,
@@ -7,6 +8,7 @@ pub struct Player {
     pub name: String,
     pub valu: u64,
     pub inventory: Vec<&'static FishDef>,
+    pub items: Vec<Item>,
 }
 
 impl Player {
@@ -17,6 +19,7 @@ impl Player {
             name: String::new(),
             valu: 0,
             inventory: Vec::new(),
+            items: Vec::new(),
         }
     }
 }

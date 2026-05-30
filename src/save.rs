@@ -1,3 +1,4 @@
+use crate::item::Item;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -18,6 +19,8 @@ pub struct SaveData {
     pub quest_progress: Vec<(String, u32)>,
     #[serde(default)]
     pub quest_done: Vec<String>,
+    #[serde(default)]
+    pub items: Vec<Item>,
 }
 
 fn save_path() -> Option<PathBuf> {
