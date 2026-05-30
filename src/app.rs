@@ -71,7 +71,10 @@ pub enum Mode {
     Command(String),
 }
 
-const MOVE_INTERVAL: u64 = 3;
+/// Horizontal movement interval (ticks/step). Smaller because terminal cells
+/// are roughly 2:1 - a vertical step covers ~2x the visual distance of a horizontal one.
+const MOVE_INTERVAL_H: u64 = 2;
+const MOVE_INTERVAL_V: u64 = 4;
 
 pub struct App {
     pub world: World,
