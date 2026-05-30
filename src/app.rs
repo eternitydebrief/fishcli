@@ -252,9 +252,16 @@ impl App {
             if let Some(dir) = self.held_dir {
                 if self.anim_tick > self.held_until_tick {
                     self.held_dir = None;
-                } else if self.anim_tick.saturating_sub(self.last_step_tick) >= MOVE_INTERVAL {
-                    self.step(dir.0, dir.1);
-                    self.last_step_tick = self.anim_tick;
+                } else {
+                    let interval = if dir.1 == 0 {
+                        MOVE_INTERVAL_H
+                    } else {
+                        MOVE_INTERVAL_V
+                    };
+                    if self.anim_tick.saturating_sub(self.last_step_tick) >= interval {
+                        self.step(dir.0, dir.1);
+                        self.last_step_tick = self.anim_tick;
+                    }
                 }
             }
         } else {
