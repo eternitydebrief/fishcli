@@ -25,5 +25,18 @@
       "The kid grins up at you.",
       "\"I saw a HUGE fish in the pond past the trees! Honest!\""
     ]
+  },
+  {
+    "id": "fishmonger",
+    "name": "Fishmonger",
+    "x": -3,
+    "y": 3,
+    "glyph": "$",
+    "color": "yellow",
+    "dialogue": [
+      "Fishmonger eyes your basket appraisingly.",
+      "\"Got fish to sell? Bring 'em here.\"",
+      "(Selling not wired up yet - coming soon.)"
+    ]
   }
 ]

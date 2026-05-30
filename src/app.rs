@@ -764,9 +764,12 @@ impl App {
             self.player.x = nx;
             self.player.y = ny;
             self.check_biome_change();
-            self.quest_progress_silent("walk", "any");
-            if let Some(b) = self.current_biome {
-                self.quest_progress_silent("walk", b.label());
+            let weight = if dy != 0 { 2 } else { 1 };
+            for _ in 0..weight {
+                self.quest_progress_silent("walk", "any");
+                if let Some(b) = self.current_biome {
+                    self.quest_progress_silent("walk", b.label());
+                }
             }
         }
     }
