@@ -22,6 +22,9 @@ struct CellWaterInfo {
     island_grass: bool,
     island_sand: bool,
     in_ring: bool,
+    /// water cells very close to the inside edge of the ellipse - trees may
+    /// anchor here so their roots stand at the shoreline
+    in_shore: bool,
 }
 
 fn cached_biome_at(x: i32, y: i32, seed: u32) -> Biome {
@@ -313,23 +316,22 @@ impl World {
         if winfo.island_sand {
             return Tile::Sand;
         }
-        if winfo.in_water {
-            return Tile::Water;
-        }
-        if well_at(x, y, self.seed) {
-            return Tile::Well;
-        }
+        // trees first: shoreline trees can plant their roots in the very
+        // edge of a lake, and their canopies project over the water
         if !in_village_zone(x, y) {
             let biome = cached_biome_at(x, y, self.seed);
             let p = biome_params(biome);
+            if let Some(part) = tree_at(x, y, self.seed, p.tree) {
+                return part;
+            }
+            if winfo.in_water {
+                return Tile::Water;
+            }
             if p.cactus > 0.0 {
                 let rc = hash2(x, y, self.seed.wrapping_add(0xCAC7_CAC7)) as f32 / u32::MAX as f32;
                 if rc < p.cactus {
                     return Tile::Cactus;
                 }
-            }
-            if let Some(part) = tree_at(x, y, self.seed, p.tree) {
-                return part;
             }
             if big_rock_at(x, y, self.seed, p.big_rock) {
                 return Tile::BigRock;
@@ -347,6 +349,12 @@ impl World {
             if r < p.rock + p.pebble + p.flower {
                 return Tile::Flower;
             }
+        }
+        if winfo.in_water {
+            return Tile::Water;
+        }
+        if well_at(x, y, self.seed) {
+            return Tile::Well;
         }
         Tile::Grass
     }
@@ -520,11 +528,24 @@ const RING_PATCH_H: i32 = 3;
 
 fn tree_density_at(x: i32, y: i32, seed: u32, base: f32) -> f32 {
     let info = cached_water_info(x, y, seed);
-    if info.in_water || info.island_grass || info.island_sand {
+    if info.island_grass || info.island_sand {
         return 0.0;
     }
+    if info.in_water {
+        // only the very edge of the lake can host a tree, with the same
+        // patch gate as the ring so it stays sparse
+        if !info.in_shore {
+            return 0.0;
+        }
+        let px = x.div_euclid(RING_PATCH_W);
+        let py = y.div_euclid(RING_PATCH_H);
+        let ph = hash2(px, py, seed.wrapping_add(0x5E0E_F00D));
+        if ph % 2 != 0 {
+            return 0.0;
+        }
+        return 0.7;
+    }
     if info.in_ring {
-        // gate via patch hash: only ~half of patches in the ring can host a tree
         let px = x.div_euclid(RING_PATCH_W);
         let py = y.div_euclid(RING_PATCH_H);
         let ph = hash2(px, py, seed.wrapping_add(0x4E11_F00D));
@@ -659,6 +680,9 @@ fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
             let d = dxf * dxf + dyf * dyf;
             if d <= 1.0 {
                 info.in_water = true;
+                if d > 0.82 {
+                    info.in_shore = true;
+                }
                 if is_huge {
                     // island position derived from anchor hash, slightly off-center
                     let iox = ((h >> 4) as i32 % 10) - 5;
