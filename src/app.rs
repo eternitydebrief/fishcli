@@ -424,6 +424,13 @@ impl App {
             }
             return;
         }
+        // shortcut from any insert-mode scene that doesn't consume ':' to command mode
+        if code == KeyCode::Char(':')
+            && !matches!(self.scene, Scene::Notes(_) | Scene::NamePrompt(_) | Scene::Dialogue { .. })
+        {
+            self.mode = Mode::Command(String::new());
+            return;
+        }
         match &mut self.scene {
             Scene::Overworld => self.handle_overworld(code),
             Scene::Fishdex(d) => match code {
@@ -654,8 +661,6 @@ impl App {
             "q!" => {
                 self.running = false;
             }
-            "s" => self.narrator.say("Stats screen - coming in a later commit."),
-            "m" => self.narrator.say("Settings - coming in a later commit."),
             "e" => {
                 self.narrator.say("You leaf through the fishdex.");
                 self.scene = Scene::Fishdex(Fishdex::new());
