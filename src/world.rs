@@ -152,8 +152,16 @@ impl<'a> Widget for WorldView<'a> {
                 } else {
                     let wx = self.player.0 - half_w + sx as i32;
                     let wy = self.player.1 - half_h + sy as i32;
-                    let (g, s) = self.world.render_tile(wx, wy, self.tick);
-                    cell.set_char(g).set_style(s);
+                    if let Some(npc) = crate::npc::npc_at(wx, wy) {
+                        cell.set_char(npc.render_char()).set_style(
+                            Style::default()
+                                .fg(npc.render_color())
+                                .add_modifier(Modifier::BOLD),
+                        );
+                    } else {
+                        let (g, s) = self.world.render_tile(wx, wy, self.tick);
+                        cell.set_char(g).set_style(s);
+                    }
                 }
             }
         }

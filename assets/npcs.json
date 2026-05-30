@@ -1,0 +1,29 @@
+[
+  { "_comment": "schema: id (string), name (string), x/y (i32 world coords), glyph (single char), color (named: white|red|green|yellow|blue|magenta|cyan|gray|darkgray|lightgreen|lightblue|lightyellow), dialogue (array of strings; advance with enter/space)." },
+
+  {
+    "id": "old-angler",
+    "name": "Old Angler",
+    "x": -4,
+    "y": -1,
+    "glyph": "@",
+    "color": "lightyellow",
+    "dialogue": [
+      "Old Angler scratches his stubble.",
+      "\"Mornin'. Been fishin' these waters longer than you've been breathing.\"",
+      "\"Don't ignore the wells. They're not just for water.\""
+    ]
+  },
+  {
+    "id": "kid",
+    "name": "Village Kid",
+    "x": 4,
+    "y": -1,
+    "glyph": "@",
+    "color": "cyan",
+    "dialogue": [
+      "The kid grins up at you.",
+      "\"I saw a HUGE fish in the pond past the trees! Honest!\""
+    ]
+  }
+]

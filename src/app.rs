@@ -3,6 +3,7 @@ use crate::fishdex::Fishdex;
 use crate::fishing::{Fishing, FishingResult};
 use crate::fishlist;
 use crate::narrator::Narrator;
+use crate::npc::{self, Npc};
 use crate::player::Player;
 use crate::save::{self, SaveData};
 use crate::world::{Tile, World, WorldView};
@@ -21,6 +22,10 @@ pub enum Scene {
     Fishing(Fishing),
     Fishdex(Fishdex),
     NamePrompt(String),
+    Dialogue {
+        npc: &'static Npc,
+        line: usize,
+    },
 }
 
 pub enum Mode {
@@ -288,6 +293,22 @@ impl App {
                     self.exit_subscene();
                 }
             }
+            Scene::Dialogue { npc, line } => {
+                let total = npc.dialogue.len();
+                match code {
+                    KeyCode::Enter | KeyCode::Char(' ') => {
+                        if *line + 1 >= total {
+                            self.scene = Scene::Overworld;
+                        } else {
+                            *line += 1;
+                        }
+                    }
+                    KeyCode::Esc | KeyCode::Char('q') => {
+                        self.scene = Scene::Overworld;
+                    }
+                    _ => {}
+                }
+            }
             Scene::NamePrompt(_) => {}
         }
     }
@@ -433,6 +454,11 @@ impl App {
     fn step(&mut self, dx: i32, dy: i32) {
         let nx = self.player.x + dx;
         let ny = self.player.y + dy;
+        if let Some(npc) = npc::npc_at(nx, ny) {
+            self.narrator.say(format!("You greet {}.", npc.name));
+            self.scene = Scene::Dialogue { npc, line: 0 };
+            return;
+        }
         match self.world.get(nx, ny) {
             Tile::DoorRod => {
                 self.narrator.say("You step into the rod shop.");
@@ -500,6 +526,7 @@ impl App {
             Scene::Fishing(g) => g.render(frame, anim_tick),
             Scene::Fishdex(d) => d.render(frame, &caught_snapshot),
             Scene::NamePrompt(buf) => render_name_prompt(frame, buf),
+            Scene::Dialogue { npc, line } => render_dialogue(frame, npc, *line),
         }
 
         if matches!(self.scene, Scene::NamePrompt(_)) {
@@ -557,6 +584,40 @@ fn direction_for(code: KeyCode) -> Option<(i32, i32)> {
         KeyCode::Char('l') | KeyCode::Right => Some((1, 0)),
         _ => None,
     }
+}
+
+fn render_dialogue(frame: &mut Frame, npc: &Npc, line: usize) {
+    let area = frame.area();
+    let h = 7u16.min(area.height);
+    let w = area.width;
+    let box_area = Rect {
+        x: area.x,
+        y: area.y + area.height.saturating_sub(h),
+        width: w,
+        height: h,
+    };
+    frame.render_widget(Clear, box_area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!(" {} ", npc.name))
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = block.inner(box_area);
+    frame.render_widget(block, box_area);
+
+    let total = npc.dialogue.len();
+    let body = npc.dialogue.get(line).map(String::as_str).unwrap_or("");
+    let footer = if line + 1 >= total {
+        "(enter/space to leave)".to_string()
+    } else {
+        format!("({}/{} - enter/space to continue, q to leave)", line + 1, total)
+    };
+    let p = Paragraph::new(vec![
+        ratatui::text::Line::from(body),
+        ratatui::text::Line::from(""),
+        ratatui::text::Line::from(footer),
+    ])
+    .wrap(ratatui::widgets::Wrap { trim: false });
+    frame.render_widget(p, inner);
 }
 
 fn render_name_prompt(frame: &mut Frame, buf: &str) {
