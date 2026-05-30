@@ -16,6 +16,7 @@
 //!     edit JSON, re-encrypt with valid auth tag, base64-encode. Doable
 //!     but tedious enough to filter out 99% of casual editors.
 
+use crate::buffs::Buffs;
 use crate::item::Item;
 use crate::rod::OwnedRods;
 use crate::stats::{Skills, Stats};
@@ -61,6 +62,8 @@ pub struct SaveData {
     /// Tuple is (biome label, water type).
     #[serde(default)]
     pub caught_at: Vec<Option<(String, String)>>,
+    #[serde(default)]
+    pub buffs: Buffs,
 }
 
 /// Saves live in ./saves/ relative to the current working directory so they

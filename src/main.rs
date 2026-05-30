@@ -10,6 +10,7 @@ use std::io::stdout;
 use std::time::{Duration, Instant};
 
 mod app;
+mod buffs;
 mod fish;
 mod fishdex;
 mod fishing;

@@ -148,6 +148,7 @@ pub struct App {
     pub seen_cells: std::collections::HashSet<(i32, i32)>,
     pub stats: Stats,
     pub skills: Skills,
+    pub buffs: crate::buffs::Buffs,
     /// background autosave channel - thread coalesces and writes.
     autosave_tx: mpsc::Sender<SaveData>,
     last_autosave_at: Instant,
@@ -208,6 +209,7 @@ impl App {
             seen_cells: std::collections::HashSet::new(),
             stats: Stats::default(),
             skills: Skills::default(),
+            buffs: crate::buffs::Buffs::default(),
             autosave_tx: spawn_autosaver(),
             last_autosave_at: Instant::now(),
             last_autosave_hash: 0,
@@ -299,6 +301,7 @@ impl App {
         self.seen_cells = data.seen_cells.iter().copied().collect();
         self.stats = data.stats.clone();
         self.skills = data.skills.clone();
+        self.buffs = data.buffs.clone();
         self.player.rods = if data.rods.max_owned == 0 {
             crate::rod::OwnedRods { max_owned: 1, equipped: 1 }
         } else {
@@ -336,6 +339,7 @@ impl App {
             skills: self.skills.clone(),
             rods: self.player.rods,
             caught_at: self.caught_at.clone(),
+            buffs: self.buffs.clone(),
         }
     }
 
@@ -401,8 +405,11 @@ impl App {
         match c.phase {
             CastPhase::Casting => {
                 c.cast_strength = c.cast_pos.clamp(0.0, 1.0);
-                // bobber distance: 1..=3 cells based on strength
-                let max_d = 1 + (c.cast_strength * 2.0).round() as i32;
+                // bobber distance: 1..=3 cells based on strength, plus permanent
+                // buff bonus from rare fish like the Long Caster.
+                let max_d = (1 + (c.cast_strength * 2.0).round() as i32
+                    + self.buffs.bobber_range_bonus)
+                    .max(1);
                 let (fx, fy) = self.player.facing;
                 let mut bd = 1;
                 for d in 1..=max_d {
@@ -422,7 +429,7 @@ impl App {
                 let r = crate::fish::next_rand_f32(&mut self.rng_state);
                 let k = (1.0f32 - r * 0.9999).ln() / 0.75f32.ln();
                 let secs = (k.ceil() as u32).clamp(1, 30) as f32;
-                let scaled = secs * (1.0 - c.cast_strength * 0.5);
+                let scaled = secs * (1.0 - c.cast_strength * 0.5) * self.buffs.wait_mult();
                 c.wait_ticks_left = (scaled * 20.0).max(20.0) as u32;
                 c.phase = CastPhase::Waiting;
                 self.narrator
@@ -495,11 +502,13 @@ impl App {
                 if self.anim_tick > self.held_until_tick {
                     self.held_dir = None;
                 } else {
-                    let interval = if dir.1 == 0 {
+                    let base = if dir.1 == 0 {
                         MOVE_INTERVAL_H
                     } else {
                         MOVE_INTERVAL_V
                     };
+                    let interval =
+                        ((base as f32) * self.buffs.walk_mult()).round().max(1.0) as u64;
                     if self.anim_tick.saturating_sub(self.last_step_tick) >= interval {
                         self.step(dir.0, dir.1);
                         self.last_step_tick = self.anim_tick;
@@ -650,7 +659,15 @@ impl App {
                     KeyCode::Enter | KeyCode::Char(' ') => {
                         // buy the next rod if possible
                         if let Some(rod) = crate::rod::get(next) {
-                            if self.player.valu >= rod.price() {
+                            if self.buffs.free_rods > 0 {
+                                self.buffs.free_rods -= 1;
+                                self.player.rods.max_owned = next;
+                                self.player.rods.equipped = next;
+                                self.narrator.say(format!(
+                                    "Free rod redeemed! Got #{next} - {} (no cost).",
+                                    rod.name
+                                ));
+                            } else if self.player.valu >= rod.price() {
                                 self.player.valu -= rod.price();
                                 self.player.rods.max_owned = next;
                                 self.player.rods.equipped = next;
@@ -1001,6 +1018,27 @@ impl App {
                         self.narrator
                             .say(format!("Fishing level up! Now level {after}."));
                     }
+                    if let Some(eff) = &fish_ref.effect {
+                        if let Some((msg, kind)) = crate::buffs::apply_effect(&mut self.buffs, eff)
+                        {
+                            self.narrator.say(format!("*** {msg} ***"));
+                            if let crate::buffs::EffectKind::FishingXp(xp) = kind {
+                                let before2 = self.skills.fishing_level();
+                                self.skills.fishing_xp += xp;
+                                let after2 = self.skills.fishing_level();
+                                self.show_xp_gain(
+                                    "Fishing",
+                                    xp,
+                                    self.skills.fishing_xp,
+                                    after2,
+                                );
+                                if after2 > before2 {
+                                    self.narrator
+                                        .say(format!("Fishing level up! Now level {after2}."));
+                                }
+                            }
+                        }
+                    }
                     self.quest_progress("catch", &name);
                 } else if escaped {
                     self.narrator
@@ -1253,6 +1291,7 @@ impl App {
                 self.total_play_secs(),
                 &self.stats,
                 &self.skills,
+                &self.buffs,
             ),
             Scene::Settings => render_settings(frame),
             Scene::Quests { cursor } => render_quests(
@@ -1973,6 +2012,7 @@ fn render_stats(
     play_secs: u64,
     stats: &Stats,
     skills: &Skills,
+    buffs: &crate::buffs::Buffs,
 ) {
     let area = frame.area();
     let block = Block::default()
@@ -2037,6 +2077,30 @@ fn render_stats(
             format!("lv {lvl}  ({xp}/{next} xp)"),
         ));
     }
+
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(section("BUFFS"));
+    lines.push(row(
+        "Sell-price mult",
+        format!("x{:.2}", buffs.price_mult()),
+    ));
+    lines.push(row("Free rods banked", buffs.free_rods.to_string()));
+    lines.push(row(
+        "Cast range bonus",
+        format!("+{}", buffs.bobber_range_bonus),
+    ));
+    lines.push(row(
+        "Wait time mult",
+        format!("x{:.2}", buffs.wait_mult()),
+    ));
+    lines.push(row(
+        "Walk speed mult",
+        format!("x{:.2}", 1.0 / buffs.walk_mult().max(0.01)),
+    ));
+    lines.push(row(
+        "Luck bonus",
+        format!("+{:.0}%", buffs.luck_bonus * 100.0),
+    ));
 
     frame.render_widget(
         Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }),
