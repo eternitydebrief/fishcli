@@ -21,6 +21,7 @@ pub struct App {
     pub player: Player,
     pub scene: Scene,
     pub running: bool,
+    pub anim_tick: u64,
 }
 
 impl App {
@@ -30,10 +31,12 @@ impl App {
             player: Player::spawn(),
             scene: Scene::Overworld,
             running: true,
+            anim_tick: 0,
         }
     }
 
     pub fn tick(&mut self) {
+        self.anim_tick = self.anim_tick.wrapping_add(1);
         if let Scene::Fishing(g) = &mut self.scene {
             g.tick();
         }
@@ -119,7 +122,9 @@ impl App {
             .constraints([Constraint::Min(1), Constraint::Length(3)])
             .split(area);
 
-        let lines = self.map.render_lines(Some((self.player.x, self.player.y)));
+        let lines = self
+            .map
+            .render_lines(Some((self.player.x, self.player.y)), self.anim_tick);
         let map_widget = Paragraph::new(lines).block(
             Block::default()
                 .borders(Borders::ALL)

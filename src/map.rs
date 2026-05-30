@@ -1,5 +1,5 @@
 use ratatui::{
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
 };
 
@@ -15,30 +15,6 @@ pub enum Tile {
 }
 
 impl Tile {
-    pub fn glyph(self) -> char {
-        match self {
-            Tile::Grass => '.',
-            Tile::Wall => '#',
-            Tile::DoorRod => 'R',
-            Tile::DoorSchool => 'S',
-            Tile::Water => '~',
-            Tile::Dock => '=',
-            Tile::Sand => ',',
-        }
-    }
-
-    pub fn color(self) -> Color {
-        match self {
-            Tile::Grass => Color::Green,
-            Tile::Wall => Color::Gray,
-            Tile::DoorRod => Color::Yellow,
-            Tile::DoorSchool => Color::Magenta,
-            Tile::Water => Color::Blue,
-            Tile::Dock => Color::LightYellow,
-            Tile::Sand => Color::Yellow,
-        }
-    }
-
     pub fn walkable(self) -> bool {
         matches!(self, Tile::Grass | Tile::Sand)
     }
@@ -97,25 +73,103 @@ impl Map {
         self.cells[y * self.width + x]
     }
 
-    pub fn render_lines(&self, player: Option<(usize, usize)>) -> Vec<Line<'static>> {
+    pub fn render_lines(&self, player: Option<(usize, usize)>, tick: u64) -> Vec<Line<'static>> {
         (0..self.height)
             .map(|y| {
                 let spans: Vec<Span<'static>> = (0..self.width)
                     .map(|x| {
                         if player == Some((x, y)) {
-                            Span::styled("@".to_string(), Style::default().fg(Color::White))
-                        } else {
-                            let t = self.get(x, y);
                             Span::styled(
-                                t.glyph().to_string(),
-                                Style::default().fg(t.color()),
+                                "@".to_string(),
+                                Style::default()
+                                    .fg(Color::White)
+                                    .add_modifier(Modifier::BOLD),
                             )
+                        } else {
+                            let (g, style) = self.render_tile(x, y, tick);
+                            Span::styled(g.to_string(), style)
                         }
                     })
                     .collect();
                 Line::from(spans)
             })
             .collect()
+    }
+
+    fn render_tile(&self, x: usize, y: usize, tick: u64) -> (char, Style) {
+        match self.get(x, y) {
+            Tile::Wall => ('#', Style::default().fg(Color::Gray)),
+            Tile::DoorRod => (
+                'R',
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Tile::DoorSchool => (
+                'S',
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Tile::Dock => ('=', Style::default().fg(Color::LightYellow)),
+            Tile::Grass => grass_anim(x, y, tick),
+            Tile::Water => water_anim(x, y, tick),
+            Tile::Sand => {
+                let shore = y + 1 < self.height && matches!(self.get(x, y + 1), Tile::Water);
+                if shore {
+                    foam_anim(x, tick)
+                } else {
+                    (',', Style::default().fg(Color::Yellow))
+                }
+            }
+        }
+    }
+}
+
+fn water_anim(x: usize, y: usize, tick: u64) -> (char, Style) {
+    let phase = (x as u64 + (y as u64) * 3 + tick / 4) % 12;
+    let glyph = match phase {
+        0 | 1 => '~',
+        2 | 3 => '=',
+        4 => '-',
+        5 | 6 => '~',
+        7 | 8 => '~',
+        9 => '-',
+        10 | 11 => '~',
+        _ => '~',
+    };
+    let base = match phase {
+        0..=2 => Color::Blue,
+        3..=5 => Color::LightBlue,
+        6..=8 => Color::Cyan,
+        _ => Color::Blue,
+    };
+    (glyph, Style::default().fg(base))
+}
+
+fn grass_anim(x: usize, y: usize, tick: u64) -> (char, Style) {
+    let seed = x.wrapping_mul(7).wrapping_add(y.wrapping_mul(13)) as u64;
+    let phase = (seed + tick / 25) % 41;
+    match phase {
+        0 => (',', Style::default().fg(Color::LightGreen)),
+        1 => ('\'', Style::default().fg(Color::LightGreen)),
+        2 => ('`', Style::default().fg(Color::Green)),
+        _ => ('.', Style::default().fg(Color::Green)),
+    }
+}
+
+fn foam_anim(x: usize, tick: u64) -> (char, Style) {
+    let phase = (x as u64 * 3 + tick / 6) % 17;
+    match phase {
+        0 => (
+            '*',
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+        1 => ('o', Style::default().fg(Color::Gray)),
+        2 => ('.', Style::default().fg(Color::White)),
+        _ => (',', Style::default().fg(Color::Yellow)),
     }
 }
 
