@@ -12,7 +12,8 @@ pub enum Tile {
     Water,
     Dock,
     Sand,
-    Tree,
+    TreeTrunk,
+    TreeCanopy,
     Rock,
 }
 
@@ -42,11 +43,11 @@ impl World {
             return Tile::Sand;
         }
         if !in_village_zone(x, y) {
-            let r = hash2(x, y, self.seed) as f32 / u32::MAX as f32;
-            if r < 0.10 {
-                return Tile::Tree;
+            if let Some(part) = tree_at(x, y, self.seed) {
+                return part;
             }
-            if r < 0.13 {
+            let r = hash2(x, y, self.seed.wrapping_add(0x1234_5678)) as f32 / u32::MAX as f32;
+            if r < 0.03 {
                 return Tile::Rock;
             }
         }
@@ -116,10 +117,37 @@ impl World {
                     (',', Style::default().fg(Color::Yellow))
                 }
             }
-            Tile::Tree => tree_glyph(x, y),
+            Tile::TreeTrunk => trunk_glyph(x, y),
+            Tile::TreeCanopy => canopy_glyph(x, y, self.seed),
             Tile::Rock => rock_glyph(x, y),
         }
     }
+}
+
+fn is_tree_anchor(x: i32, y: i32, seed: u32) -> bool {
+    if in_village_zone(x, y) {
+        return false;
+    }
+    if y >= 4 || y <= -40 {
+        // keep trunks far enough from the shore that canopy doesn't dangle off-map weirdly
+        return false;
+    }
+    let r = hash2(x, y, seed.wrapping_add(0xC0DE_C0DE)) as f32 / u32::MAX as f32;
+    r < 0.03
+}
+
+fn tree_at(x: i32, y: i32, seed: u32) -> Option<Tile> {
+    if is_tree_anchor(x, y, seed) {
+        return Some(Tile::TreeTrunk);
+    }
+    for dx in -1..=1i32 {
+        let ax = x + dx;
+        let ay = y + 1;
+        if is_tree_anchor(ax, ay, seed) {
+            return Some(Tile::TreeCanopy);
+        }
+    }
+    None
 }
 
 fn in_village_zone(x: i32, y: i32) -> bool {
@@ -134,14 +162,30 @@ fn hash2(x: i32, y: i32, seed: u32) -> u32 {
     h ^ (h >> 16)
 }
 
-fn tree_glyph(x: i32, y: i32) -> (char, Style) {
-    let v = hash2(x, y, 0xC0DE_C0DE) % 5;
+fn trunk_glyph(_x: i32, _y: i32) -> (char, Style) {
+    (
+        '|',
+        Style::default().fg(Color::Rgb(120, 70, 30)).add_modifier(Modifier::BOLD),
+    )
+}
+
+fn canopy_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
+    // pick the anchor that claimed this cell so the canopy reads the trunk's seed
+    let mut anchor_seed = 0u32;
+    for dx in -1..=1i32 {
+        let ax = x + dx;
+        let ay = y + 1;
+        if is_tree_anchor(ax, ay, seed) {
+            anchor_seed = hash2(ax, ay, seed.wrapping_add(0xAA55_AA55));
+            break;
+        }
+    }
+    let v = anchor_seed % 4;
     let (g, c) = match v {
-        0 => ('T', Color::Green),
-        1 => ('T', Color::LightGreen),
-        2 => ('Y', Color::Green),
-        3 => ('Y', Color::LightGreen),
-        _ => ('t', Color::LightGreen),
+        0 => ('#', Color::Rgb(40, 130, 40)),
+        1 => ('#', Color::Rgb(60, 160, 60)),
+        2 => ('%', Color::Rgb(50, 140, 30)),
+        _ => ('&', Color::Rgb(70, 170, 50)),
     };
     (g, Style::default().fg(c).add_modifier(Modifier::BOLD))
 }
