@@ -56,10 +56,45 @@ pub struct SaveData {
 }
 
 /// Saves live in ./saves/ relative to the current working directory so they
-/// can be easily copied/exported to another machine. We also look in the
-/// historical XDG data dir on load for backward compatibility.
-fn save_path() -> Option<PathBuf> {
-    Some(PathBuf::from("saves").join("save.dat"))
+/// can be easily copied/exported. Each save is written to its own ISO 8601
+/// timestamped file so history is preserved; old files are pruned to keep
+/// disk usage bounded.
+const SAVE_DIR: &str = "saves";
+const KEEP_LAST: usize = 50;
+
+fn save_dir() -> PathBuf {
+    PathBuf::from(SAVE_DIR)
+}
+
+fn make_timestamped_path() -> PathBuf {
+    // ISO 8601 with colons swapped for hyphens (windows filesystems hate :)
+    let now = chrono::Utc::now();
+    let stamp = now.format("%Y-%m-%dT%H-%M-%S-%3f");
+    save_dir().join(format!("save-{stamp}.dat"))
+}
+
+fn list_saves() -> Vec<PathBuf> {
+    let dir = save_dir();
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("dat"))
+        .collect();
+    files.sort();
+    files
+}
+
+fn prune_old_saves(keep: usize) {
+    let files = list_saves();
+    if files.len() <= keep {
+        return;
+    }
+    for p in &files[..files.len() - keep] {
+        let _ = std::fs::remove_file(p);
+    }
 }
 
 fn legacy_save_paths() -> Vec<PathBuf> {
@@ -69,6 +104,8 @@ fn legacy_save_paths() -> Vec<PathBuf> {
         v.push(base.join("save.dat"));
         v.push(base.join("save.json"));
     }
+    // pre-timestamping single-file save in the project dir
+    v.push(PathBuf::from(SAVE_DIR).join("save.dat"));
     v
 }
 
@@ -126,10 +163,8 @@ fn xor_in_place(buf: &mut [u8], mask: &[u8]) {
 }
 
 pub fn save_to_disk(data: &SaveData) -> Result<()> {
-    let path = save_path().ok_or_else(|| anyhow!("could not resolve data dir"))?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
+    std::fs::create_dir_all(save_dir())?;
+    let path = make_timestamped_path();
     let json = serde_json::to_vec(data)?;
     let key = derive_key(&data.name);
     let cipher = Aes256Gcm::new(&key);
@@ -154,12 +189,16 @@ pub fn save_to_disk(data: &SaveData) -> Result<()> {
     xor_in_place(&mut buf, &mask);
 
     std::fs::write(path, buf)?;
+    prune_old_saves(KEEP_LAST);
     Ok(())
 }
 
 pub fn load_from_disk() -> Option<SaveData> {
-    if let Some(path) = save_path() {
-        if let Ok(bytes) = std::fs::read(&path) {
+    // try the newest timestamped save first, then older ones if the latest
+    // is corrupt
+    let files = list_saves();
+    for p in files.iter().rev() {
+        if let Ok(bytes) = std::fs::read(p) {
             if let Some(d) = decrypt_opaque(&bytes) {
                 return Some(d);
             }
