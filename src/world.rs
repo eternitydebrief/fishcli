@@ -469,12 +469,13 @@ fn water_body_at(x: i32, y: i32, seed: u32) -> bool {
             let oy = ((h >> 12) as i32).rem_euclid(WATER_CELL_H);
             let ax = ccx * WATER_CELL_W + ox;
             let ay = ccy * WATER_CELL_H + oy;
-            // horizontal-elongated size classes: (rx, ry) where rx > ry
+            // horizontal-elongated size classes: (rx, ry) where rx > ry.
+            // bumped ~2x and distribution shifted toward larger bodies.
             let (rx, ry): (i32, i32) = match (h >> 20) % 10 {
-                0..=4 => (2, 1),  // puddle (wider than tall)
-                5..=7 => (5, 2),  // pond
-                8 => (8, 3),      // lake
-                _ => (12, 4),     // long lake
+                0..=2 => (4, 2),   // puddle
+                3..=6 => (10, 4),  // pond
+                7..=8 => (16, 6),  // lake
+                _ => (24, 8),      // long lake
             };
             if ay + ry >= 5 {
                 continue;
