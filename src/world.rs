@@ -543,23 +543,26 @@ fn shade(base: (u8, u8, u8), x: i32, y: i32, salt: u32, range: i32) -> Color {
 }
 
 fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
-    let t = tick as f32 * 0.04;
+    let t = tick as f32 * 0.045;
     let fx = x as f32;
     let fy = y as f32;
-    // three short-wavelength wave trains interfering for chaotic detail
-    let w1 = (fx * 0.85 + fy * 1.05 + t * 1.3).sin();
-    let w2 = (fx * 1.25 - fy * 0.55 + t * 0.95).sin() * 0.75;
-    let w3 = (fx * 0.45 + fy * 0.35 + t * 0.5).sin() * 0.55;
-    let h = w1 + w2 + w3;
-    let (glyph, base) = if h > 1.5 {
+    // wave trains with irrational frequency ratios so the pattern never repeats,
+    // plus a static per-cell hash noise term to break any residual periodicity.
+    let w1 = (fx * 0.731 + fy * 1.117 + t * 1.27).sin();
+    let w2 = (fx * 1.289 - fy * 0.583 + t * 0.94).sin() * 0.75;
+    let w3 = (fx * 0.443 + fy * 0.347 + t * 0.51).sin() * 0.55;
+    let w4 = (fx * 1.781 + fy * 0.821 - t * 0.71).sin() * 0.35;
+    let noise = (hash2(x, y, 0xA11_BABE) as f32 / u32::MAX as f32 - 0.5) * 0.45;
+    let h = w1 + w2 + w3 + w4 + noise;
+    let (glyph, base) = if h > 1.8 {
         ('~', (110, 160, 200))
-    } else if h > 0.7 {
+    } else if h > 0.9 {
         ('~', (80, 125, 170))
-    } else if h > 0.0 {
+    } else if h > 0.1 {
         ('-', (60, 95, 150))
-    } else if h > -0.7 {
+    } else if h > -0.8 {
         ('.', (45, 75, 130))
-    } else if h > -1.5 {
+    } else if h > -1.7 {
         (',', (35, 60, 115))
     } else {
         ('`', (25, 45, 95))
