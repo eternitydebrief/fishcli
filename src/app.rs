@@ -1165,8 +1165,8 @@ fn save_hash(data: &SaveData) -> u64 {
     h.finish()
 }
 
-pub const MAP_CELL_W: i32 = 4;
-pub const MAP_CELL_H: i32 = 2;
+pub const MAP_CELL_W: i32 = 8;
+pub const MAP_CELL_H: i32 = 4;
 
 pub fn coarse_cell(x: i32, y: i32) -> (i32, i32) {
     (x.div_euclid(MAP_CELL_W), y.div_euclid(MAP_CELL_H))
