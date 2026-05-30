@@ -546,26 +546,35 @@ fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
     let t = tick as f32 * 0.045;
     let fx = x as f32;
     let fy = y as f32;
-    // wave trains with irrational frequency ratios so the pattern never repeats,
-    // plus a static per-cell hash noise term to break any residual periodicity.
-    let w1 = (fx * 0.731 + fy * 1.117 + t * 1.27).sin();
-    let w2 = (fx * 1.289 - fy * 0.583 + t * 0.94).sin() * 0.75;
-    let w3 = (fx * 0.443 + fy * 0.347 + t * 0.51).sin() * 0.55;
-    let w4 = (fx * 1.781 + fy * 0.821 - t * 0.71).sin() * 0.35;
-    let noise = (hash2(x, y, 0xA11_BABE) as f32 / u32::MAX as f32 - 0.5) * 0.45;
-    let h = w1 + w2 + w3 + w4 + noise;
-    let (glyph, base) = if h > 1.8 {
+    // sines give flow direction, but the bulk of the chaos comes from two
+    // time-varying noise layers that change phase fast enough to shimmer.
+    let w1 = (fx * 0.731 + fy * 1.117 + t * 1.27).sin() * 0.4;
+    let w2 = (fx * 1.289 - fy * 0.583 + t * 0.94).sin() * 0.3;
+    let slow_noise =
+        (hash2(x, y, 0xA11_BABE) as f32 / u32::MAX as f32 - 0.5) * 1.2;
+    let fast_noise = (hash2(
+        x.wrapping_add((tick as i32 / 3).wrapping_mul(7919)),
+        y.wrapping_add((tick as i32 / 5).wrapping_mul(6113)),
+        0xBAD_C0DE,
+    ) as f32
+        / u32::MAX as f32
+        - 0.5)
+        * 1.6;
+    let h = w1 + w2 + slow_noise + fast_noise;
+    let (glyph, base) = if h > 1.6 {
         ('~', (110, 160, 200))
-    } else if h > 0.9 {
+    } else if h > 0.8 {
         ('~', (80, 125, 170))
-    } else if h > 0.1 {
+    } else if h > 0.2 {
         ('-', (60, 95, 150))
-    } else if h > -0.8 {
-        ('.', (45, 75, 130))
-    } else if h > -1.7 {
-        (',', (35, 60, 115))
+    } else if h > -0.4 {
+        ('-', (50, 80, 135))
+    } else if h > -1.0 {
+        ('.', (40, 70, 125))
+    } else if h > -1.6 {
+        (',', (30, 55, 110))
     } else {
-        ('`', (25, 45, 95))
+        ('`', (20, 40, 90))
     };
     (glyph, Style::default().fg(shade(base, x, y, 0xA11_BABE, 6)))
 }
