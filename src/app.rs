@@ -117,6 +117,12 @@ pub struct App {
     pub anim_tick: u64,
     pub rng_state: u32,
     pub caught: Vec<bool>,
+    /// First-catch location per fish index (biome label, water type).
+    /// `None` if never caught yet (or caught before tracking existed).
+    pub caught_at: Vec<Option<(String, String)>>,
+    /// Set when a cast becomes a hooked fight; consumed on catch to record
+    /// the first-catch location for that species.
+    pub pending_catch_loc: Option<(String, String)>,
     pub narrator: Narrator,
     /// quest id -> progress count
     pub quest_progress: HashMap<String, u32>,
@@ -186,6 +192,8 @@ impl App {
             anim_tick: 0,
             rng_state: 0xC0FF_EE42,
             caught: vec![false; fishlist::fish().len()],
+            caught_at: vec![None; fishlist::fish().len()],
+            pending_catch_loc: None,
             narrator,
             quest_progress: HashMap::new(),
             quest_done: Vec::new(),
@@ -271,6 +279,13 @@ impl App {
                 }
             }
         }
+        for (i, loc) in data.caught_at.iter().enumerate() {
+            if let Some(slot) = self.caught_at.get_mut(i) {
+                if slot.is_none() {
+                    *slot = loc.clone();
+                }
+            }
+        }
         self.world = World::new(data.world_seed);
         if data.rng_state != 0 {
             self.rng_state = data.rng_state;
@@ -320,6 +335,7 @@ impl App {
             stats: self.stats.clone(),
             skills: self.skills.clone(),
             rods: self.player.rods,
+            caught_at: self.caught_at.clone(),
         }
     }
 
@@ -414,6 +430,10 @@ impl App {
             }
             CastPhase::Biting => {
                 let fish = c.fish;
+                let (bx, by) = c.bobber;
+                let biome = biome_at(bx, by, self.world.seed).label().to_string();
+                let water = water_kind_at(&self.world, bx, by).to_string();
+                self.pending_catch_loc = Some((biome, water));
                 self.cast = None;
                 self.narrator
                     .say(format!("Hooked a {}!", fish.name));
@@ -957,6 +977,11 @@ impl App {
                 if caught {
                     if let Some(i) = fishlist::fish().iter().position(|f| std::ptr::eq(f, fish_ref)) {
                         self.caught[i] = true;
+                        if let Some(slot) = self.caught_at.get_mut(i) {
+                            if slot.is_none() {
+                                *slot = self.pending_catch_loc.clone();
+                            }
+                        }
                     }
                     self.player.inventory.push(fish_ref);
                     let name = fish_ref.name.clone();
@@ -990,6 +1015,7 @@ impl App {
             }
             _ => {}
         }
+        self.pending_catch_loc = None;
         self.scene = Scene::Overworld;
     }
 
@@ -1155,6 +1181,7 @@ impl App {
     pub fn render(&mut self, frame: &mut Frame) {
         let anim_tick = self.anim_tick;
         let caught_snapshot = self.caught.clone();
+        let caught_at_snapshot = self.caught_at.clone();
         match &mut self.scene {
             Scene::Overworld => {
                 let area = frame.area();
@@ -1202,7 +1229,7 @@ impl App {
                 // fishing scene gets the whole frame; log is hidden during reel
                 g.render(frame, frame.area(), anim_tick);
             }
-            Scene::Fishdex(d) => d.render(frame, &caught_snapshot),
+            Scene::Fishdex(d) => d.render(frame, &caught_snapshot, &caught_at_snapshot),
             Scene::NamePrompt(buf) => render_name_prompt(frame, buf),
             Scene::Dialogue { npc, line } => render_dialogue(frame, npc, *line),
             Scene::Notes(buf) => render_notes(frame, buf),

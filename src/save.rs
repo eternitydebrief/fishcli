@@ -56,6 +56,11 @@ pub struct SaveData {
     pub skills: Skills,
     #[serde(default)]
     pub rods: OwnedRods,
+    /// First-catch location per fish index, parallel to `caught`.
+    /// `None` = never caught (or caught before this field existed).
+    /// Tuple is (biome label, water type).
+    #[serde(default)]
+    pub caught_at: Vec<Option<(String, String)>>,
 }
 
 /// Saves live in ./saves/ relative to the current working directory so they

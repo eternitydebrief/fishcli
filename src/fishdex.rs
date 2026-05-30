@@ -32,7 +32,12 @@ impl Fishdex {
         self.state.select(Some(i.saturating_sub(1)));
     }
 
-    pub fn render(&mut self, frame: &mut Frame, caught: &[bool]) {
+    pub fn render(
+        &mut self,
+        frame: &mut Frame,
+        caught: &[bool],
+        caught_at: &[Option<(String, String)>],
+    ) {
         let area = frame.area();
         let total = fish().len();
         let caught_count = caught.iter().filter(|c| **c).count();
@@ -86,7 +91,7 @@ impl Fishdex {
         let detail_lines: Vec<Line> = if let Some(f) = fish().get(sel) {
             let known = caught.get(sel).copied().unwrap_or(false);
             if known {
-                vec![
+                let mut lines = vec![
                     Line::from(Span::styled(
                         f.name.to_string(),
                         Style::default()
@@ -102,8 +107,19 @@ impl Fishdex {
                         ),
                     ]),
                     Line::from(""),
-                    Line::from(f.description.as_str()),
-                ]
+                ];
+                if let Some(Some((biome, water))) = caught_at.get(sel) {
+                    lines.push(Line::from(vec![
+                        Span::raw("first caught in: "),
+                        Span::styled(
+                            format!("{biome} ({water})"),
+                            Style::default().fg(Color::LightGreen),
+                        ),
+                    ]));
+                    lines.push(Line::from(""));
+                }
+                lines.push(Line::from(f.description.as_str()));
+                lines
             } else {
                 vec![
                     Line::from(Span::styled(
