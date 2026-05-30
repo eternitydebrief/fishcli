@@ -665,31 +665,15 @@ impl App {
     }
 
     fn inspect_surroundings(&mut self) {
-        let here = self.world.get(self.player.x, self.player.y);
-        let mut described = false;
-        for (dx, dy, label) in [
-            (0, 0, "Here"),
-            (0, -1, "North"),
-            (0, 1, "South"),
-            (-1, 0, "West"),
-            (1, 0, "East"),
-        ] {
-            let t = self.world.get(self.player.x + dx, self.player.y + dy);
-            if (dx, dy) == (0, 0) {
-                // skip if the player stands on plain grass / sand alone
-                if matches!(here, Tile::Grass) {
-                    continue;
-                }
-            } else if matches!(t, Tile::Grass) {
-                continue;
-            }
-            self.narrator
-                .say(format!("{label}: {}", t.describe()));
-            described = true;
+        let (dx, dy) = self.player.facing;
+        let tx = self.player.x + dx;
+        let ty = self.player.y + dy;
+        if let Some(npc) = npc::npc_at(tx, ty) {
+            self.narrator.say(format!("{}: {}", npc.name, "An ordinary villager. Press f to talk."));
+            return;
         }
-        if !described {
-            self.narrator.say("Nothing noteworthy nearby.");
-        }
+        let t = self.world.get(tx, ty);
+        self.narrator.say(t.describe());
     }
 
     fn step(&mut self, dx: i32, dy: i32) {
