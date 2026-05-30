@@ -705,22 +705,16 @@ fn village_tile(x: i32, y: i32) -> Option<Tile> {
     }
 
     // house definitions: (x_range, y_range, door_xy, door_kind)
+    // each house is 5 wide x 3 tall (visual ~5 wide x 3 tall = ~5x6 since cells are 2:1)
     type DoorKind = Tile;
     let houses: &[((i32, i32), (i32, i32), (i32, i32), DoorKind)] = &[
-        // rod shop - far left
-        ((-37, -33), (-3, 1), (-35, 1), Tile::DoorRod),
-        // inn - left-center
-        ((-20, -16), (-3, 1), (-18, 1), Tile::DoorRod),
-        // bakery - top center
-        ((-2, 2), (-6, -3), (0, -3), Tile::DoorRod),
-        // market - top-left
-        ((-25, -21), (-8, -4), (-23, -4), Tile::DoorRod),
-        // library - top-right
-        ((21, 25), (-8, -4), (23, -4), Tile::DoorSchool),
-        // cottage - right-center
-        ((16, 20), (-3, 1), (18, 1), Tile::DoorSchool),
-        // fishing school - far right
-        ((33, 37), (-3, 1), (35, 1), Tile::DoorSchool),
+        ((-37, -33), (-1, 1), (-35, 1), Tile::DoorRod),
+        ((-20, -16), (-1, 1), (-18, 1), Tile::DoorRod),
+        ((-2, 2), (-5, -3), (0, -3), Tile::DoorRod),
+        ((-25, -21), (-7, -5), (-23, -5), Tile::DoorRod),
+        ((21, 25), (-7, -5), (23, -5), Tile::DoorSchool),
+        ((16, 20), (-1, 1), (18, 1), Tile::DoorSchool),
+        ((33, 37), (-1, 1), (35, 1), Tile::DoorSchool),
     ];
 
     for &((xa, xb), (ya, yb), (dx, dy), dkind) in houses {
