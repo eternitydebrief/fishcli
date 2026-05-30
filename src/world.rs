@@ -507,6 +507,30 @@ fn tree_offsets(sp: TreeSpecies) -> &'static [(i32, i32, TreePart)] {
     }
 }
 
+// At most one tree per (TREE_GRID_W x TREE_GRID_H) cell. The winner is the
+// candidate inside the grid block with the smallest hash that also passes
+// its density roll. This stops the dense overlap we used to get around lakes.
+const TREE_GRID_W: i32 = 3;
+const TREE_GRID_H: i32 = 2;
+
+fn tree_density_at(x: i32, y: i32, seed: u32, base: f32) -> f32 {
+    let info = cached_water_info(x, y, seed);
+    if info.in_water || info.island_grass || info.island_sand {
+        return 0.0;
+    }
+    if info.in_ring {
+        // sparse ring: high chance that the grid-cell winner becomes a tree,
+        // but with grid spacing this still leaves visible gaps in the ring
+        0.70
+    } else {
+        base
+    }
+}
+
+fn tree_roll(x: i32, y: i32, seed: u32) -> f32 {
+    hash2(x, y, seed.wrapping_add(0xC0DE_C0DE)) as f32 / u32::MAX as f32
+}
+
 fn is_tree_anchor(x: i32, y: i32, seed: u32, density: f32) -> bool {
     if in_village_zone(x, y) {
         return false;
@@ -514,18 +538,39 @@ fn is_tree_anchor(x: i32, y: i32, seed: u32, density: f32) -> bool {
     if y >= 4 || y <= -1000 {
         return false;
     }
-    let info = cached_water_info(x, y, seed);
-    if info.in_water || info.island_grass || info.island_sand {
+    let my_density = tree_density_at(x, y, seed, density);
+    if my_density <= 0.0 {
         return false;
     }
-    // cells in the ring zone around any water body get boosted tree density
-    let effective = if info.in_ring {
-        density.max(0.42)
-    } else {
-        density
-    };
-    let r = hash2(x, y, seed.wrapping_add(0xC0DE_C0DE)) as f32 / u32::MAX as f32;
-    r < effective
+    let my_roll = tree_roll(x, y, seed);
+    if my_roll >= my_density {
+        return false;
+    }
+
+    // grid-cell collision: only one anchor wins per grid block
+    let gx = x.div_euclid(TREE_GRID_W);
+    let gy = y.div_euclid(TREE_GRID_H);
+    for oy in 0..TREE_GRID_H {
+        for ox in 0..TREE_GRID_W {
+            let cx = gx * TREE_GRID_W + ox;
+            let cy = gy * TREE_GRID_H + oy;
+            if (cx, cy) == (x, y) {
+                continue;
+            }
+            if in_village_zone(cx, cy) || cy >= 4 || cy <= -1000 {
+                continue;
+            }
+            let other_density = tree_density_at(cx, cy, seed, density);
+            if other_density <= 0.0 {
+                continue;
+            }
+            let other_roll = tree_roll(cx, cy, seed);
+            if other_roll < other_density && other_roll < my_roll {
+                return false; // someone in this grid cell beats me
+            }
+        }
+    }
+    true
 }
 
 const WATER_CELL_W: i32 = 36;
