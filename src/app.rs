@@ -2,8 +2,8 @@ use crate::fish;
 use crate::fishdex::Fishdex;
 use crate::fishing::{Fishing, FishingResult};
 use crate::fishlist::FISH;
-use crate::map::{Map, Tile};
 use crate::player::Player;
+use crate::world::{Tile, World};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
     Frame,
@@ -21,7 +21,7 @@ pub enum Scene {
 }
 
 pub struct App {
-    pub map: Map,
+    pub world: World,
     pub player: Player,
     pub scene: Scene,
     pub running: bool,
@@ -33,7 +33,7 @@ pub struct App {
 impl App {
     pub fn new() -> Self {
         Self {
-            map: Map::starter(),
+            world: World::new(0xDEAD_BEEF),
             player: Player::spawn(),
             scene: Scene::Overworld,
             running: true,
@@ -112,13 +112,9 @@ impl App {
     }
 
     fn step(&mut self, dx: i32, dy: i32) {
-        let nx = self.player.x as i32 + dx;
-        let ny = self.player.y as i32 + dy;
-        if nx < 0 || ny < 0 || nx >= self.map.width as i32 || ny >= self.map.height as i32 {
-            return;
-        }
-        let (nx, ny) = (nx as usize, ny as usize);
-        match self.map.get(nx, ny) {
+        let nx = self.player.x + dx;
+        let ny = self.player.y + dy;
+        match self.world.get(nx, ny) {
             Tile::DoorRod => self.scene = Scene::RodShop,
             Tile::DoorSchool => self.scene = Scene::FishingSchool,
             Tile::Dock => {
@@ -138,20 +134,26 @@ impl App {
         let caught_snapshot = self.caught.clone();
         match &mut self.scene {
             Scene::Overworld => {
-                let lines = self
-                    .map
-                    .render_lines(Some((self.player.x, self.player.y)), anim_tick);
                 let area = frame.area();
                 let chunks = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints([Constraint::Min(1), Constraint::Length(3)])
                     .split(area);
-                let map_widget = Paragraph::new(lines).block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(" fishcli ")
-                        .border_style(Style::default().fg(Color::Cyan)),
+                let block = Block::default()
+                    .borders(Borders::ALL)
+                    .title(format!(
+                        " fishcli  ({}, {}) ",
+                        self.player.x, self.player.y
+                    ))
+                    .border_style(Style::default().fg(Color::Cyan));
+                let inner = block.inner(chunks[0]);
+                let lines = self.world.render_viewport(
+                    (self.player.x, self.player.y),
+                    inner.width as usize,
+                    inner.height as usize,
+                    anim_tick,
                 );
+                let map_widget = Paragraph::new(lines).block(block);
                 frame.render_widget(map_widget, chunks[0]);
                 let help = Paragraph::new(
                     "hjkl/arrows: move    e: fishdex    walk into door/dock to enter    q: quit",
@@ -177,7 +179,6 @@ impl App {
             Scene::Fishdex(d) => d.render(frame, &caught_snapshot),
         }
     }
-
 }
 
 fn render_placeholder(frame: &mut Frame, title: &str, body: &str) {

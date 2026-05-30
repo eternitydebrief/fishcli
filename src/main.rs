@@ -14,8 +14,8 @@ mod fish;
 mod fishdex;
 mod fishing;
 mod fishlist;
-mod map;
 mod player;
+mod world;
 
 use app::App;
 
