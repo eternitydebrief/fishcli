@@ -189,8 +189,7 @@ impl Fishing {
         r * (self.bar_h as f32 - 1.0)
     }
 
-    pub fn render(&self, frame: &mut Frame, anim_tick: u64) {
-        let area = frame.area();
+    pub fn render(&self, frame: &mut Frame, area: ratatui::layout::Rect, anim_tick: u64) {
         let stars = "*".repeat(self.fish.difficulty as usize);
         let title = format!(" fishing - {} {} ", self.fish.name, stars);
         let outer = Block::default()
@@ -208,13 +207,35 @@ impl Fishing {
         inner: ratatui::layout::Rect,
         anim_tick: u64,
     ) {
+        let show_scene = inner.width >= 38;
+        let constraints: Vec<Constraint> = if show_scene {
+            vec![
+                Constraint::Length(22),
+                Constraint::Length(5),
+                Constraint::Min(15),
+            ]
+        } else {
+            vec![Constraint::Length(5), Constraint::Min(15)]
+        };
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints(vec![Constraint::Length(5), Constraint::Min(15)])
+            .constraints(constraints)
             .split(inner);
-        let (bar_idx, right_idx) = (0usize, 1usize);
+        let (bar_idx, right_idx) = if show_scene {
+            (1usize, 2usize)
+        } else {
+            (0usize, 1usize)
+        };
+        if show_scene {
+            let panel = Paragraph::new(self.render_rod_panel(anim_tick)).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" rod ")
+                    .border_style(Style::default().fg(Color::DarkGray)),
+            );
+            frame.render_widget(panel, chunks[0]);
+        }
 
-        let _ = anim_tick;
         let bar = Paragraph::new(self.render_bar())
             .alignment(Alignment::Center)
             .block(
@@ -258,6 +279,121 @@ impl Fishing {
             Block::default().borders(Borders::ALL).title(" status "),
         );
         frame.render_widget(status, right[1]);
+    }
+
+    fn render_rod_panel(&self, anim_tick: u64) -> Vec<Line<'static>> {
+        // tension = how aligned the rect is with the fish; full tension makes the rod bend hard.
+        let in_rect = self.fish_y >= self.rect_y
+            && self.fish_y <= self.rect_y + self.rect_h;
+        let tension = if in_rect { 1.0_f32 } else { 0.0_f32 };
+        // small shimmer on the line based on tick so it never sits still
+        let wobble = ((anim_tick / 2) % 3) as i32 - 1;
+
+        // 16-row ascii panel. player at top-left, rod curves down-right, line drops, fish thrashes.
+        // tension 0 = rod nearly straight, tension 1 = rod severely bent (sucked toward the fish).
+        let rows = 16usize;
+        let cols = 20usize;
+        let mut grid: Vec<Vec<(char, Color)>> =
+            vec![vec![(' ', Color::Reset); cols]; rows];
+
+        // player
+        grid[1][1] = ('@', Color::White);
+        grid[2][2] = ('|', Color::Rgb(140, 90, 50));
+
+        // rod curve: parametric, more curve with tension
+        let rod_len = 10;
+        for i in 0..rod_len {
+            let t = i as f32 / (rod_len - 1) as f32;
+            let x = 2.0 + t * 9.0;
+            // tension pulls the tip down so the rod bends
+            let y = 2.0 + t * 1.0 + tension * (t * t) * 4.5;
+            let r = y.round() as usize;
+            let c = x.round() as usize;
+            if r < rows && c < cols {
+                let glyph = if i == 0 {
+                    '|'
+                } else if i < rod_len - 2 {
+                    if tension > 0.5 { '\\' } else { '-' }
+                } else {
+                    '*'
+                };
+                let color = if i == rod_len - 1 {
+                    Color::Yellow
+                } else {
+                    Color::Rgb(190, 140, 80)
+                };
+                grid[r][c] = (glyph, color);
+            }
+        }
+
+        // line: from rod tip down to fish
+        let tip_x = (2.0_f32 + 9.0_f32).round() as usize;
+        let tip_y = (2.0_f32 + 1.0_f32 + tension * 4.5_f32).round() as usize;
+        let fish_y_row = (rows - 2) as i32;
+        let fish_x_col = (tip_x as i32 + wobble).max(2).min(cols as i32 - 3) as usize;
+        let line_top = (tip_y + 1) as i32;
+        for ly in line_top..fish_y_row {
+            let r = ly as usize;
+            if r >= rows {
+                break;
+            }
+            let lx = fish_x_col as i32 + ((ly as i32 - line_top) % 3 - 1) / 2;
+            let c = lx.max(0).min(cols as i32 - 1) as usize;
+            grid[r][c] = ('|', Color::Gray);
+        }
+
+        // fish thrash
+        let fish_color = if in_rect {
+            Color::LightGreen
+        } else {
+            Color::LightRed
+        };
+        let thrash = ((anim_tick / 3) % 4) as usize;
+        let fish_glyph = ['<', 'o', '>', 'o'][thrash];
+        let fy = fish_y_row as usize;
+        if fy < rows {
+            grid[fy][fish_x_col] = (fish_glyph, fish_color);
+            if fish_x_col > 0 {
+                grid[fy][fish_x_col - 1] = (
+                    if thrash % 2 == 0 { '~' } else { '=' },
+                    Color::Cyan,
+                );
+            }
+            if fish_x_col + 1 < cols {
+                grid[fy][fish_x_col + 1] = (
+                    if thrash % 2 == 0 { '=' } else { '~' },
+                    Color::Cyan,
+                );
+            }
+        }
+
+        // water ripple line at the bottom
+        if rows > 0 {
+            for x in 0..cols {
+                let phase = (x as u64 + anim_tick / 4) % 6;
+                let ch = match phase {
+                    0..=1 => '~',
+                    2 => '-',
+                    _ => '.',
+                };
+                grid[rows - 1][x] = (ch, Color::Rgb(60, 100, 150));
+            }
+        }
+
+        grid.into_iter()
+            .map(|row| {
+                let spans: Vec<Span<'static>> = row
+                    .into_iter()
+                    .map(|(g, c)| {
+                        Span::styled(
+                            g.to_string(),
+                            Style::default().fg(c).add_modifier(Modifier::BOLD),
+                        )
+                    })
+                    .collect();
+                Line::from(spans)
+            })
+            .collect()
     }
 
     fn render_bar(&self) -> Vec<Line<'static>> {

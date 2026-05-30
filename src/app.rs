@@ -1196,7 +1196,20 @@ impl App {
                 " fishing school ",
                 "techniques coming soon\n\nq or esc: leave",
             ),
-            Scene::Fishing(g) => g.render(frame, anim_tick),
+            Scene::Fishing(g) => {
+                // carve out the space the log/valu/cmdline overlays will use
+                // so the fishing UI doesn't get covered
+                let full = frame.area();
+                let cmd = 1u16;
+                let log_h = 10u16.min(full.height.saturating_sub(cmd));
+                let fishing_area = Rect {
+                    x: full.x,
+                    y: full.y,
+                    width: full.width,
+                    height: full.height.saturating_sub(log_h + cmd),
+                };
+                g.render(frame, fishing_area, anim_tick);
+            }
             Scene::Fishdex(d) => d.render(frame, &caught_snapshot),
             Scene::NamePrompt(buf) => render_name_prompt(frame, buf),
             Scene::Dialogue { npc, line } => render_dialogue(frame, npc, *line),
@@ -1640,24 +1653,21 @@ fn render_cast_overlay(
 
     match c.phase {
         CastPhase::Casting => {
-            // 8-row vertical bar floating directly above the player
+            // single cell moving up/down above the player, color goes from
+            // red (bottom) to green (top), background fills the cell
             let bar_h = 8i32;
             let marker_row = ((1.0 - c.cast_pos) * (bar_h - 1) as f32).round() as i32;
-            for row in 0..bar_h {
-                let sy = player_sy - bar_h - 1 + row;
-                if sy < area.y as i32 || sy >= (area.y + area.height) as i32 {
-                    continue;
-                }
-                let sx = player_sx;
-                if sx < area.x as i32 || sx >= (area.x + area.width) as i32 {
-                    continue;
-                }
-                let frac = 1.0 - (row as f32 / (bar_h - 1) as f32);
-                let color = lerp_red_green(frac);
-                let ch = if row == marker_row { '<' } else { '#' };
+            let sy = player_sy - bar_h + marker_row;
+            let sx = player_sx;
+            if sy >= area.y as i32
+                && sy < (area.y + area.height) as i32
+                && sx >= area.x as i32
+                && sx < (area.x + area.width) as i32
+            {
+                let color = lerp_red_green(c.cast_pos);
                 frame.buffer_mut()[(sx as u16, sy as u16)]
-                    .set_char(ch)
-                    .set_style(Style::default().fg(color).add_modifier(Modifier::BOLD));
+                    .set_char(' ')
+                    .set_style(Style::default().bg(color));
             }
         }
         CastPhase::Waiting | CastPhase::Biting => {
