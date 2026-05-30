@@ -155,8 +155,7 @@ impl World {
                     (g, Style::default().fg(shade((220, 200, 130), x, y, 0x5A1D_5A1D, 20)))
                 }
             }
-            Tile::TreeTrunk => trunk_glyph(x, y),
-            Tile::TreeCanopy => canopy_glyph(x, y, self.seed),
+            Tile::TreeTrunk | Tile::TreeCanopy => tree_render(x, y, self.seed),
             Tile::Rock => rock_glyph(x, y),
             Tile::BigRock => big_rock_glyph(x, y, self.seed),
             Tile::Pebble => pebble_glyph(x, y),
@@ -189,12 +188,51 @@ fn big_rock_at(x: i32, y: i32, seed: u32) -> bool {
     false
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TreeSpecies {
+    Round,
+    Pine,
+    Bush,
+}
+
+#[derive(Clone, Copy)]
+enum TreePart {
+    Trunk,
+    Canopy,
+}
+
+fn tree_species(ax: i32, ay: i32, seed: u32) -> TreeSpecies {
+    match hash2(ax, ay, seed.wrapping_add(0xDEAD_F00D)) % 5 {
+        0 | 1 => TreeSpecies::Round,
+        2 | 3 => TreeSpecies::Pine,
+        _ => TreeSpecies::Bush,
+    }
+}
+
+fn tree_offsets(sp: TreeSpecies) -> &'static [(i32, i32, TreePart)] {
+    match sp {
+        TreeSpecies::Round => &[
+            (0, 0, TreePart::Trunk),
+            (-1, -1, TreePart::Canopy),
+            (0, -1, TreePart::Canopy),
+            (1, -1, TreePart::Canopy),
+        ],
+        TreeSpecies::Pine => &[
+            (0, 0, TreePart::Trunk),
+            (0, -1, TreePart::Canopy),
+            (-1, -1, TreePart::Canopy),
+            (1, -1, TreePart::Canopy),
+            (0, -2, TreePart::Canopy),
+        ],
+        TreeSpecies::Bush => &[(0, 0, TreePart::Trunk)],
+    }
+}
+
 fn is_tree_anchor(x: i32, y: i32, seed: u32) -> bool {
     if in_village_zone(x, y) {
         return false;
     }
     if y >= 4 || y <= -40 {
-        // keep trunks far enough from the shore that canopy doesn't dangle off-map weirdly
         return false;
     }
     let r = hash2(x, y, seed.wrapping_add(0xC0DE_C0DE)) as f32 / u32::MAX as f32;
@@ -202,14 +240,41 @@ fn is_tree_anchor(x: i32, y: i32, seed: u32) -> bool {
 }
 
 fn tree_at(x: i32, y: i32, seed: u32) -> Option<Tile> {
-    if is_tree_anchor(x, y, seed) {
-        return Some(Tile::TreeTrunk);
+    for dy in 0..=2i32 {
+        for dx in -1..=1i32 {
+            let ax = x + dx;
+            let ay = y + dy;
+            if !is_tree_anchor(ax, ay, seed) {
+                continue;
+            }
+            let sp = tree_species(ax, ay, seed);
+            for &(ox, oy, part) in tree_offsets(sp) {
+                if ax + ox == x && ay + oy == y {
+                    return Some(match part {
+                        TreePart::Trunk => Tile::TreeTrunk,
+                        TreePart::Canopy => Tile::TreeCanopy,
+                    });
+                }
+            }
+        }
     }
-    for dx in -1..=1i32 {
-        let ax = x + dx;
-        let ay = y + 1;
-        if is_tree_anchor(ax, ay, seed) {
-            return Some(Tile::TreeCanopy);
+    None
+}
+
+fn find_tree_anchor(x: i32, y: i32, seed: u32) -> Option<(i32, i32, TreeSpecies, TreePart)> {
+    for dy in 0..=2i32 {
+        for dx in -1..=1i32 {
+            let ax = x + dx;
+            let ay = y + dy;
+            if !is_tree_anchor(ax, ay, seed) {
+                continue;
+            }
+            let sp = tree_species(ax, ay, seed);
+            for &(ox, oy, part) in tree_offsets(sp) {
+                if ax + ox == x && ay + oy == y {
+                    return Some((ax, ay, sp, part));
+                }
+            }
         }
     }
     None
@@ -227,35 +292,85 @@ fn hash2(x: i32, y: i32, seed: u32) -> u32 {
     h ^ (h >> 16)
 }
 
-fn trunk_glyph(_x: i32, _y: i32) -> (char, Style) {
-    (
-        '|',
-        Style::default().fg(Color::Rgb(120, 70, 30)).add_modifier(Modifier::BOLD),
-    )
-}
-
-fn canopy_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
-    // pick the anchor that claimed this cell so the canopy reads the trunk's seed
-    let mut anchor_seed = 0u32;
-    for dx in -1..=1i32 {
-        let ax = x + dx;
-        let ay = y + 1;
-        if is_tree_anchor(ax, ay, seed) {
-            anchor_seed = hash2(ax, ay, seed.wrapping_add(0xAA55_AA55));
-            break;
+fn tree_render(x: i32, y: i32, seed: u32) -> (char, Style) {
+    let Some((ax, ay, sp, part)) = find_tree_anchor(x, y, seed) else {
+        return (' ', Style::default());
+    };
+    let anchor_hash = hash2(ax, ay, seed.wrapping_add(0xAA55_AA55));
+    match (sp, part) {
+        (TreeSpecies::Round, TreePart::Trunk) => trunk_style(anchor_hash, '|'),
+        (TreeSpecies::Round, TreePart::Canopy) => {
+            let dx = x - ax;
+            let g = match dx {
+                -1 => match anchor_hash & 1 {
+                    0 => '(',
+                    _ => 'C',
+                },
+                1 => match anchor_hash & 1 {
+                    0 => ')',
+                    _ => 'O',
+                },
+                _ => match anchor_hash & 1 {
+                    0 => 'O',
+                    _ => '8',
+                },
+            };
+            leaf_style(g, anchor_hash, (60, 95, 55), x, y)
+        }
+        (TreeSpecies::Pine, TreePart::Trunk) => trunk_style(anchor_hash, 'I'),
+        (TreeSpecies::Pine, TreePart::Canopy) => {
+            let dx = x - ax;
+            let dy = y - ay;
+            let g = if dy == -2 {
+                '^'
+            } else if dy == -1 {
+                if dx == 0 {
+                    'A'
+                } else {
+                    '/'
+                }
+            } else {
+                '/'
+            };
+            // pine is darker / cooler
+            leaf_style(g, anchor_hash, (40, 80, 50), x, y)
+        }
+        (TreeSpecies::Bush, _) => {
+            let g = match anchor_hash % 3 {
+                0 => 'o',
+                1 => '*',
+                _ => 'q',
+            };
+            leaf_style(g, anchor_hash, (75, 100, 55), x, y)
         }
     }
-    let v = anchor_seed % 4;
-    let (g, base) = match v {
-        0 => ('#', (40, 130, 40)),
-        1 => ('#', (60, 160, 60)),
-        2 => ('%', (50, 140, 30)),
-        _ => ('&', (70, 170, 50)),
-    };
+}
+
+fn trunk_style(anchor_hash: u32, g: char) -> (char, Style) {
+    let r = 90 + (anchor_hash % 25) as u8;
+    let gc = 60 + (anchor_hash % 20) as u8;
+    let b = 35 + (anchor_hash % 15) as u8;
     (
         g,
         Style::default()
-            .fg(shade(base, x, y, 0xAA55_AA56, 18))
+            .fg(Color::Rgb(r, gc, b))
+            .add_modifier(Modifier::BOLD),
+    )
+}
+
+fn leaf_style(g: char, anchor_hash: u32, base: (u8, u8, u8), x: i32, y: i32) -> (char, Style) {
+    let tint_r = (anchor_hash % 25) as i32 - 12;
+    let tint_g = ((anchor_hash >> 8) % 25) as i32 - 12;
+    let tint_b = ((anchor_hash >> 16) % 25) as i32 - 12;
+    let base = (
+        (base.0 as i32 + tint_r).clamp(0, 255) as u8,
+        (base.1 as i32 + tint_g).clamp(0, 255) as u8,
+        (base.2 as i32 + tint_b).clamp(0, 255) as u8,
+    );
+    (
+        g,
+        Style::default()
+            .fg(shade(base, x, y, 0xAA55_AA56, 14))
             .add_modifier(Modifier::BOLD),
     )
 }
