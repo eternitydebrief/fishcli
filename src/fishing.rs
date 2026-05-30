@@ -12,6 +12,28 @@ pub enum FishingResult {
     Escaped,
 }
 
+const SCENE_W: usize = 25;
+const SCENE_H: usize = 18;
+
+fn scene_water(x: usize, y: usize, tick: u64) -> (char, Style) {
+    let phase = (x as u64 + (y as u64) * 3 + tick / 4) % 12;
+    let glyph = match phase {
+        0 | 1 => '~',
+        2 | 3 => '=',
+        4 => '-',
+        5..=8 => '~',
+        9 => '-',
+        _ => '~',
+    };
+    let color = match phase {
+        0..=2 => Color::Blue,
+        3..=5 => Color::LightBlue,
+        6..=8 => Color::Cyan,
+        _ => Color::Blue,
+    };
+    (glyph, Style::default().fg(color))
+}
+
 pub struct Fishing {
     pub bar_h: usize,
     pub rect_h: f32,
@@ -154,7 +176,7 @@ impl Fishing {
         (s as f32 / u32::MAX as f32) * (self.bar_h as f32 - 1.0)
     }
 
-    pub fn render(&self, frame: &mut Frame) {
+    pub fn render(&self, frame: &mut Frame, anim_tick: u64) {
         let area = frame.area();
         let outer = Block::default()
             .borders(Borders::ALL)
@@ -165,11 +187,30 @@ impl Fishing {
 
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(9), Constraint::Min(20)])
+            .constraints([
+                Constraint::Length(SCENE_W as u16 + 2),
+                Constraint::Length(5),
+                Constraint::Min(20),
+            ])
             .split(inner);
 
-        let bar = Paragraph::new(self.render_bar()).alignment(Alignment::Center);
-        frame.render_widget(bar, chunks[0]);
+        let scene = Paragraph::new(self.render_scene(anim_tick)).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" dock ")
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+        frame.render_widget(scene, chunks[0]);
+
+        let bar = Paragraph::new(self.render_bar())
+            .alignment(Alignment::Center)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" line ")
+                    .border_style(Style::default().fg(Color::DarkGray)),
+            );
+        frame.render_widget(bar, chunks[1]);
 
         let right = Layout::default()
             .direction(Direction::Vertical)
@@ -178,7 +219,7 @@ impl Fishing {
                 Constraint::Length(3),
                 Constraint::Min(1),
             ])
-            .split(chunks[1]);
+            .split(chunks[2]);
 
         let gauge = Gauge::default()
             .block(Block::default().borders(Borders::ALL).title(" catch "))
@@ -189,7 +230,7 @@ impl Fishing {
         let (msg, color) = match &self.finished {
             Some(FishingResult::Caught) => ("caught it!  esc/q to leave", Color::Green),
             Some(FishingResult::Escaped) => ("got away.  esc/q to leave", Color::Red),
-            None => ("k/up: pull up    j/down: pull down", Color::White),
+            None => ("hold up/down to pull line    esc/q: leave", Color::White),
         };
         let status = Paragraph::new(msg).style(Style::default().fg(color)).block(
             Block::default()
@@ -197,6 +238,97 @@ impl Fishing {
                 .title(" status "),
         );
         frame.render_widget(status, right[1]);
+    }
+
+    fn render_scene(&self, anim_tick: u64) -> Vec<Line<'static>> {
+        const PLAYER_POS: (usize, usize) = (16, 4);
+        const ROD_TIP: (usize, usize) = (10, 10);
+        const WATER_TOP: usize = 11;
+        const WATER_BOT: usize = SCENE_H - 1;
+
+        let max_fish = (self.bar_h as f32 - 1.0).max(1.0);
+        let water_rows = (WATER_BOT - WATER_TOP) as f32;
+        let fish_row = WATER_TOP
+            + ((self.fish_y / max_fish) * water_rows).round() as usize;
+        let fish_row = fish_row.clamp(WATER_TOP + 1, WATER_BOT);
+
+        (0..SCENE_H)
+            .map(|y| {
+                let spans = (0..SCENE_W)
+                    .map(|x| {
+                        let (g, s) = self.scene_cell(x, y, PLAYER_POS, ROD_TIP, fish_row, anim_tick);
+                        Span::styled(g.to_string(), s)
+                    })
+                    .collect::<Vec<_>>();
+                Line::from(spans)
+            })
+            .collect()
+    }
+
+    fn scene_cell(
+        &self,
+        x: usize,
+        y: usize,
+        player: (usize, usize),
+        rod_tip: (usize, usize),
+        fish_row: usize,
+        anim_tick: u64,
+    ) -> (char, Style) {
+        let line_col = rod_tip.0;
+        let water_top = 11usize;
+
+        if (x, y) == player {
+            return (
+                '@',
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            );
+        }
+
+        if y > player.1 && y <= rod_tip.1 {
+            let dy = (y - player.1) as i32;
+            let total_dy = (rod_tip.1 - player.1) as i32;
+            let dx = ((player.0 as i32 - rod_tip.0 as i32) * dy + total_dy / 2) / total_dy;
+            let rod_x = player.0 as i32 - dx;
+            if rod_x >= 0 && x == rod_x as usize {
+                let glyph = if y == rod_tip.1 { '\\' } else { '\\' };
+                return (glyph, Style::default().fg(Color::Yellow));
+            }
+        }
+
+        if y == rod_tip.1 {
+            if x == line_col {
+                return (
+                    'o',
+                    Style::default()
+                        .fg(Color::LightYellow)
+                        .add_modifier(Modifier::BOLD),
+                );
+            }
+            return ('=', Style::default().fg(Color::LightYellow));
+        }
+
+        if x == line_col && y > rod_tip.1 && y < fish_row {
+            return ('|', Style::default().fg(Color::Gray));
+        }
+        if x == line_col && y == fish_row {
+            let color = match &self.finished {
+                Some(FishingResult::Caught) => Color::Green,
+                Some(FishingResult::Escaped) => Color::DarkGray,
+                None => Color::Red,
+            };
+            return (
+                'f',
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+            );
+        }
+
+        if y >= water_top {
+            return scene_water(x, y, anim_tick);
+        }
+
+        (' ', Style::default())
     }
 
     fn render_bar(&self) -> Vec<Line<'static>> {

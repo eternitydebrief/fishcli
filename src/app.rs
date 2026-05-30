@@ -116,7 +116,7 @@ impl App {
                 " fishing school ",
                 "techniques coming soon\n\nesc/q: leave",
             ),
-            Scene::Fishing(g) => g.render(frame),
+            Scene::Fishing(g) => g.render(frame, self.anim_tick),
         }
     }
 
