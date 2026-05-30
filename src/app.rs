@@ -27,6 +27,8 @@ pub enum Mode {
     Command(String),
 }
 
+const MOVE_INTERVAL: u64 = 4;
+
 pub struct App {
     pub world: World,
     pub player: Player,
@@ -37,6 +39,9 @@ pub struct App {
     pub rng_state: u32,
     pub caught: Vec<bool>,
     pub narrator: Narrator,
+    held_dir: Option<(i32, i32)>,
+    held_until_tick: u64,
+    last_step_tick: u64,
 }
 
 impl App {
@@ -44,7 +49,7 @@ impl App {
         let mut narrator = Narrator::new();
         narrator.say("You arrive at the village.");
         narrator.say("Yellow D west = rod shop. Pink D east = fishing school. Dock is south.");
-        narrator.say("Esc → Normal mode. : for commands (:w :wq :q :q! :s :m :h).");
+        narrator.say("Esc → Normal mode. : for commands (:w :wq :q :q! :s :m :e :h).");
         Self {
             world: World::new(0xDEAD_BEEF),
             player: Player::spawn(),
@@ -55,11 +60,30 @@ impl App {
             rng_state: 0xC0FF_EE42,
             caught: vec![false; FISH.len()],
             narrator,
+            held_dir: None,
+            held_until_tick: 0,
+            last_step_tick: 0,
         }
     }
 
     pub fn tick(&mut self) {
         self.anim_tick = self.anim_tick.wrapping_add(1);
+
+        let movement_allowed =
+            matches!(self.mode, Mode::Insert) && matches!(self.scene, Scene::Overworld);
+        if movement_allowed {
+            if let Some(dir) = self.held_dir {
+                if self.anim_tick > self.held_until_tick {
+                    self.held_dir = None;
+                } else if self.anim_tick.saturating_sub(self.last_step_tick) >= MOVE_INTERVAL {
+                    self.step(dir.0, dir.1);
+                    self.last_step_tick = self.anim_tick;
+                }
+            }
+        } else {
+            self.held_dir = None;
+        }
+
         if let Scene::Fishing(g) = &mut self.scene {
             g.tick();
         }
@@ -80,6 +104,12 @@ impl App {
                     _ => {}
                 }
             }
+            if matches!(self.scene, Scene::Overworld) {
+                if let Some(dir) = direction_for(key.code) {
+                    self.handle_movement(dir, key.kind);
+                    return;
+                }
+            }
         }
 
         if key.kind != KeyEventKind::Press && key.kind != KeyEventKind::Repeat {
@@ -90,6 +120,26 @@ impl App {
             Mode::Insert => self.insert_key(key.code),
             Mode::Normal => self.normal_key(key.code),
             Mode::Command(_) => self.command_key(key.code),
+        }
+    }
+
+    fn handle_movement(&mut self, dir: (i32, i32), kind: KeyEventKind) {
+        match kind {
+            KeyEventKind::Press => {
+                self.step(dir.0, dir.1);
+                self.held_dir = Some(dir);
+                self.held_until_tick = self.anim_tick + 5;
+                self.last_step_tick = self.anim_tick;
+            }
+            KeyEventKind::Repeat => {
+                self.held_dir = Some(dir);
+                self.held_until_tick = self.anim_tick + 5;
+            }
+            KeyEventKind::Release => {
+                if self.held_dir == Some(dir) {
+                    self.held_dir = None;
+                }
+            }
         }
     }
 
@@ -228,10 +278,6 @@ impl App {
                 self.narrator.say("You leaf through the fishdex.");
                 self.scene = Scene::Fishdex(Fishdex::new());
             }
-            KeyCode::Char('h') | KeyCode::Left => self.step(-1, 0),
-            KeyCode::Char('j') | KeyCode::Down => self.step(0, 1),
-            KeyCode::Char('k') | KeyCode::Up => self.step(0, -1),
-            KeyCode::Char('l') | KeyCode::Right => self.step(1, 0),
             _ => {}
         }
     }
@@ -353,6 +399,16 @@ impl App {
             };
             render_cmdline(frame, cmd_area, &self.mode);
         }
+    }
+}
+
+fn direction_for(code: KeyCode) -> Option<(i32, i32)> {
+    match code {
+        KeyCode::Char('h') | KeyCode::Left => Some((-1, 0)),
+        KeyCode::Char('j') | KeyCode::Down => Some((0, 1)),
+        KeyCode::Char('k') | KeyCode::Up => Some((0, -1)),
+        KeyCode::Char('l') | KeyCode::Right => Some((1, 0)),
+        _ => None,
     }
 }
 
