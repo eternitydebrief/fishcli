@@ -1631,6 +1631,8 @@ impl App {
                     self.world.get(nx, ny),
                     weather,
                     &mut self.rng_state,
+                    (nx, ny),
+                    self.world.seed,
                 );
                 let pool_override = self
                     .current_pool_override
@@ -3522,28 +3524,40 @@ fn dim_default_pool(
     tile: Tile,
     weather: crate::weather::Weather,
     rng: &mut u32,
+    cell: (i32, i32),
+    seed: u32,
 ) -> Option<&'static str> {
     use crate::weather::Weather;
     match dim {
-        crate::world::Dimension::Mines => match weather {
-            Weather::TectonicHigh => Some("mineral"),
-            Weather::TectonicMedium => {
-                if crate::fish::next_rand_f32(rng) < 0.5 {
-                    Some("mineral")
-                } else if matches!(tile, Tile::MineralWater) {
-                    Some("mineral")
-                } else {
-                    None
+        crate::world::Dimension::Mines => {
+            // Lakebed cave water: route to the special "lakebed" pool
+            // where the Fallen Fish swims. Strictly per-cell so the player
+            // is rewarded for fishing in a flooded zone, not normal mines.
+            if matches!(tile, Tile::MineralWater)
+                && crate::world::lakebed_region(cell.0, cell.1, seed)
+            {
+                return Some("lakebed");
+            }
+            match weather {
+                Weather::TectonicHigh => Some("mineral"),
+                Weather::TectonicMedium => {
+                    if crate::fish::next_rand_f32(rng) < 0.5 {
+                        Some("mineral")
+                    } else if matches!(tile, Tile::MineralWater) {
+                        Some("mineral")
+                    } else {
+                        None
+                    }
+                }
+                _ => {
+                    if matches!(tile, Tile::MineralWater) {
+                        Some("mineral")
+                    } else {
+                        None
+                    }
                 }
             }
-            _ => {
-                if matches!(tile, Tile::MineralWater) {
-                    Some("mineral")
-                } else {
-                    None
-                }
-            }
-        },
+        }
         crate::world::Dimension::Inferno => match weather {
             Weather::TempLow => Some("hot"),
             Weather::TempMedium => Some("burning"),

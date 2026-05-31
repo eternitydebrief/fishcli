@@ -576,8 +576,26 @@ impl World {
         }
         // The exit is wherever the surface had an entrance, so the player
         // can always climb back the way they came.
-        if is_mine_entrance_anchor(x, y, self.seed) {
+        if is_mine_entrance_anchor(x, y, self.seed)
+            || is_lakebed_entrance_anchor(x, y, self.seed)
+        {
             return Tile::MineExit;
+        }
+        // Lakebed cave zone: mostly mineral water with stalactite islands.
+        // The Fallen Fish lives in here.
+        if lakebed_region(x, y, self.seed) {
+            let r = hash2(x, y, self.seed.wrapping_add(0x1A4E_BED0)) % 1000;
+            if r < 75 {
+                return Tile::Stalagmite;
+            }
+            if r < 95 {
+                return Tile::Rock;
+            }
+            if r < 110 {
+                return Tile::OreRock;
+            }
+            // ~80% mineral water
+            return Tile::MineralWater;
         }
         let open = cave_open_at(x, y, self.seed);
         let r = hash2(x, y, self.seed.wrapping_add(0xCAFE_C0DE)) % 1000;
@@ -1893,9 +1911,54 @@ fn is_mine_entrance_anchor(x: i32, y: i32, seed: u32) -> bool {
     true
 }
 
+/// Region noise that marks "lakebed cave zones" — patches of the world
+/// where the underground is mostly flooded. Cheap to evaluate (2 sines).
+pub fn lakebed_region(x: i32, y: i32, seed: u32) -> bool {
+    let fx = x as f32;
+    let fy = y as f32;
+    let s = (fx * 0.030 + fy * 0.040 + (seed as f32 * 0.0023)).sin();
+    let t = (fx * 0.050 - fy * 0.027 + (seed as f32 * 0.0017)).cos();
+    s + t > 1.2
+}
+
+/// A lakebed entrance must:
+///   - be a sparse anchor (hash gate, ~1/700)
+///   - sit on an island (grass or sand) INSIDE a lake (so the player
+///     can walk to it)
+///   - the same (x,y) in mines must be a lakebed region (so descending
+///     opens a flooded cave instead of a regular cave)
+fn is_lakebed_entrance_anchor(x: i32, y: i32, seed: u32) -> bool {
+    let h = hash2(x, y, seed.wrapping_add(0x1A4E_BED0));
+    if h % 700 != 3 {
+        return false;
+    }
+    if in_village_zone(x, y) {
+        return false;
+    }
+    let info = cached_water_info(x, y, seed);
+    if !info.island_grass && !info.island_sand {
+        return false;
+    }
+    lakebed_region(x, y, seed)
+}
+
 fn mine_entrance_tile_at(x: i32, y: i32, seed: u32) -> Option<Tile> {
     if is_mine_entrance_anchor(x, y, seed) {
         return Some(Tile::MineEntrance);
+    }
+    if is_lakebed_entrance_anchor(x, y, seed) {
+        return Some(Tile::MineEntrance);
+    }
+    // frame cells for lakebed entrances too
+    for dx in -1..=1i32 {
+        for dy in -1..=0i32 {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            if is_lakebed_entrance_anchor(x - dx, y - dy, seed) {
+                return Some(Tile::MineFrame);
+            }
+        }
     }
     // frame cells: anchor is at (ax, ay) with frame at the 5 cells of the
     // 3-wide, 2-tall box (excluding the anchor itself which is the opening).
