@@ -146,6 +146,19 @@ impl TimeOfDay {
     pub fn is_rare_window(self) -> bool {
         matches!(self, TimeOfDay::Dusk | TimeOfDay::Midnight)
     }
+    /// Multiplier applied to tile rgb values to simulate ambient light.
+    /// 1.0 = bright daylight. ~0.35 = midnight. Smoothly varies through
+    /// dawn/dusk so the world fades instead of snapping.
+    pub fn light_factor(self) -> f32 {
+        match self {
+            TimeOfDay::Day => 1.0,
+            TimeOfDay::Morning => 0.85,
+            TimeOfDay::Evening => 0.65,
+            TimeOfDay::Dusk => 0.50,
+            TimeOfDay::Night => 0.40,
+            TimeOfDay::Midnight => 0.32,
+        }
+    }
 }
 
 pub fn time_of_day(total_play_secs: u64) -> TimeOfDay {

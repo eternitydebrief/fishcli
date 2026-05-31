@@ -24,6 +24,7 @@ pub enum Weather {
     Scorching,
     Fog,
     Windy,
+    Thunderstorm,
     // Mines: Tectonic Activity
     TectonicLow,
     TectonicMedium,
@@ -62,6 +63,7 @@ impl Weather {
             Weather::Scorching => "Scorching",
             Weather::Fog => "Fog",
             Weather::Windy => "Windy",
+            Weather::Thunderstorm => "Thunderstorm",
             Weather::TectonicLow | Weather::TempLow | Weather::PopLow => "Low",
             Weather::TectonicMedium | Weather::TempMedium | Weather::PopMedium => "Medium",
             Weather::TectonicHigh | Weather::TempHigh | Weather::PopHigh => "High",
@@ -79,6 +81,7 @@ impl Weather {
             Weather::Scorching => Color::Rgb(255, 130, 50),
             Weather::Fog => Color::Rgb(170, 180, 180),
             Weather::Windy => Color::Rgb(180, 200, 220),
+            Weather::Thunderstorm => Color::Rgb(200, 200, 255),
             Weather::TectonicLow | Weather::TempLow | Weather::PopLow => Color::Yellow,
             Weather::TectonicMedium | Weather::TempMedium | Weather::PopMedium => {
                 Color::Rgb(255, 150, 60)
@@ -97,6 +100,7 @@ impl Weather {
             Weather::Scorching => '*',
             Weather::Fog => '=',
             Weather::Windy => '>',
+            Weather::Thunderstorm => '!',
             Weather::TectonicLow | Weather::TempLow | Weather::PopLow => '.',
             Weather::TectonicMedium | Weather::TempMedium | Weather::PopMedium => '~',
             Weather::TectonicHigh | Weather::TempHigh | Weather::PopHigh => '#',
@@ -148,9 +152,27 @@ fn surface_weather(day: u64, biome: Biome, seed: u32) -> Weather {
     let pool: &[Weather] = match biome {
         Biome::Desert => &[Weather::Clear, Weather::Scorching, Weather::Sandstorm, Weather::Windy],
         Biome::Tundra => &[Weather::Clear, Weather::Snow, Weather::Blizzard, Weather::Cloudy],
-        Biome::Swamp => &[Weather::Clear, Weather::Rain, Weather::Fog, Weather::Cloudy],
-        Biome::Forest => &[Weather::Clear, Weather::Rain, Weather::Cloudy, Weather::Windy],
-        Biome::Meadow => &[Weather::Clear, Weather::Rain, Weather::Cloudy, Weather::Windy],
+        Biome::Swamp => &[
+            Weather::Clear,
+            Weather::Rain,
+            Weather::Fog,
+            Weather::Cloudy,
+            Weather::Thunderstorm,
+        ],
+        Biome::Forest => &[
+            Weather::Clear,
+            Weather::Rain,
+            Weather::Cloudy,
+            Weather::Windy,
+            Weather::Thunderstorm,
+        ],
+        Biome::Meadow => &[
+            Weather::Clear,
+            Weather::Rain,
+            Weather::Cloudy,
+            Weather::Windy,
+            Weather::Thunderstorm,
+        ],
         Biome::Rocky | Biome::Scrub => {
             &[Weather::Clear, Weather::Cloudy, Weather::Windy, Weather::Rain]
         }

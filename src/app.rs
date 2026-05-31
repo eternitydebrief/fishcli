@@ -167,6 +167,9 @@ pub struct App {
     /// named loot pool ("cosmic", "infernal", "angelic", "mineral", ...).
     /// Only settable by The Rod's k-menu and cleared by selecting Default.
     pub current_pool_override: Option<String>,
+    /// Active lightning bolt during a Thunderstorm. Set by tick(), drawn by
+    /// the world overlay, cleared when its life runs out.
+    pub lightning: Option<LightningBolt>,
     /// background autosave channel - thread coalesces and writes.
     autosave_tx: mpsc::Sender<SaveData>,
     last_autosave_at: Instant,
@@ -230,6 +233,7 @@ impl App {
             skills: Skills::default(),
             buffs: crate::buffs::Buffs::default(),
             current_pool_override: None,
+            lightning: None,
             autosave_tx: spawn_autosaver(),
             last_autosave_at: Instant::now(),
             last_autosave_hash: 0,
@@ -551,6 +555,7 @@ impl App {
         if self.anim_tick % 20 == 0 {
             self.check_pantheon_unlocks();
         }
+        self.tick_lightning();
 
         let movement_allowed =
             matches!(self.mode, Mode::Insert) && matches!(self.scene, Scene::Overworld);
@@ -1697,6 +1702,25 @@ impl App {
                         anim_tick,
                     );
                 }
+                // weather + day/night overlay drawn ON TOP of the world
+                // tiles but UNDER the HUD so the HUD stays readable.
+                let day = crate::gametime::game_days(self.total_play_secs());
+                let weather = crate::weather::weather_for(
+                    day,
+                    self.world.dim,
+                    self.current_biome
+                        .unwrap_or(crate::world::Biome::Meadow),
+                    self.world.seed,
+                );
+                let tod = crate::gametime::time_of_day(self.total_play_secs());
+                apply_world_overlay(
+                    frame,
+                    inner,
+                    tod,
+                    weather,
+                    anim_tick,
+                    self.lightning.as_ref(),
+                );
                 render_world_hud(
                     frame,
                     inner,
@@ -2480,6 +2504,267 @@ fn render_location_popup(frame: &mut Frame, label: &str) {
         .alignment(Alignment::Center)
         .block(block);
     frame.render_widget(p, popup);
+}
+
+// ---- weather + day/night overlay ------------------------------------
+
+/// A lightning bolt. Coordinates are screen-relative cells (post-render).
+/// `frames_remaining` ticks down each frame; while > 0 the bolt draws.
+/// A bolt has a primary jagged trunk and 0–2 forks.
+#[derive(Clone, Debug)]
+pub struct LightningBolt {
+    /// Screen-space cells. First batch is the main bolt; remaining batches
+    /// are forks. All drawn together.
+    pub trunks: Vec<Vec<(u16, u16, char)>>,
+    pub frames_remaining: u8,
+    pub total_frames: u8,
+}
+
+impl App {
+    /// Roll for a new lightning bolt during a Thunderstorm. Tick down the
+    /// existing bolt if any.
+    fn tick_lightning(&mut self) {
+        // Decrement existing bolt
+        if let Some(b) = self.lightning.as_mut() {
+            if b.frames_remaining > 0 {
+                b.frames_remaining -= 1;
+            }
+            if b.frames_remaining == 0 {
+                self.lightning = None;
+            }
+            return;
+        }
+        // Otherwise see if it's storming and roll for a strike.
+        let day = crate::gametime::game_days(self.total_play_secs());
+        let weather = crate::weather::weather_for(
+            day,
+            self.world.dim,
+            self.current_biome.unwrap_or(crate::world::Biome::Meadow),
+            self.world.seed,
+        );
+        if !matches!(weather, crate::weather::Weather::Thunderstorm) {
+            return;
+        }
+        // ~2.5% per tick (20 fps) → roughly one bolt every two seconds
+        let r = crate::fish::next_rand_f32(&mut self.rng_state);
+        if r < 0.025 {
+            // We don't know the screen dimensions inside tick(); use a
+            // generous canvas of 120 wide x 30 tall. The renderer will
+            // clip points outside the actual world rect.
+            self.lightning = Some(generate_lightning_bolt(&mut self.rng_state, 120, 30));
+        }
+    }
+}
+
+/// Build a forked lightning bolt as a list of screen-space (x, y, glyph)
+/// cells. The main trunk wanders top-to-bottom with small horizontal
+/// jitter, jumping further at sharp turns. Forks branch off at random
+/// points and run shorter and at an angle.
+fn generate_lightning_bolt(rng: &mut u32, w: u16, h: u16) -> LightningBolt {
+    let start_x = (crate::fish::next_rand_f32(rng) * w as f32) as i32;
+    let trunk = generate_trunk(rng, start_x, 0, h as i32, 1);
+    let mut trunks = vec![trunk.clone()];
+    // 0–2 forks at random points down the trunk
+    let fork_count = (crate::fish::next_rand_f32(rng) * 2.5) as usize;
+    for _ in 0..fork_count {
+        if trunk.len() < 4 {
+            break;
+        }
+        let pick = (crate::fish::next_rand_f32(rng) * (trunk.len() - 1) as f32) as usize;
+        let (fx, fy, _) = trunk[pick];
+        let dir_sign = if crate::fish::next_rand_f32(rng) > 0.5 { 1 } else { -1 };
+        let fork_len = 3 + (crate::fish::next_rand_f32(rng) * 8.0) as i32;
+        let fork = generate_trunk(rng, fx as i32, fy as i32, fy as i32 + fork_len, dir_sign);
+        trunks.push(fork);
+    }
+    LightningBolt {
+        trunks,
+        frames_remaining: 5,
+        total_frames: 5,
+    }
+}
+
+/// A jagged vertical bolt segment from (x, y_start) downward to y_end.
+/// `direction_bias` skews horizontal drift (+1 = drifts right, -1 = left).
+fn generate_trunk(
+    rng: &mut u32,
+    start_x: i32,
+    y_start: i32,
+    y_end: i32,
+    direction_bias: i32,
+) -> Vec<(u16, u16, char)> {
+    let mut out = Vec::new();
+    let mut x = start_x;
+    let mut last_dx = 0i32;
+    for y in y_start..y_end {
+        let r = crate::fish::next_rand_f32(rng);
+        // small drift step, biased by direction
+        let dx = if r < 0.45 {
+            0
+        } else if r < 0.75 {
+            1 * direction_bias.signum().max(1)
+        } else if r < 0.92 {
+            -1 * direction_bias.signum().max(1)
+        } else {
+            // sharp jag: jump 2
+            if direction_bias >= 0 { 2 } else { -2 }
+        };
+        x += dx;
+        let glyph = match (dx, last_dx) {
+            (0, _) => '|',
+            (d, _) if d > 0 => '\\',
+            _ => '/',
+        };
+        last_dx = dx;
+        if x >= 0 && y >= 0 {
+            out.push((x as u16, y as u16, glyph));
+        }
+    }
+    out
+}
+
+/// Walks the rendered world buffer and applies:
+///   - day/night light multiplier on rgb fg/bg
+///   - weather particles (rain, snow, sandstorm, fog) overlaid on top
+///   - lightning flash + bolt drawn for the duration of the event
+fn apply_world_overlay(
+    frame: &mut ratatui::Frame,
+    rect: ratatui::layout::Rect,
+    tod: crate::gametime::TimeOfDay,
+    weather: crate::weather::Weather,
+    tick: u64,
+    lightning: Option<&LightningBolt>,
+) {
+    // base light from time of day; a lightning flash brightens for the
+    // first two frames of the bolt.
+    let mut light = tod.light_factor();
+    if let Some(b) = lightning {
+        let age = b.total_frames - b.frames_remaining;
+        if age <= 1 {
+            light = (light + 0.6).min(1.4);
+        }
+    }
+    // weather darkens further (heavy clouds, storm, fog)
+    let weather_mult = match weather {
+        crate::weather::Weather::Cloudy => 0.85,
+        crate::weather::Weather::Rain => 0.75,
+        crate::weather::Weather::Thunderstorm => 0.55,
+        crate::weather::Weather::Fog => 0.65,
+        crate::weather::Weather::Sandstorm => 0.70,
+        crate::weather::Weather::Blizzard => 0.80,
+        crate::weather::Weather::Scorching => 1.10,
+        _ => 1.0,
+    };
+    light *= weather_mult;
+    // First pass: light multiplier. Skip if effectively neutral.
+    if (light - 1.0).abs() > 0.02 {
+        let buf = frame.buffer_mut();
+        for sy in rect.y..rect.y + rect.height {
+            for sx in rect.x..rect.x + rect.width {
+                let cell = &mut buf[(sx, sy)];
+                cell.fg = scale_color(cell.fg, light);
+                cell.bg = scale_color(cell.bg, light);
+            }
+        }
+    }
+    // Second pass: weather particles.
+    let buf = frame.buffer_mut();
+    let particle = weather_particle(weather);
+    if let Some((density, glyph_options, fg)) = particle {
+        // hash(sx, sy, tick_window) decides whether a cell becomes a
+        // particle this frame; uses a small tick stride so particles
+        // appear to "fall".
+        let stride = match weather {
+            crate::weather::Weather::Rain | crate::weather::Weather::Thunderstorm => 2,
+            crate::weather::Weather::Snow => 6,
+            crate::weather::Weather::Sandstorm => 3,
+            crate::weather::Weather::Fog => 14,
+            crate::weather::Weather::Blizzard => 2,
+            _ => 4,
+        };
+        let phase = (tick / stride) as u32;
+        for sy in rect.y..rect.y + rect.height {
+            for sx in rect.x..rect.x + rect.width {
+                // fall: shift y based on phase so the pattern moves down
+                let fallen_y = sy as u32;
+                let h = noise_hash(sx as i32, fallen_y as i32, phase);
+                if (h % 1000) < density {
+                    let cell = &mut buf[(sx, sy)];
+                    let g = glyph_options[(h as usize) % glyph_options.len()];
+                    cell.set_char(g);
+                    cell.fg = fg;
+                }
+            }
+        }
+    }
+    // Third pass: lightning bolt. Draw bright cells on top of everything.
+    if let Some(b) = lightning {
+        let buf = frame.buffer_mut();
+        // brightness fades over the bolt's life
+        let age = b.total_frames - b.frames_remaining;
+        let brightness = if age <= 1 {
+            (255u8, 255u8, 255u8)
+        } else if age == 2 {
+            (220, 220, 255)
+        } else {
+            (170, 170, 230)
+        };
+        for trunk in &b.trunks {
+            for &(bx, by, g) in trunk {
+                // bolt coords are 0-based relative to the rect
+                let cx = rect.x + bx;
+                let cy = rect.y + by;
+                if cx < rect.x + rect.width && cy < rect.y + rect.height {
+                    let cell = &mut buf[(cx, cy)];
+                    cell.set_char(g);
+                    cell.fg = ratatui::style::Color::Rgb(brightness.0, brightness.1, brightness.2);
+                    cell.modifier
+                        .insert(ratatui::style::Modifier::BOLD);
+                }
+            }
+        }
+    }
+}
+
+/// (density per-mille, glyph choices, color) for weather particles. None
+/// means this weather has no per-cell particle (clear/cloudy/windy/...).
+fn weather_particle(
+    w: crate::weather::Weather,
+) -> Option<(u32, &'static [char], ratatui::style::Color)> {
+    use crate::weather::Weather;
+    use ratatui::style::Color;
+    match w {
+        Weather::Rain => Some((90, &['/'], Color::Rgb(170, 200, 255))),
+        Weather::Thunderstorm => Some((150, &['/', '\\'], Color::Rgb(190, 200, 255))),
+        Weather::Snow => Some((60, &['*', '.'], Color::Rgb(240, 240, 250))),
+        Weather::Blizzard => Some((180, &['*', '.', '+'], Color::Rgb(250, 250, 255))),
+        Weather::Sandstorm => Some((180, &['~', '.', '`'], Color::Rgb(220, 190, 130))),
+        Weather::Fog => Some((40, &['='], Color::Rgb(190, 190, 200))),
+        Weather::Windy => Some((30, &['~', '`'], Color::Rgb(200, 220, 235))),
+        _ => None,
+    }
+}
+
+/// Multiply an rgb color's channels by `f`. Non-Rgb colors are left as is
+/// (we can't meaningfully scale named colors like Yellow/Green).
+fn scale_color(c: ratatui::style::Color, f: f32) -> ratatui::style::Color {
+    use ratatui::style::Color;
+    match c {
+        Color::Rgb(r, g, b) => {
+            let scale = |v: u8| ((v as f32 * f).clamp(0.0, 255.0)) as u8;
+            Color::Rgb(scale(r), scale(g), scale(b))
+        }
+        other => other,
+    }
+}
+
+fn noise_hash(x: i32, y: i32, phase: u32) -> u32 {
+    let mut h = (x as u32).wrapping_mul(374_761_393);
+    h = h.wrapping_add((y as u32).wrapping_mul(668_265_263));
+    h = h.wrapping_add(phase.wrapping_mul(2_654_435_761));
+    h ^= h >> 13;
+    h = h.wrapping_mul(1_274_126_177);
+    h ^ (h >> 16)
 }
 
 // ---- top-right HUD: date / time / weather ---------------------------
