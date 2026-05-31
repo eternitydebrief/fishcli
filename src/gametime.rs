@@ -1,9 +1,9 @@
 //! Game time and calendar.
 //!
 //! Real-time pacing: 1 real second = 6 game minutes. So 4 real minutes = 1
-//! game day, 2 real hours = 1 game month (30 days), 6 real hours = 1 season
-//! (3 months), 24 real hours = 1 year (4 seasons). Tuned so a casual session
-//! sees the time of day change but a season takes a few sessions.
+//! game day, 28 days = 1 game month, 10 months = 1 game year.
+//! 4 seasons of uneven length: Spring(2 mo), Summer(3 mo), Autumn(2 mo),
+//! Winter(3 mo) = 10 months total.
 
 use ratatui::style::Color;
 
@@ -31,18 +31,21 @@ pub fn minute_of_hour(total_play_secs: u64) -> u32 {
     (game_minutes(total_play_secs) % 60) as u32
 }
 
-/// 1-indexed day of month (1..=30).
+pub const DAYS_PER_MONTH: u64 = 28;
+pub const MONTHS_PER_YEAR: u64 = 10;
+
+/// 1-indexed day of month (1..=28).
 pub fn day_of_month(total_play_secs: u64) -> u32 {
-    (game_days(total_play_secs) % 30 + 1) as u32
+    (game_days(total_play_secs) % DAYS_PER_MONTH + 1) as u32
 }
 
-/// 0-indexed month (0..12).
+/// 0-indexed month (0..10).
 pub fn month_of_year(total_play_secs: u64) -> u32 {
-    ((game_days(total_play_secs) / 30) % 12) as u32
+    ((game_days(total_play_secs) / DAYS_PER_MONTH) % MONTHS_PER_YEAR) as u32
 }
 
 pub fn year(total_play_secs: u64) -> u64 {
-    game_days(total_play_secs) / (30 * 12)
+    game_days(total_play_secs) / (DAYS_PER_MONTH * MONTHS_PER_YEAR)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,10 +84,11 @@ impl Season {
 }
 
 pub fn season_for_month(month: u32) -> Season {
-    match month % 12 {
-        0 | 1 | 2 => Season::Spring,
-        3 | 4 | 5 => Season::Summer,
-        6 | 7 | 8 => Season::Autumn,
+    // 10-month year: Spring 0-1, Summer 2-4, Autumn 5-6, Winter 7-9
+    match month % MONTHS_PER_YEAR as u32 {
+        0 | 1 => Season::Spring,
+        2 | 3 | 4 => Season::Summer,
+        5 | 6 => Season::Autumn,
         _ => Season::Winter,
     }
 }
