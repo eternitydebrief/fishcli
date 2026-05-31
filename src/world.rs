@@ -584,25 +584,23 @@ impl World {
         }
         // The exit is wherever the surface had an entrance, so the player
         // can always climb back the way they came.
-        if is_mine_entrance_anchor(x, y, self.seed)
-            || is_lakebed_entrance_anchor(x, y, self.seed)
-        {
+        if is_mine_entrance_anchor(x, y, self.seed) {
             return Tile::MineExit;
         }
-        // Lakebed cave zone: mostly mineral water with stalactite islands.
-        // The Fallen Fish lives in here.
+        // Lakebed cave zone: mostly mineral water with the very occasional
+        // stone island. The Fallen Fish lives in here.
         if lakebed_region(x, y, self.seed) {
             let r = hash2(x, y, self.seed.wrapping_add(0x1A4E_BED0)) % 1000;
-            if r < 75 {
+            if r < 20 {
                 return Tile::Stalagmite;
             }
-            if r < 95 {
+            if r < 35 {
                 return Tile::Rock;
             }
-            if r < 110 {
+            if r < 45 {
                 return Tile::OreRock;
             }
-            // ~80% mineral water
+            // ~95% mineral water — flooded cave
             return Tile::MineralWater;
         }
         let open = cave_open_at(x, y, self.seed);
@@ -617,19 +615,20 @@ impl World {
             }
             return Tile::CaveWall;
         }
-        // open floor: scattered decoration
-        if r < 25 {
-            return Tile::Stalagmite;
-        }
-        if r < 40 {
-            return Tile::Rock;
-        }
-        if r < 50 {
-            return Tile::Pebble;
-        }
-        // small underground pools — the mineral-fish pockets
+        // Small underground pools — check FIRST so we don't sprinkle
+        // stalagmites and rocks in the water.
         if mineral_pool_at(x, y, self.seed) {
             return Tile::MineralWater;
+        }
+        // open floor: scattered decoration (now only on dry cave floor)
+        if r < 10 {
+            return Tile::Stalagmite;
+        }
+        if r < 25 {
+            return Tile::Rock;
+        }
+        if r < 40 {
+            return Tile::Pebble;
         }
         Tile::CaveFloor
     }
@@ -1899,12 +1898,11 @@ fn hash2(x: i32, y: i32, seed: u32) -> u32 {
 /// outside the village zone and never inside water. The anchor cell becomes
 /// the interactable MineEntrance; the 5 surrounding cells render as MineFrame.
 fn is_mine_entrance_anchor(x: i32, y: i32, seed: u32) -> bool {
-    // Hash test FIRST — only ~1/900 cells pass it. The expensive water /
-    // village checks below run for <0.2% of cells instead of all of them.
-    // This is called up to 41 times per surface render cell (1 + 5 frame
-    // + 35 rocky halo) so short-circuiting here is a massive perf win.
+    // Hash test FIRST — only ~1/4500 cells pass it (5x rarer than before).
+    // The expensive water / village / neighbor checks below run for less
+    // than 0.05% of cells instead of all of them.
     let h = hash2(x, y, seed.wrapping_add(0xE17E_ED01));
-    if h % 900 != 7 {
+    if h % 4500 != 7 {
         return false;
     }
     if y >= 4 {
@@ -1914,6 +1912,24 @@ fn is_mine_entrance_anchor(x: i32, y: i32, seed: u32) -> bool {
         return false;
     }
     if cached_water_body_at(x, y, seed) {
+        return false;
+    }
+    // Also reject if any of the 5 frame cells (3 wide x 2 tall above the
+    // anchor) would sit on water — that's how entrances were spawning
+    // half-in-a-lake and the player couldn't reach them.
+    for dx in -1..=1i32 {
+        for dy in -1..=0i32 {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            if cached_water_body_at(x + dx, y + dy, seed) {
+                return false;
+            }
+        }
+    }
+    // And reject the southern approach lane too, so you can always walk
+    // up to the entrance from the south.
+    if cached_water_body_at(x, y + 1, seed) {
         return false;
     }
     true
@@ -1954,20 +1970,9 @@ fn mine_entrance_tile_at(x: i32, y: i32, seed: u32) -> Option<Tile> {
     if is_mine_entrance_anchor(x, y, seed) {
         return Some(Tile::MineEntrance);
     }
-    if is_lakebed_entrance_anchor(x, y, seed) {
-        return Some(Tile::MineEntrance);
-    }
-    // frame cells for lakebed entrances too
-    for dx in -1..=1i32 {
-        for dy in -1..=0i32 {
-            if dx == 0 && dy == 0 {
-                continue;
-            }
-            if is_lakebed_entrance_anchor(x - dx, y - dy, seed) {
-                return Some(Tile::MineFrame);
-            }
-        }
-    }
+    // Lakebed entrances were spawning on tiny lake-islands that were often
+    // unreachable; player can still access lakebed caves by descending a
+    // regular mine entrance whose underground (x,y) is inside a lakebed_region.
     // frame cells: anchor is at (ax, ay) with frame at the 5 cells of the
     // 3-wide, 2-tall box (excluding the anchor itself which is the opening).
     for dx in -1..=1i32 {
