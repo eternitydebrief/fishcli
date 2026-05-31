@@ -171,6 +171,13 @@ pub struct App {
     /// Active lightning bolt during a Thunderstorm. Set by tick(), drawn by
     /// the world overlay, cleared when its life runs out.
     pub lightning: Option<LightningBolt>,
+    /// Active weather-fade-in. Set when the player crosses a biome
+    /// boundary and the new weather differs from the old. Drawn as a
+    /// horizontal wipe: the old weather lingers on the left, the new
+    /// weather sweeps in from the right.
+    pub weather_transition: Option<WeatherTransition>,
+    /// The weather we last rendered for, so we can detect changes.
+    pub last_weather: Option<crate::weather::Weather>,
     /// background autosave channel - thread coalesces and writes.
     autosave_tx: mpsc::Sender<SaveData>,
     last_autosave_at: Instant,
@@ -236,6 +243,8 @@ impl App {
             skill_tree: crate::skill_tree::SkillTree::default(),
             current_pool_override: None,
             lightning: None,
+            weather_transition: None,
+            last_weather: None,
             autosave_tx: spawn_autosaver(),
             last_autosave_at: Instant::now(),
             last_autosave_hash: 0,
@@ -560,6 +569,7 @@ impl App {
             self.check_pantheon_unlocks();
         }
         self.tick_lightning();
+        self.tick_weather_transition();
 
         let movement_allowed =
             matches!(self.mode, Mode::Insert) && matches!(self.scene, Scene::Overworld);
@@ -1218,6 +1228,22 @@ impl App {
         }
     }
 
+    /// Compute the current weather honouring season-filter rules. Used
+    /// from all the formerly-direct `weather::weather_for(..)` callers so
+    /// they all see the same season-aware value.
+    fn current_weather(&self) -> crate::weather::Weather {
+        let secs = self.total_play_secs();
+        let day = crate::gametime::game_days(secs);
+        let season = crate::gametime::season(secs);
+        crate::weather::weather_for_with_season(
+            day,
+            self.world.dim,
+            self.current_biome.unwrap_or(crate::world::Biome::Meadow),
+            self.world.seed,
+            season,
+        )
+    }
+
     /// True if the player has caught the named unique fish (Fish, Ish, Fsh, ...).
     fn has_unique(&self, name: &str) -> bool {
         fishlist::fish()
@@ -1310,14 +1336,7 @@ impl App {
                         // compute these BEFORE taking &mut slot so we don't
                         // hold conflicting borrows of self.
                         let secs = self.total_play_secs();
-                        let game_day = crate::gametime::game_days(secs);
-                        let w = crate::weather::weather_for(
-                            game_day,
-                            self.world.dim,
-                            self.current_biome
-                                .unwrap_or(crate::world::Biome::Meadow),
-                            self.world.seed,
-                        );
+                        let w = self.current_weather();
                         let tod = crate::gametime::time_of_day(secs);
                         let season = crate::gametime::season(secs);
                         if let Some(slot) = self.caught_context.get_mut(i) {
@@ -1338,14 +1357,7 @@ impl App {
                     } else {
                         // Atlantis Population is a quantity multiplier:
                         // Low=1, Medium=2, High=3 copies per catch.
-                        let game_day = crate::gametime::game_days(self.total_play_secs());
-                        let w = crate::weather::weather_for(
-                            game_day,
-                            self.world.dim,
-                            self.current_biome
-                                .unwrap_or(crate::world::Biome::Meadow),
-                            self.world.seed,
-                        );
+                        let w = self.current_weather();
                         let copies = match w {
                             crate::weather::Weather::PopMedium => 2,
                             crate::weather::Weather::PopHigh => 3,
@@ -1569,13 +1581,7 @@ impl App {
                     }
                 }
                 let (water_kind, biome) = fishing_context(&self.world, nx, ny);
-                let game_day = crate::gametime::game_days(self.total_play_secs());
-                let weather = crate::weather::weather_for(
-                    game_day,
-                    self.world.dim,
-                    self.current_biome.unwrap_or(crate::world::Biome::Meadow),
-                    self.world.seed,
-                );
+                let weather = self.current_weather();
                 let dim_pool = dim_default_pool(
                     self.world.dim,
                     self.world.get(nx, ny),
@@ -1755,15 +1761,9 @@ impl App {
                 }
                 // weather + day/night overlay drawn ON TOP of the world
                 // tiles but UNDER the HUD so the HUD stays readable.
-                let day = crate::gametime::game_days(self.total_play_secs());
-                let weather = crate::weather::weather_for(
-                    day,
-                    self.world.dim,
-                    self.current_biome
-                        .unwrap_or(crate::world::Biome::Meadow),
-                    self.world.seed,
-                );
+                let weather = self.current_weather();
                 let tod = crate::gametime::time_of_day(self.total_play_secs());
+                let season = crate::gametime::season(self.total_play_secs());
                 apply_world_overlay(
                     frame,
                     inner,
@@ -1771,6 +1771,9 @@ impl App {
                     weather,
                     anim_tick,
                     self.lightning.as_ref(),
+                    self.weather_transition.as_ref(),
+                    season,
+                    self.world.dim,
                 );
                 render_world_hud(
                     frame,
@@ -2564,6 +2567,47 @@ fn render_location_popup(frame: &mut Frame, label: &str) {
 
 // ---- weather + day/night overlay ------------------------------------
 
+/// A staged weather change. The OLD weather lingers, fading down through
+/// "settle_frames" (existing particles complete their fall and disappear),
+/// then the NEW weather sweeps in from the right through "wipe_frames".
+/// Total duration is `settle_frames + wipe_frames`.
+#[derive(Clone, Debug)]
+pub struct WeatherTransition {
+    pub old: crate::weather::Weather,
+    pub new: crate::weather::Weather,
+    /// Total frames in the settle phase (old finishes falling).
+    pub settle_total: u32,
+    /// Frames remaining in the settle phase.
+    pub settle_left: u32,
+    /// Total frames in the wipe phase (new sweeps in from right).
+    pub wipe_total: u32,
+    /// Frames remaining in the wipe phase.
+    pub wipe_left: u32,
+}
+
+impl WeatherTransition {
+    pub fn is_done(&self) -> bool {
+        self.settle_left == 0 && self.wipe_left == 0
+    }
+    /// 0.0 = wipe hasn't started, 1.0 = wipe complete. Used to position
+    /// the moving front in the renderer.
+    pub fn wipe_progress(&self) -> f32 {
+        if self.wipe_total == 0 {
+            1.0
+        } else {
+            1.0 - (self.wipe_left as f32 / self.wipe_total as f32)
+        }
+    }
+    /// 0.0 = nothing settling left, 1.0 = settle just started.
+    pub fn settle_progress(&self) -> f32 {
+        if self.settle_total == 0 {
+            0.0
+        } else {
+            self.settle_left as f32 / self.settle_total as f32
+        }
+    }
+}
+
 /// A lightning bolt. Coordinates are screen-relative cells (post-render).
 /// `frames_remaining` ticks down each frame; while > 0 the bolt draws.
 /// A bolt has a primary jagged trunk and 0–2 forks.
@@ -2591,13 +2635,7 @@ impl App {
             return;
         }
         // Otherwise see if it's storming and roll for a strike.
-        let day = crate::gametime::game_days(self.total_play_secs());
-        let weather = crate::weather::weather_for(
-            day,
-            self.world.dim,
-            self.current_biome.unwrap_or(crate::world::Biome::Meadow),
-            self.world.seed,
-        );
+        let weather = self.current_weather();
         if !matches!(weather, crate::weather::Weather::Thunderstorm) {
             return;
         }
@@ -2608,6 +2646,50 @@ impl App {
             // generous canvas of 120 wide x 30 tall. The renderer will
             // clip points outside the actual world rect.
             self.lightning = Some(generate_lightning_bolt(&mut self.rng_state, 120, 30));
+        }
+    }
+
+    /// Detect a weather change since last frame and kick off a fade-in
+    /// transition. Each transition has a "settle" phase (old keeps falling
+    /// off the screen) then a "wipe" phase (new sweeps in from the right).
+    fn tick_weather_transition(&mut self) {
+        // Advance any active transition.
+        if let Some(t) = self.weather_transition.as_mut() {
+            if t.settle_left > 0 {
+                t.settle_left -= 1;
+            } else if t.wipe_left > 0 {
+                t.wipe_left -= 1;
+            }
+            if t.is_done() {
+                self.weather_transition = None;
+            }
+        }
+        // Check for a weather change (biome moved or in-game day rolled).
+        let day = crate::gametime::game_days(self.total_play_secs());
+        let new_w = crate::weather::weather_for(
+            day,
+            self.world.dim,
+            self.current_biome.unwrap_or(crate::world::Biome::Meadow),
+            self.world.seed,
+        );
+        match self.last_weather {
+            None => {
+                self.last_weather = Some(new_w);
+            }
+            Some(prev) if prev != new_w => {
+                // Old finishes falling (~25 frames = 1.25s at 20fps), then
+                // new sweeps in from the right (~60 frames = 3s).
+                self.weather_transition = Some(WeatherTransition {
+                    old: prev,
+                    new: new_w,
+                    settle_total: 25,
+                    settle_left: 25,
+                    wipe_total: 60,
+                    wipe_left: 60,
+                });
+                self.last_weather = Some(new_w);
+            }
+            _ => {}
         }
     }
 }
@@ -2690,10 +2772,15 @@ fn apply_world_overlay(
     weather: crate::weather::Weather,
     tick: u64,
     lightning: Option<&LightningBolt>,
+    transition: Option<&WeatherTransition>,
+    season: crate::gametime::Season,
+    dim: crate::world::Dimension,
 ) {
-    // base light from time of day; a lightning flash brightens for the
-    // first frame only (a small bump so the strike registers without
-    // blowing out the whole scene).
+    // Display weather: while a transition is wiping, the NEW weather
+    // dictates the light/bg of the swept region and the OLD weather the
+    // unswept region. For the light multiplier we average them by the
+    // wipe progress for a smooth tint shift.
+    let display_weather = weather;
     let mut light = tod.light_factor();
     if let Some(b) = lightning {
         let age = b.total_frames - b.frames_remaining;
@@ -2701,68 +2788,95 @@ fn apply_world_overlay(
             light = (light + 0.15).min(1.2);
         }
     }
-    // weather darkens further (heavy clouds, storm, fog)
-    let weather_mult = match weather {
-        crate::weather::Weather::Cloudy => 0.85,
-        crate::weather::Weather::Rain => 0.75,
-        crate::weather::Weather::Thunderstorm => 0.55,
-        crate::weather::Weather::Fog => 0.65,
-        crate::weather::Weather::Sandstorm => 0.70,
-        crate::weather::Weather::Blizzard => 0.80,
-        crate::weather::Weather::Scorching => 1.10,
-        _ => 1.0,
+    let weather_mult = weather_light_mult(display_weather);
+    let blended_mult = if let Some(t) = transition {
+        let p = t.wipe_progress();
+        let old_mult = weather_light_mult(t.old);
+        old_mult * (1.0 - p) + weather_mult * p
+    } else {
+        weather_mult
     };
-    light *= weather_mult;
-    // First pass: light multiplier. Skip if effectively neutral.
-    if (light - 1.0).abs() > 0.02 {
+    light *= blended_mult;
+    let season_tint = if matches!(dim, crate::world::Dimension::Surface) {
+        Some(season_color_shift(season))
+    } else {
+        None
+    };
+    let need_light = (light - 1.0).abs() > 0.02;
+    if need_light || season_tint.is_some() {
         let buf = frame.buffer_mut();
         for sy in rect.y..rect.y + rect.height {
             for sx in rect.x..rect.x + rect.width {
                 let cell = &mut buf[(sx, sy)];
-                cell.fg = scale_color(cell.fg, light);
-                cell.bg = scale_color(cell.bg, light);
-            }
-        }
-    }
-    // Windy is its own routine: horizontal "____" gusts drifting right
-    // in pairs/triplets, not random scatter (much nicer than dots).
-    if matches!(weather, crate::weather::Weather::Windy) {
-        draw_wind_streaks(frame, rect, tick);
-    }
-    // Second pass: weather particles (skipped for Windy).
-    let buf = frame.buffer_mut();
-    let particle = if matches!(weather, crate::weather::Weather::Windy) {
-        None
-    } else {
-        weather_particle(weather)
-    };
-    if let Some((density, glyph_options, fg)) = particle {
-        let stride = match weather {
-            crate::weather::Weather::Rain | crate::weather::Weather::Thunderstorm => 2,
-            crate::weather::Weather::Snow => 6,
-            crate::weather::Weather::Sandstorm => 3,
-            crate::weather::Weather::Fog => 14,
-            crate::weather::Weather::Blizzard => 2,
-            _ => 4,
-        };
-        // Particles inherit the day/night light so they don't blaze
-        // against a dark night world. Use base light (no flash) so a
-        // lightning strike doesn't repaint every rain drop white.
-        let particle_fg = scale_color(fg, tod.light_factor() * weather_mult);
-        let phase = (tick / stride) as u32;
-        for sy in rect.y..rect.y + rect.height {
-            for sx in rect.x..rect.x + rect.width {
-                let fallen_y = sy as u32;
-                let h = noise_hash(sx as i32, fallen_y as i32, phase);
-                if (h % 1000) < density {
-                    let cell = &mut buf[(sx, sy)];
-                    let g = glyph_options[(h as usize) % glyph_options.len()];
-                    cell.set_char(g);
-                    cell.fg = particle_fg;
+                if let Some((r_mul, g_mul, b_mul)) = season_tint {
+                    cell.fg = tint_color(cell.fg, r_mul, g_mul, b_mul);
+                }
+                if need_light {
+                    cell.fg = scale_color(cell.fg, light);
+                    cell.bg = scale_color(cell.bg, light);
                 }
             }
         }
     }
+
+    // Compute the wipe front column. To the LEFT of the front we still
+    // draw OLD weather. To the RIGHT we draw NEW weather. During the
+    // settle phase the front is past the right edge — old is fully
+    // visible, new is invisible.
+    let (front_col, in_settle) = if let Some(t) = transition {
+        if t.settle_left > 0 {
+            (rect.width as i32 + 1, true)
+        } else {
+            let p = t.wipe_progress();
+            let col = (rect.width as f32 * (1.0 - p)) as i32;
+            (col, false)
+        }
+    } else {
+        (-1, false) // no transition — front off-screen left = all "new"
+    };
+
+    // OLD pass (only relevant during a transition; in the settle phase old
+    // covers everything, in wipe phase old covers x < front_col, in normal
+    // mode old isn't drawn).
+    if let Some(t) = transition {
+        let old_cols = if in_settle {
+            0..rect.width as i32
+        } else {
+            0..front_col.max(0).min(rect.width as i32)
+        };
+        // settle phase: old particles fade out (less density as settle
+        // progresses).
+        let old_fade = if in_settle {
+            t.settle_progress()
+        } else {
+            1.0
+        };
+        draw_weather_layer(
+            frame,
+            rect,
+            t.old,
+            tick,
+            tod,
+            old_cols,
+            old_fade,
+        );
+    }
+
+    // NEW pass — always (when no transition, "new" == current).
+    let new_cols = if transition.is_some() {
+        front_col.max(0).min(rect.width as i32)..rect.width as i32
+    } else {
+        0..rect.width as i32
+    };
+    draw_weather_layer(
+        frame,
+        rect,
+        display_weather,
+        tick,
+        tod,
+        new_cols,
+        1.0,
+    );
     // Third pass: lightning bolt. Bright cells on top of everything; the
     // first frames flash white, then it fades. Lightning itself ignores
     // night dimming (it's the lightning that brightens the sky).
@@ -2787,6 +2901,75 @@ fn apply_world_overlay(
                     cell.modifier
                         .insert(ratatui::style::Modifier::BOLD);
                 }
+            }
+        }
+    }
+}
+
+/// Light multiplier applied to base tile rgb for a given weather.
+fn weather_light_mult(w: crate::weather::Weather) -> f32 {
+    match w {
+        crate::weather::Weather::Cloudy => 0.85,
+        crate::weather::Weather::Rain => 0.75,
+        crate::weather::Weather::Thunderstorm => 0.55,
+        crate::weather::Weather::Fog => 0.65,
+        crate::weather::Weather::Sandstorm => 0.70,
+        crate::weather::Weather::Blizzard => 0.80,
+        crate::weather::Weather::Scorching => 1.10,
+        _ => 1.0,
+    }
+}
+
+/// Draw one weather layer (particles or windy streaks) restricted to the
+/// given column range, with a density multiplier (0..=1) for fade-out.
+fn draw_weather_layer(
+    frame: &mut ratatui::Frame,
+    rect: ratatui::layout::Rect,
+    weather: crate::weather::Weather,
+    tick: u64,
+    tod: crate::gametime::TimeOfDay,
+    cols: std::ops::Range<i32>,
+    density_mult: f32,
+) {
+    if cols.is_empty() {
+        return;
+    }
+    if matches!(weather, crate::weather::Weather::Windy) {
+        draw_wind_streaks_clipped(frame, rect, tick, cols.clone(), density_mult);
+        return;
+    }
+    let Some((density, glyph_options, fg)) = weather_particle(weather) else {
+        return;
+    };
+    let stride = match weather {
+        crate::weather::Weather::Rain | crate::weather::Weather::Thunderstorm => 2,
+        crate::weather::Weather::Snow => 6,
+        crate::weather::Weather::Sandstorm => 3,
+        crate::weather::Weather::Fog => 14,
+        crate::weather::Weather::Blizzard => 2,
+        _ => 4,
+    };
+    let scaled_density = ((density as f32) * density_mult).max(0.0) as u32;
+    if scaled_density == 0 {
+        return;
+    }
+    let weather_mult = weather_light_mult(weather);
+    let particle_fg = scale_color(fg, tod.light_factor() * weather_mult);
+    let phase = (tick / stride) as u32;
+    let buf = frame.buffer_mut();
+    for sy in rect.y..rect.y + rect.height {
+        for sx_rel in cols.clone() {
+            let sx_abs = rect.x as i32 + sx_rel;
+            if sx_abs < rect.x as i32 || sx_abs >= (rect.x + rect.width) as i32 {
+                continue;
+            }
+            let fallen_y = sy as u32;
+            let h = noise_hash(sx_abs, fallen_y as i32, phase);
+            if (h % 1000) < scaled_density {
+                let cell = &mut buf[(sx_abs as u16, sy)];
+                let g = glyph_options[(h as usize) % glyph_options.len()];
+                cell.set_char(g);
+                cell.fg = particle_fg;
             }
         }
     }
@@ -2817,46 +3000,94 @@ fn weather_particle(
 /// from the (anchor) tile coords but their x-offset advances with tick so
 /// the streaks slide along.
 fn draw_wind_streaks(frame: &mut ratatui::Frame, rect: ratatui::layout::Rect, tick: u64) {
-    use ratatui::style::{Color, Modifier};
+    draw_wind_streaks_clipped(frame, rect, tick, 0..rect.width as i32, 1.0);
+}
+
+fn draw_wind_streaks_clipped(
+    frame: &mut ratatui::Frame,
+    rect: ratatui::layout::Rect,
+    tick: u64,
+    cols: std::ops::Range<i32>,
+    density_mult: f32,
+) {
+    use ratatui::style::Color;
+    if density_mult <= 0.0 || cols.is_empty() {
+        return;
+    }
     let buf = frame.buffer_mut();
-    // ~9 anchor cells across the screen; each anchor spawns a small group
-    // of stacked horizontal lines.
-    let drift = (tick / 1) as i32; // 1 cell/frame at 20 fps = readable
-    let group_spacing_x: i32 = 22;
-    let group_spacing_y: i32 = 6;
+    // Sparser layout — bigger spacing between groups, fewer per row.
+    let drift = tick as i32;
+    let group_spacing_x: i32 = 38;
+    let group_spacing_y: i32 = 8;
     for gy in 0..(rect.height as i32 / group_spacing_y + 2) {
         for gx in 0..(rect.width as i32 / group_spacing_x + 2) {
-            // jitter using gx/gy as seeds for stable per-group placement
             let h1 = noise_hash(gx, gy, 0xA17A);
             let h2 = noise_hash(gx, gy, 0xB17B);
-            let stack = 2 + (h1 % 2) as i32; // 2 or 3 lines per group
-            let length = 4 + (h2 % 4) as i32; // 4-7 chars long
+            let h3 = noise_hash(gx, gy, 0xC17C);
+            // density gate so density_mult fade-out actually thins groups
+            let gate = (h3 % 1000) as f32 / 1000.0;
+            if gate > density_mult {
+                continue;
+            }
+            // 1-3 stacked lines, each with its own length and offset for
+            // the proper "gust" look.
+            let stack = 1 + (h1 % 3) as i32;
             let base_x = gx * group_spacing_x + (h1 as i32 % group_spacing_x);
             let base_y = gy * group_spacing_y + (h2 as i32 % (group_spacing_y - 2));
-            // drift slower for groups on lower rows so the speed feels varied
-            let group_drift = drift - (gy * 3);
-            let sx_start = (base_x - group_drift)
-                .rem_euclid(rect.width as i32 + length * 2)
-                - length;
+            let group_drift = drift - (gy * 2);
             for line_i in 0..stack {
                 let line_y = base_y + line_i;
                 if line_y < 0 || line_y >= rect.height as i32 {
                     continue;
                 }
+                // each line in the gust has its own length (4-12 chars) and
+                // a small per-line horizontal jitter so they look natural
+                let line_hash = noise_hash(gx, gy * 31 + line_i, 0xD17D);
+                let length = 4 + (line_hash % 9) as i32; // 4..12 wide
+                let jitter = (line_hash as i32 % 5) - 2;
+                let sx_start = (base_x + jitter - group_drift)
+                    .rem_euclid(rect.width as i32 + length * 2)
+                    - length;
                 for k in 0..length {
                     let sx = sx_start + k;
                     if sx < 0 || sx >= rect.width as i32 {
+                        continue;
+                    }
+                    if !cols.contains(&sx) {
                         continue;
                     }
                     let cx = rect.x + sx as u16;
                     let cy = rect.y + line_y as u16;
                     let cell = &mut buf[(cx, cy)];
                     cell.set_char('_');
-                    cell.fg = Color::Rgb(200, 220, 240);
-                    cell.modifier.insert(Modifier::BOLD);
+                    cell.fg = Color::Rgb(170, 190, 215);
                 }
             }
         }
+    }
+}
+
+/// Per-channel multipliers (r, g, b) applied to surface fg to shift the
+/// world palette toward the season's mood. Spring=neutral, Summer=slight
+/// warm, Autumn=warm brown/orange, Winter=desaturated cool white-blue.
+fn season_color_shift(season: crate::gametime::Season) -> (f32, f32, f32) {
+    use crate::gametime::Season;
+    match season {
+        Season::Spring => (1.00, 1.00, 1.00),
+        Season::Summer => (1.05, 1.00, 0.90),
+        Season::Autumn => (1.10, 0.80, 0.55),
+        Season::Winter => (0.85, 0.92, 1.05),
+    }
+}
+
+/// Multiply each rgb channel of `c` by independent multipliers.
+fn tint_color(c: ratatui::style::Color, r_mul: f32, g_mul: f32, b_mul: f32) -> ratatui::style::Color {
+    match c {
+        ratatui::style::Color::Rgb(r, g, b) => {
+            let s = |v: u8, m: f32| ((v as f32 * m).clamp(0.0, 255.0)) as u8;
+            ratatui::style::Color::Rgb(s(r, r_mul), s(g, g_mul), s(b, b_mul))
+        }
+        other => other,
     }
 }
 

@@ -9,6 +9,7 @@
 //! Weather changes daily — the same in-game day produces the same weather
 //! everywhere (so you can rely on it for the day).
 
+use crate::gametime::Season;
 use crate::world::{Biome, Dimension};
 use ratatui::style::Color;
 
@@ -118,6 +119,29 @@ fn hash_day(day: u64, salt: u32, seed: u32) -> u32 {
 }
 
 pub fn weather_for(day: u64, dim: Dimension, biome: Biome, seed: u32) -> Weather {
+    weather_for_season(day, dim, biome, seed, Season::Spring)
+}
+
+/// Variant that takes the current season into account. Surface weather is
+/// filtered: no rain in winter, no scorching outside summer, etc.
+pub fn weather_for_with_season(
+    day: u64,
+    dim: Dimension,
+    biome: Biome,
+    seed: u32,
+    season: Season,
+) -> Weather {
+    weather_for_season(day, dim, biome, seed, season)
+}
+
+fn weather_for_season(
+    day: u64,
+    dim: Dimension,
+    biome: Biome,
+    seed: u32,
+    season: Season,
+) -> Weather {
+    let _ = season; // currently only the surface branch uses it
     match dim {
         Dimension::Mines => {
             let h = hash_day(day, 0x111, seed) % 3;
@@ -143,13 +167,18 @@ pub fn weather_for(day: u64, dim: Dimension, biome: Biome, seed: u32) -> Weather
                 _ => Weather::PopHigh,
             }
         }
-        Dimension::Surface => surface_weather(day, biome, seed),
+        Dimension::Surface => surface_weather_with_season(day, biome, seed, season),
     }
 }
 
 fn surface_weather(day: u64, biome: Biome, seed: u32) -> Weather {
-    // each biome has its own pool of plausible weathers
-    let pool: &[Weather] = match biome {
+    surface_weather_with_season(day, biome, seed, Season::Spring)
+}
+
+fn surface_weather_with_season(day: u64, biome: Biome, seed: u32, season: Season) -> Weather {
+    // each biome has its own pool of plausible weathers, filtered by
+    // season so winter doesn't see rain and summer doesn't see snow
+    let candidates: &[Weather] = match biome {
         Biome::Desert => &[Weather::Clear, Weather::Scorching, Weather::Sandstorm, Weather::Windy],
         Biome::Tundra => &[Weather::Clear, Weather::Snow, Weather::Blizzard, Weather::Cloudy],
         Biome::Swamp => &[
@@ -158,6 +187,7 @@ fn surface_weather(day: u64, biome: Biome, seed: u32) -> Weather {
             Weather::Fog,
             Weather::Cloudy,
             Weather::Thunderstorm,
+            Weather::Snow,
         ],
         Biome::Forest => &[
             Weather::Clear,
@@ -165,6 +195,7 @@ fn surface_weather(day: u64, biome: Biome, seed: u32) -> Weather {
             Weather::Cloudy,
             Weather::Windy,
             Weather::Thunderstorm,
+            Weather::Snow,
         ],
         Biome::Meadow => &[
             Weather::Clear,
@@ -172,14 +203,50 @@ fn surface_weather(day: u64, biome: Biome, seed: u32) -> Weather {
             Weather::Cloudy,
             Weather::Windy,
             Weather::Thunderstorm,
+            Weather::Snow,
         ],
-        Biome::Rocky | Biome::Scrub => {
-            &[Weather::Clear, Weather::Cloudy, Weather::Windy, Weather::Rain]
-        }
+        Biome::Rocky | Biome::Scrub => &[
+            Weather::Clear,
+            Weather::Cloudy,
+            Weather::Windy,
+            Weather::Rain,
+            Weather::Snow,
+        ],
     };
-    let salt = 0x444 + biome_salt(biome);
+    let pool: Vec<Weather> = candidates
+        .iter()
+        .copied()
+        .filter(|w| weather_fits_season(*w, season))
+        .collect();
+    let pool: &[Weather] = if pool.is_empty() { candidates } else { &pool };
+    let salt = 0x444 + biome_salt(biome) + season_salt(season);
     let h = hash_day(day, salt, seed) as usize % pool.len();
     pool[h]
+}
+
+fn weather_fits_season(w: Weather, s: Season) -> bool {
+    use Season::*;
+    use Weather::*;
+    match (w, s) {
+        // No rain or thunderstorms in winter (it'd be snow).
+        (Rain, Winter) | (Thunderstorm, Winter) => false,
+        // No snow or blizzards in summer.
+        (Snow, Summer) | (Blizzard, Summer) => false,
+        // Scorching only in summer.
+        (Scorching, Spring) | (Scorching, Autumn) | (Scorching, Winter) => false,
+        // Blizzards only in winter (snowflake in autumn is fine).
+        (Blizzard, Spring) | (Blizzard, Autumn) => false,
+        _ => true,
+    }
+}
+
+fn season_salt(s: Season) -> u32 {
+    match s {
+        Season::Spring => 0x10,
+        Season::Summer => 0x20,
+        Season::Autumn => 0x30,
+        Season::Winter => 0x40,
+    }
 }
 
 fn biome_salt(b: Biome) -> u32 {
