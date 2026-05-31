@@ -880,10 +880,11 @@ fn cave_floor_glyph(x: i32, y: i32) -> (char, Style) {
         5 => ':',
         _ => ' ',
     };
-    let shade = 70 + (h % 35) as u8;
+    // dark dirt floor — keeps the walls feeling tall
+    let shade = 30 + (h % 18) as u8;
     (
         g,
-        Style::default().fg(Color::Rgb(shade + 30, shade, shade.saturating_sub(15))),
+        Style::default().fg(Color::Rgb(shade + 12, shade, shade.saturating_sub(6))),
     )
 }
 
@@ -930,22 +931,47 @@ fn ore_rock_glyph(x: i32, y: i32) -> (char, Style) {
 }
 
 fn mineral_water_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
-    // shimmering pool with mineral glints; cycles through a few tints
-    let phase = ((tick / 8) as i32 + x + y).rem_euclid(4);
-    let g = match (hash2(x, y, 0x9A7E_5A1E) + tick as u32 / 12) % 5 {
-        0 => '~',
-        1 => '*',
-        2 => '.',
-        3 => ',',
-        _ => '~',
+    // Crossing wave rays produce caustic intersections, same trick as
+    // Atlantis DeepWater but in a colder mineral palette so it reads as
+    // "underground pool" instead of "open ocean".
+    let t = tick as f32 * 0.05;
+    let fx = x as f32;
+    let fy = y as f32;
+    let ray1 = (fx * 0.32 + fy * 0.20 + t).sin();
+    let ray2 = (fx * 0.24 - fy * 0.29 + t * 1.25).sin();
+    let intensity = ray1 + ray2;
+    if intensity > 1.55 {
+        let g = match (x + y).rem_euclid(3) {
+            0 => '*',
+            1 => '+',
+            _ => '`',
+        };
+        return (
+            g,
+            Style::default()
+                .fg(Color::Rgb(190, 230, 235))
+                .add_modifier(Modifier::BOLD),
+        );
+    }
+    if intensity > 0.95 {
+        let g = match (x * 3 + y).rem_euclid(4) {
+            0 => '~',
+            1 => '-',
+            2 => '`',
+            _ => '.',
+        };
+        return (g, Style::default().fg(Color::Rgb(120, 180, 200)));
+    }
+    if intensity > 0.2 {
+        let g = if (x + y * 2).rem_euclid(7) == 0 { '~' } else { ' ' };
+        return (g, Style::default().fg(Color::Rgb(70, 130, 170)));
+    }
+    let g = if hash2(x, y, 0x9A7E_5A1E).wrapping_add(tick as u32 / 40) % 200 == 0 {
+        '.'
+    } else {
+        ' '
     };
-    let (r, gc, b) = match phase {
-        0 => (35, 70, 95),
-        1 => (45, 85, 80),
-        2 => (60, 70, 95),
-        _ => (50, 75, 85),
-    };
-    (g, Style::default().fg(Color::Rgb(r, gc, b)))
+    (g, Style::default().fg(Color::Rgb(45, 95, 140)))
 }
 
 fn seabed_glyph(x: i32, y: i32) -> (char, Style) {
