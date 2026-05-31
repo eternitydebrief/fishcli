@@ -2632,7 +2632,11 @@ fn render_world_hud(
         width: panel_w,
         height: panel_h,
     };
-    use ratatui::widgets::Paragraph;
+    use ratatui::widgets::{Clear, Paragraph};
+    // Clear wipes each cell's style fully before drawing — otherwise the
+    // HUD text inherits whatever modifiers (BOLD, etc.) the underlying
+    // world cell had, so digits would flicker bold over tree/wall cells.
+    frame.render_widget(Clear, rect);
     frame.render_widget(
         Paragraph::new(lines).alignment(ratatui::layout::Alignment::Right),
         rect,
