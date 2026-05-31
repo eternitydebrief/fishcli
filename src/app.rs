@@ -50,6 +50,22 @@ pub enum Scene {
     /// tier 202 equipped opens this. Picking a pool sets
     /// `current_pool_override` and lets the player fish anywhere.
     LootPool { cursor: usize },
+    /// Fishmonger sell flow: pick which fish (j/k navigate, enter),
+    /// then how many (All / One / Custom X), then sell.
+    Fishmonger {
+        cursor: usize,
+        step: FishmongerStep,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub enum FishmongerStep {
+    /// Browsing the basket — pick which fish type to sell.
+    PickFish,
+    /// A fish is chosen (`picked_name` + max available). Pick a quantity option.
+    PickQuantity { picked: String, max: u64 },
+    /// Custom quantity input — typed digits into `buf`.
+    EnterQuantity { picked: String, max: u64, buf: String },
 }
 
 #[derive(Clone, Copy)]
@@ -494,17 +510,20 @@ impl App {
             CastPhase::Biting => {
                 let fish = c.fish;
                 let (bx, by) = c.bobber;
+                let cast_strength = c.cast_strength;
                 let biome = biome_at(bx, by, self.world.seed).label().to_string();
                 let water = water_kind_at(&self.world, bx, by).to_string();
                 self.pending_catch_loc = Some((biome, water));
                 self.cast = None;
                 self.narrator
                     .say(format!("Hooked a {}!", fish.name));
-                self.scene = Scene::Fishing(Fishing::new(
+                self.scene = Scene::Fishing(Fishing::new_with_skills(
                     fish,
                     self.rng_state,
                     self.skills.fishing_level(),
                     self.player.rods.equipped,
+                    cast_strength,
+                    &self.skill_tree,
                 ));
             }
             CastPhase::Waiting => {}
@@ -617,6 +636,16 @@ impl App {
                         g.input_yank_down(key.kind, strength);
                         return;
                     }
+                    KeyCode::Char('b') if matches!(key.kind, KeyEventKind::Press) => {
+                        // Rod of Legends T2: active rectangle boost
+                        g.input_legends_boost();
+                        return;
+                    }
+                    KeyCode::Char('n') if matches!(key.kind, KeyEventKind::Press) => {
+                        // Tamer T2: active fish slow
+                        g.input_tamer_slow();
+                        return;
+                    }
                     _ => {}
                 }
             }
@@ -633,7 +662,7 @@ impl App {
         }
 
         match &mut self.mode {
-            Mode::Insert => self.insert_key(key.code),
+            Mode::Insert => self.insert_key(key),
             Mode::Normal => self.normal_key(key.code),
             Mode::Command(_) => self.command_key(key.code),
         }
@@ -692,7 +721,8 @@ impl App {
         }
     }
 
-    fn insert_key(&mut self, code: KeyCode) {
+    fn insert_key(&mut self, key: KeyEvent) {
+        let code = key.code;
         if code == KeyCode::Esc {
             match self.scene {
                 Scene::Overworld => {
@@ -899,6 +929,24 @@ impl App {
                     }
                     _ => {}
                 }
+            }
+            Scene::Fishmonger { .. } => {
+                // Take ownership of the scene so we can mutate step
+                // without holding a borrow on self.scene while we
+                // also mutate self.player/etc.
+                let prev = std::mem::replace(&mut self.scene, Scene::Overworld);
+                if let Scene::Fishmonger { cursor, step } = prev {
+                    let (next_cursor, next_step) =
+                        self.handle_fishmonger(code, key.kind, cursor, step);
+                    if let Some(step) = next_step {
+                        self.scene = Scene::Fishmonger {
+                            cursor: next_cursor,
+                            step,
+                        };
+                    }
+                    // else: returned to Overworld already
+                }
+                return;
             }
             Scene::LootPool { cursor } => {
                 let n = LOOT_POOLS.len();
@@ -1512,6 +1560,14 @@ impl App {
                 self.interact_sailor();
                 return;
             }
+            if npc.id == "fishmonger" || npc.id == "tut-monger" {
+                self.scene = Scene::Fishmonger {
+                    cursor: 0,
+                    step: FishmongerStep::PickFish,
+                };
+                self.mode = Mode::Insert;
+                return;
+            }
             self.narrator.say(format!("You greet {}.", npc.name));
             let id = npc.id.clone();
             self.scene = Scene::Dialogue { npc, line: 0 };
@@ -1640,6 +1696,196 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Drive the Fishmonger menu. Takes ownership of the prior (cursor,
+    /// step) and returns the next (cursor, Option<step>) — None means the
+    /// caller should restore the Overworld scene.
+    fn handle_fishmonger(
+        &mut self,
+        code: KeyCode,
+        kind: KeyEventKind,
+        mut cursor: usize,
+        step: FishmongerStep,
+    ) -> (usize, Option<FishmongerStep>) {
+        let grouped = self.fishmonger_listing();
+        match step {
+            FishmongerStep::PickFish => match code {
+                KeyCode::Esc | KeyCode::Char('q') => (cursor, None),
+                KeyCode::Char('j') | KeyCode::Down => {
+                    if !grouped.is_empty() {
+                        cursor = (cursor + 1).min(grouped.len() - 1);
+                    }
+                    (cursor, Some(FishmongerStep::PickFish))
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    cursor = cursor.saturating_sub(1);
+                    (cursor, Some(FishmongerStep::PickFish))
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    if let Some((name, _price, count)) = grouped.get(cursor) {
+                        (
+                            0,
+                            Some(FishmongerStep::PickQuantity {
+                                picked: name.clone(),
+                                max: *count,
+                            }),
+                        )
+                    } else {
+                        (cursor, Some(FishmongerStep::PickFish))
+                    }
+                }
+                _ => (cursor, Some(FishmongerStep::PickFish)),
+            },
+            FishmongerStep::PickQuantity { picked, max } => match code {
+                KeyCode::Esc | KeyCode::Char('q') => {
+                    (cursor, Some(FishmongerStep::PickFish))
+                }
+                KeyCode::Char('j') | KeyCode::Down => {
+                    cursor = (cursor + 1).min(2);
+                    (cursor, Some(FishmongerStep::PickQuantity { picked, max }))
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    cursor = cursor.saturating_sub(1);
+                    (cursor, Some(FishmongerStep::PickQuantity { picked, max }))
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => match cursor {
+                    0 => {
+                        self.sell_fish_by_name(&picked, max);
+                        (0, Some(FishmongerStep::PickFish))
+                    }
+                    1 => {
+                        self.sell_fish_by_name(&picked, 1);
+                        (0, Some(FishmongerStep::PickFish))
+                    }
+                    _ => (
+                        0,
+                        Some(FishmongerStep::EnterQuantity {
+                            picked,
+                            max,
+                            buf: String::new(),
+                        }),
+                    ),
+                },
+                _ => (cursor, Some(FishmongerStep::PickQuantity { picked, max })),
+            },
+            FishmongerStep::EnterQuantity { picked, max, mut buf } => match code {
+                KeyCode::Esc => (0, Some(FishmongerStep::PickQuantity { picked, max })),
+                KeyCode::Backspace => {
+                    buf.pop();
+                    (cursor, Some(FishmongerStep::EnterQuantity { picked, max, buf }))
+                }
+                KeyCode::Char(c) if c.is_ascii_digit() => {
+                    if matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
+                        && buf.len() < 9
+                    {
+                        buf.push(c);
+                    }
+                    (cursor, Some(FishmongerStep::EnterQuantity { picked, max, buf }))
+                }
+                KeyCode::Enter => {
+                    let n: u64 = buf.parse().unwrap_or(0);
+                    let n = n.min(max);
+                    if n > 0 {
+                        self.sell_fish_by_name(&picked, n);
+                    }
+                    (0, Some(FishmongerStep::PickFish))
+                }
+                _ => (cursor, Some(FishmongerStep::EnterQuantity { picked, max, buf })),
+            },
+        }
+    }
+
+    /// Group the (non-unique) basket by species name. Returns
+    /// (name, unit_price_with_buff, count). Stable ordering matches inv.
+    fn fishmonger_listing(&self) -> Vec<(String, u64, u64)> {
+        let mult = self.buffs.price_mult();
+        let mut out: Vec<(String, u64, u64)> = Vec::new();
+        for f in self.player.inventory.iter().filter(|f| !f.unique) {
+            let price = ((f.sell_price() as f32) * mult).round() as u64;
+            if let Some(entry) = out.iter_mut().find(|(n, _, _)| n == &f.name) {
+                entry.2 += 1;
+            } else {
+                out.push((f.name.clone(), price, 1));
+            }
+        }
+        out
+    }
+
+    /// Sell up to `count` fish of the given species name.
+    fn sell_fish_by_name(&mut self, name: &str, count: u64) {
+        if count == 0 {
+            return;
+        }
+        let mult = self.buffs.price_mult();
+        let mut sold = 0u64;
+        let mut total = 0u64;
+        let mut keep: Vec<&'static crate::fish::FishDef> =
+            Vec::with_capacity(self.player.inventory.len());
+        for f in self.player.inventory.iter() {
+            if !f.unique && f.name == name && sold < count {
+                let price = ((f.sell_price() as f32) * mult).round() as u64;
+                total = total.saturating_add(price);
+                sold += 1;
+            } else {
+                keep.push(*f);
+            }
+        }
+        if sold == 0 {
+            return;
+        }
+        self.player.inventory = keep;
+        self.player.valu = self.player.valu.saturating_add(total);
+        self.lifetime_valu = self.lifetime_valu.saturating_add(total);
+        self.stats.valu_earned = self.stats.valu_earned.saturating_add(total);
+        self.stats.fish_sold = self.stats.fish_sold.saturating_add(sold);
+        self.narrator.say(format!(
+            "Sold {} {} for {}$V.",
+            sold, name, total
+        ));
+    }
+
+    /// Sell every (non-unique) fish in the basket at fishmonger price.
+    /// Multiplied by the player's price_mult buff. Unique fish stay.
+    #[allow(dead_code)]
+    fn sell_all_fish(&mut self) {
+        let mult = self.buffs.price_mult();
+        let mut total: u64 = 0;
+        let mut sold: u64 = 0;
+        // Partition: keep unique, sell the rest.
+        let keep: Vec<&'static crate::fish::FishDef> = self
+            .player
+            .inventory
+            .iter()
+            .filter(|f| f.unique)
+            .copied()
+            .collect();
+        for f in self
+            .player
+            .inventory
+            .iter()
+            .filter(|f| !f.unique)
+        {
+            let price = f.sell_price();
+            let scaled = ((price as f32) * mult).round() as u64;
+            total = total.saturating_add(scaled);
+            sold += 1;
+        }
+        if sold == 0 {
+            self.narrator
+                .say("Fishmonger: \"You've nothing to sell, friend.\"");
+            return;
+        }
+        self.player.inventory = keep;
+        self.player.valu = self.player.valu.saturating_add(total);
+        self.lifetime_valu = self.lifetime_valu.saturating_add(total);
+        self.stats.valu_earned = self.stats.valu_earned.saturating_add(total);
+        self.stats.fish_sold = self.stats.fish_sold.saturating_add(sold);
+        let avg = total / sold.max(1);
+        self.narrator.say(format!(
+            "Fishmonger: \"{} fish for {}$V (avg {}). Pleasure.\"",
+            sold, total, avg
+        ));
     }
 
     /// Sailor on the pier. Until 1000 fish lifetime, he just chats. After
@@ -1841,6 +2087,29 @@ impl App {
                 *cursor,
                 self.current_pool_override.as_deref(),
             ),
+            Scene::Fishmonger { cursor, step } => {
+                let cursor = *cursor;
+                // own the step shape so we can drop the &mut self.scene
+                // borrow before calling self.fishmonger_listing(&self)
+                let step_snap: FishmongerStep = match step {
+                    FishmongerStep::PickFish => FishmongerStep::PickFish,
+                    FishmongerStep::PickQuantity { picked, max } => {
+                        FishmongerStep::PickQuantity {
+                            picked: picked.clone(),
+                            max: *max,
+                        }
+                    }
+                    FishmongerStep::EnterQuantity { picked, max, buf } => {
+                        FishmongerStep::EnterQuantity {
+                            picked: picked.clone(),
+                            max: *max,
+                            buf: buf.clone(),
+                        }
+                    }
+                };
+                let listing = self.fishmonger_listing();
+                render_fishmonger(frame, cursor, &step_snap, &listing, self.player.valu);
+            }
         }
 
         if matches!(self.scene, Scene::NamePrompt(_)) {
@@ -2738,6 +3007,123 @@ fn node_tree_initial(n: crate::skill_tree::SkillNode) -> char {
         QuickcatchT1 | QuickcatchT2 => 'Q',
         LegendsT1 | LegendsT2 | LegendsYank => 'L',
         TamerT1 | TamerT2 => 'T',
+    }
+}
+
+// ---- Fishmonger sell menu ---------------------------------------------
+
+fn render_fishmonger(
+    frame: &mut Frame,
+    cursor: usize,
+    step: &FishmongerStep,
+    listing: &[(String, u64, u64)],
+    valu: u64,
+) {
+    use ratatui::widgets::Paragraph;
+    let area = frame.area();
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!(
+            " fishmonger - basket: {} types, {}$V (q/esc back) ",
+            listing.len(),
+            valu
+        ))
+        .border_style(Style::default().fg(Color::Yellow));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    match step {
+        FishmongerStep::PickFish => {
+            let mut lines: Vec<ratatui::text::Line> = Vec::new();
+            if listing.is_empty() {
+                lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+                    "  Basket is empty.",
+                    Style::default().fg(Color::DarkGray),
+                )));
+            } else {
+                for (i, (name, price, count)) in listing.iter().enumerate() {
+                    let prefix = if i == cursor { "> " } else { "  " };
+                    let style = if i == cursor {
+                        Style::default()
+                            .bg(Color::Rgb(40, 40, 40))
+                            .fg(Color::LightYellow)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
+                    lines.push(ratatui::text::Line::from(vec![
+                        ratatui::text::Span::styled(
+                            format!("{prefix}{name:<32} x{count:<5}"),
+                            style,
+                        ),
+                        ratatui::text::Span::styled(
+                            format!("{}$V each", price),
+                            Style::default().fg(Color::Yellow),
+                        ),
+                    ]));
+                }
+                lines.push(ratatui::text::Line::from(""));
+                lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+                    "  j/k navigate, enter to choose quantity, q/esc to leave",
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
+            frame.render_widget(Paragraph::new(lines), inner);
+        }
+        FishmongerStep::PickQuantity { picked, max } => {
+            let opts = ["Sell ALL", "Sell ONE", "Sell X (type a number)"];
+            let mut lines: Vec<ratatui::text::Line> = vec![
+                ratatui::text::Line::from(ratatui::text::Span::styled(
+                    format!("  How many {picked}? (you have {max})"),
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                )),
+                ratatui::text::Line::from(""),
+            ];
+            for (i, label) in opts.iter().enumerate() {
+                let prefix = if i == cursor { "> " } else { "  " };
+                let style = if i == cursor {
+                    Style::default()
+                        .bg(Color::Rgb(40, 40, 40))
+                        .fg(Color::LightYellow)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+                    format!("{prefix}{label}"),
+                    style,
+                )));
+            }
+            lines.push(ratatui::text::Line::from(""));
+            lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+                "  j/k navigate, enter to confirm, q/esc to go back",
+                Style::default().fg(Color::DarkGray),
+            )));
+            frame.render_widget(Paragraph::new(lines), inner);
+        }
+        FishmongerStep::EnterQuantity { picked, max, buf } => {
+            let lines = vec![
+                ratatui::text::Line::from(ratatui::text::Span::styled(
+                    format!("  How many {picked}? (max {max})"),
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                )),
+                ratatui::text::Line::from(""),
+                ratatui::text::Line::from(vec![
+                    ratatui::text::Span::raw("    "),
+                    ratatui::text::Span::styled(
+                        if buf.is_empty() { "_".to_string() } else { buf.clone() },
+                        Style::default()
+                            .fg(Color::LightYellow)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]),
+                ratatui::text::Line::from(""),
+                ratatui::text::Line::from(ratatui::text::Span::styled(
+                    "  digits to type, enter to confirm, backspace to delete, esc to go back",
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ];
+            frame.render_widget(Paragraph::new(lines), inner);
+        }
     }
 }
 

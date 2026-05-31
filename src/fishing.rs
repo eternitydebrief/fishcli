@@ -57,6 +57,26 @@ pub struct Fishing {
     down_held_until: u32,
     rng_state: u32,
     tick_count: u32,
+    // ---- skill tree derived effects ----
+    /// Quickcatch T1: catch-progress multiplier
+    qc_speed_mult: f32,
+    /// Quickcatch T2: bonus multiplier when cast_strength was near-max
+    qc_perfect_mult: f32,
+    /// Rod of Legends T1: 0..1.0 robotic factor (1 = perfectly robotic)
+    rl_inertia_reduce: f32,
+    /// Rod of Legends T1: coyote frames before gravity resumes
+    rl_coyote_frames: u32,
+    /// Rod of Legends T2: max boost duration (frames). 0 = ability locked.
+    rl_boost_max_frames: u32,
+    rl_boost_available: bool,
+    rl_boost_left: u32,
+    /// active rect_h bonus added when boost is on
+    rl_rect_h_bonus: f32,
+    coyote_left: u32,
+    /// Tamer T2: slow fraction (0..0.4). 0 = ability locked.
+    tm_slow_strength: f32,
+    tm_slow_available: bool,
+    tm_slow_left: u32,
 }
 
 impl Fishing {
@@ -66,12 +86,33 @@ impl Fishing {
         fishing_level: u32,
         rod_tier: u32,
     ) -> Self {
+        Self::new_with_skills(
+            fish,
+            rng_seed,
+            fishing_level,
+            rod_tier,
+            0.0,
+            &crate::skill_tree::SkillTree::default(),
+        )
+    }
+
+    /// Construct a Fishing scene with skill-tree effects + cast strength
+    /// (used by Quickcatch T2's "perfect throw" bonus).
+    pub fn new_with_skills(
+        fish: &'static FishDef,
+        rng_seed: u32,
+        fishing_level: u32,
+        rod_tier: u32,
+        cast_strength: f32,
+        tree: &crate::skill_tree::SkillTree,
+    ) -> Self {
         let bar_h = 20usize;
         let rect_h = fish.rect_h();
         let rect_y = (bar_h as f32 - rect_h) / 2.0;
         let mid = bar_h as f32 / 2.0;
         let rod_mult = 0.99f32.powi(rod_tier as i32);
-        Self {
+        let calm = tree.tamer_calm_mult();
+        let mut s = Self {
             fish,
             fishing_level,
             rod_tier,
@@ -82,7 +123,7 @@ impl Fishing {
             fish_y: mid,
             fish_target_y: mid,
             fish_speed: fish.fish_speed() * rod_mult,
-            target_change_ticks: fish.target_change_ticks().max(1),
+            target_change_ticks: ((fish.target_change_ticks() as f32) * calm) as u32,
             progress: 50.0,
             finished: None,
             up_held: false,
@@ -91,7 +132,48 @@ impl Fishing {
             down_held_until: 0,
             rng_state: if rng_seed == 0 { 0x9E37_79B9 } else { rng_seed },
             tick_count: 0,
+            qc_speed_mult: tree.fishing_speed_mult(),
+            qc_perfect_mult: if cast_strength >= 0.9 {
+                tree.perfect_throw_mult()
+            } else {
+                1.0
+            },
+            rl_inertia_reduce: tree.inertia_reduce(),
+            rl_coyote_frames: tree.coyote_frames(),
+            rl_boost_max_frames: tree.legends_boost_frames(),
+            rl_boost_available: tree.legends_boost_frames() > 0,
+            rl_boost_left: 0,
+            rl_rect_h_bonus: 0.0,
+            coyote_left: 0,
+            tm_slow_strength: tree.tamer_slow_strength(),
+            tm_slow_available: tree.tamer_slow_strength() > 0.0,
+            tm_slow_left: 0,
+        };
+        if s.target_change_ticks == 0 {
+            s.target_change_ticks = 1;
         }
+        s
+    }
+
+    /// Active rectangle boost — Rod of Legends T2. Adds +1 to the rectangle
+    /// height for the configured duration. One use per fishing scene.
+    pub fn input_legends_boost(&mut self) {
+        if !self.rl_boost_available || self.rl_boost_max_frames == 0 {
+            return;
+        }
+        self.rl_boost_available = false;
+        self.rl_boost_left = self.rl_boost_max_frames;
+        self.rl_rect_h_bonus = 1.0;
+    }
+
+    /// Active fish slow — Tamer T2. Reduces fish_speed for 5 seconds (100
+    /// frames at 20fps). One use per fishing scene.
+    pub fn input_tamer_slow(&mut self) {
+        if !self.tm_slow_available || self.tm_slow_strength <= 0.0 {
+            return;
+        }
+        self.tm_slow_available = false;
+        self.tm_slow_left = 100;
     }
 
     pub fn input_up(&mut self, kind: KeyEventKind) {
@@ -159,18 +241,43 @@ impl Fishing {
         if self.down_held && self.tick_count > self.down_held_until {
             self.down_held = false;
         }
+        // Rod of Legends T2 boost: rectangle height bonus tapers off
+        if self.rl_boost_left > 0 {
+            self.rl_boost_left -= 1;
+            if self.rl_boost_left == 0 {
+                self.rl_rect_h_bonus = 0.0;
+            }
+        }
+        // Tamer T2 slow: tick down
+        if self.tm_slow_left > 0 {
+            self.tm_slow_left -= 1;
+        }
         if self.up_held {
             self.rect_vy -= 0.45;
+            self.coyote_left = self.rl_coyote_frames;
         }
         if self.down_held {
             self.rect_vy += 0.45;
+            self.coyote_left = self.rl_coyote_frames;
         }
-        let gravity = 0.22;
-        let damping = 0.85;
-        self.rect_vy += gravity;
+        // Rod of Legends T1: blend gravity/damping toward "robotic" as
+        // inertia_reduce → 1.0. Maxed-out → near-zero gravity AND high
+        // damping, with coyote_frames preventing immediate drop after release.
+        let robotic = self.rl_inertia_reduce.clamp(0.0, 1.0);
+        let base_gravity = 0.22;
+        let base_damping = 0.85;
+        let gravity = base_gravity * (1.0 - robotic * 0.92);
+        let damping = base_damping * (1.0 - robotic * 0.50) + robotic * 0.10;
+        // coyote hover: while coyote_left > 0 and no input, suppress gravity
+        if self.coyote_left > 0 && !self.up_held && !self.down_held {
+            self.coyote_left -= 1;
+        } else {
+            self.rect_vy += gravity;
+        }
         self.rect_vy *= damping;
         self.rect_y += self.rect_vy;
-        let max_top = (self.bar_h as f32) - self.rect_h;
+        let effective_rect_h = self.rect_h + self.rl_rect_h_bonus;
+        let max_top = (self.bar_h as f32) - effective_rect_h;
         if self.rect_y < 0.0 {
             self.rect_y = 0.0;
             self.rect_vy = 0.0;
@@ -182,16 +289,22 @@ impl Fishing {
         if self.tick_count % self.target_change_ticks == 0 {
             self.fish_target_y = self.next_target();
         }
+        let effective_fish_speed = if self.tm_slow_left > 0 {
+            self.fish_speed * (1.0 - self.tm_slow_strength)
+        } else {
+            self.fish_speed
+        };
         let dy = self.fish_target_y - self.fish_y;
-        if dy.abs() > self.fish_speed {
-            self.fish_y += self.fish_speed * dy.signum();
+        if dy.abs() > effective_fish_speed {
+            self.fish_y += effective_fish_speed * dy.signum();
         } else {
             self.fish_y = self.fish_target_y;
         }
-        let in_rect = self.fish_y >= self.rect_y && self.fish_y <= self.rect_y + self.rect_h;
+        let in_rect = self.fish_y >= self.rect_y && self.fish_y <= self.rect_y + effective_rect_h;
         let fishing_mult = 1.0 + (self.fishing_level as f32) * 0.0025;
+        let speed_mult = self.qc_speed_mult * self.qc_perfect_mult;
         if in_rect {
-            self.progress += 0.8 * fishing_mult;
+            self.progress += 0.8 * fishing_mult * speed_mult;
         } else {
             self.progress -= 0.4;
         }
