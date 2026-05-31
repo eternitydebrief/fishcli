@@ -56,6 +56,10 @@ pub enum Scene {
         cursor: usize,
         step: FishmongerStep,
     },
+    /// Type-the-ore minigame. Each keypress advances if it matches the
+    /// next expected character of the ore's name; wrong keys are ignored.
+    /// Completing the name grants the ore and consumes a vein charge.
+    Mining(crate::mining::Mining),
 }
 
 #[derive(Clone, Debug)]
@@ -192,6 +196,8 @@ pub struct App {
     held_dir: Option<(i32, i32)>,
     held_until_tick: u64,
     last_step_tick: u64,
+    /// Vein cooldown / charge tracking. Keyed by (dim, x, y).
+    pub veins: crate::mining::VeinMap,
 }
 
 impl App {
@@ -255,6 +261,7 @@ impl App {
             held_dir: None,
             held_until_tick: 0,
             last_step_tick: 0,
+            veins: crate::mining::VeinMap::new(),
         }
     }
 
@@ -363,6 +370,16 @@ impl App {
         self.skill_tree = data.skill_tree.clone();
         self.player.has_boat = data.has_boat;
         self.player.has_pickaxe = data.has_pickaxe;
+        self.veins = data
+            .veins
+            .iter()
+            .map(|&(dim, x, y, charges, ready)| {
+                ((dim, x, y), crate::mining::VeinState {
+                    charges_used: charges,
+                    ready_at_secs: ready,
+                })
+            })
+            .collect();
         self.player.rods = if data.rods.max_owned == 0 {
             crate::rod::OwnedRods { max_owned: 1, equipped: 1 }
         } else {
@@ -416,6 +433,11 @@ impl App {
             has_boat: self.player.has_boat,
             has_pickaxe: self.player.has_pickaxe,
             dim: self.world.dim,
+            veins: self
+                .veins
+                .iter()
+                .map(|(&(dim, x, y), v)| (dim, x, y, v.charges_used, v.ready_at_secs))
+                .collect(),
         }
     }
 
@@ -1135,6 +1157,46 @@ impl App {
                 }
             }
             Scene::NamePrompt(_) => {}
+            Scene::Mining(_) => self.handle_mining_key(code),
+        }
+    }
+
+    fn handle_mining_key(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.scene = Scene::Overworld;
+            }
+            KeyCode::Char(c) => {
+                let Scene::Mining(m) = &mut self.scene else { return };
+                if m.type_char(c) {
+                    // Completed — grant ore, record charge, exit.
+                    let key = (m.dim, m.x, m.y);
+                    let ore = m.ore;
+                    crate::mining::record_mine(&mut self.veins, key);
+                    let item = crate::item::Item {
+                        name: ore.name.to_string(),
+                        category: crate::item::Category::Mineral,
+                        description: format!(
+                            "Mined from a vein. Worth ~{}$V to a smith.",
+                            ore.value
+                        ),
+                    };
+                    self.player.items.push(item);
+                    let weight: u64 = (ore.value / 20).max(2);
+                    let before = self.skills.mining_level();
+                    self.skills.mining_xp += weight;
+                    let after = self.skills.mining_level();
+                    self.show_xp_gain("Mining", weight, self.skills.mining_xp, after);
+                    if after > before {
+                        self.narrator
+                            .say(format!("Mining level up! Now level {after}."));
+                    }
+                    self.narrator
+                        .say(format!("You chip a {} loose.", ore.name));
+                    self.scene = Scene::Overworld;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1619,7 +1681,23 @@ impl App {
                         .say("You'd need a pickaxe. Find the Miner east of the village.");
                     return;
                 }
-                self.mine_ore_at(nx, ny);
+                let key = (self.world.dim, nx, ny);
+                match crate::mining::vein_status(&self.veins, key) {
+                    crate::mining::VeinStatus::OnCooldown(secs_left) => {
+                        let mins = (secs_left + 59) / 60;
+                        self.narrator
+                            .say(format!("This vein is resting. ~{mins}m left."));
+                        return;
+                    }
+                    crate::mining::VeinStatus::Ready => {}
+                }
+                let ore = crate::mining::ore_at_vein(nx, ny, self.world.dim, self.world.seed);
+                self.scene = Scene::Mining(crate::mining::Mining::new(
+                    nx,
+                    ny,
+                    self.world.dim,
+                    ore,
+                ));
             }
             Tile::Dock
             | Tile::Water
@@ -1873,56 +1951,6 @@ impl App {
             "Sold {} {} for {}$V.",
             sold, name, total
         ));
-    }
-
-    /// Break an ore rock: roll which ore drops, add to inventory, grant
-    /// mining xp. The rock visually stays (infinite source for now —
-    /// breaking-state can be added later). The mining skill scales up.
-    fn mine_ore_at(&mut self, x: i32, y: i32) {
-        const ORES: &[(&str, u64, u32)] = &[
-            // (name, sell price hint, weight)
-            ("Gold Nugget", 200, 5),
-            ("Silver Nugget", 120, 10),
-            ("Copper Chunk", 60, 20),
-            ("Turquoise", 90, 8),
-            ("Amethyst", 130, 6),
-            ("Ruby Shard", 220, 4),
-            ("Sapphire Shard", 220, 4),
-            ("Diamond Sliver", 500, 1),
-            ("Plain Stone", 5, 30),
-        ];
-        let h = crate::fish::next_rand_f32(&mut self.rng_state);
-        let total: u32 = ORES.iter().map(|(_, _, w)| *w).sum();
-        let pick = (h * total as f32) as u32;
-        let mut acc = 0u32;
-        let mut chosen = ORES[0];
-        for &entry in ORES {
-            acc += entry.2;
-            if pick < acc {
-                chosen = entry;
-                break;
-            }
-        }
-        let item = crate::item::Item {
-            name: chosen.0.to_string(),
-            category: crate::item::Category::Mineral,
-            description: format!("Mined from an ore vein. Worth ~{}$V to a smith.", chosen.1),
-        };
-        self.player.items.push(item);
-        // mining xp scales with rarity (inverse of weight)
-        let weight = chosen.2.max(1) as u64;
-        let xp = (40 / weight as u64).max(2);
-        let before = self.skills.mining_level();
-        self.skills.mining_xp += xp;
-        let after = self.skills.mining_level();
-        self.show_xp_gain("Mining", xp, self.skills.mining_xp, after);
-        if after > before {
-            self.narrator
-                .say(format!("Mining level up! Now level {after}."));
-        }
-        self.narrator
-            .say(format!("You chip a {} loose from the rock.", chosen.0));
-        let _ = (x, y); // location tracking could be added later
     }
 
     /// Sell every (non-unique) fish in the basket at fishmonger price.
@@ -2237,6 +2265,7 @@ impl App {
                 let listing = self.fishmonger_listing();
                 render_fishmonger(frame, cursor, &step_snap, &listing, self.player.valu);
             }
+            Scene::Mining(m) => render_mining(frame, m),
         }
 
         if matches!(self.scene, Scene::NamePrompt(_)) {
@@ -4086,6 +4115,47 @@ fn render_notes(frame: &mut Frame, buf: &NotesBuf) {
         })
         .collect();
     let p = Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false });
+    frame.render_widget(p, inner);
+}
+
+fn render_mining(frame: &mut Frame, m: &crate::mining::Mining) {
+    let area = frame.area();
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" mining ")
+        .border_style(Style::default().fg(m.ore.color));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let typed_len = m.typed.chars().count();
+    let mut spans: Vec<ratatui::text::Span> = Vec::new();
+    for (i, c) in m.ore.name.chars().enumerate() {
+        let style = if i < typed_len {
+            Style::default()
+                .fg(m.ore.color)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Rgb(60, 60, 60))
+        };
+        spans.push(ratatui::text::Span::styled(c.to_string(), style));
+    }
+    let title_line = ratatui::text::Line::from(spans).alignment(Alignment::Center);
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        "type the ore's name",
+        Style::default().fg(Color::DarkGray),
+    )).alignment(Alignment::Center));
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(title_line);
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        "(esc to leave)",
+        Style::default().fg(Color::DarkGray),
+    )).alignment(Alignment::Center));
+    let p = Paragraph::new(lines);
     frame.render_widget(p, inner);
 }
 

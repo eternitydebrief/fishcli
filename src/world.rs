@@ -831,7 +831,7 @@ impl World {
                 let shade = 145 + (h % 45) as u8;
                 (g, Style::default().fg(Color::Rgb(shade - 5, shade - 15, shade - 30)))
             }
-            Tile::OreRock => ore_rock_glyph(x, y),
+            Tile::OreRock => ore_rock_glyph(x, y, self.dim, self.seed),
             Tile::MineralWater => mineral_water_glyph(x, y, tick),
             Tile::MineExit => (
                 '<',
@@ -926,20 +926,18 @@ fn cave_wall_glyph(x: i32, y: i32) -> (char, Style) {
     )
 }
 
-fn ore_rock_glyph(x: i32, y: i32) -> (char, Style) {
-    let h = hash2(x, y, 0x09E5_EED1);
-    let (fg, ch) = match h % 7 {
-        0 => (Color::Rgb(230, 200, 90), '*'),  // gold
-        1 => (Color::Rgb(200, 220, 240), '+'), // silver
-        2 => (Color::Rgb(220, 130, 90), 'o'),  // copper
-        3 => (Color::Rgb(180, 160, 220), '%'), // amethyst
-        4 => (Color::Rgb(100, 220, 180), '#'), // turquoise
-        5 => (Color::Rgb(240, 100, 100), '&'), // ruby
-        _ => (Color::Rgb(80, 200, 240), 'X'),  // sapphire
+fn ore_rock_glyph(x: i32, y: i32, dim: Dimension, seed: u32) -> (char, Style) {
+    let ore = crate::mining::ore_at_vein(x, y, dim, seed);
+    // glyph varies a bit per cell for texture, but color = the actual ore.
+    let ch = match hash2(x, y, 0x09E5_EED1) % 4 {
+        0 => '*',
+        1 => '+',
+        2 => 'X',
+        _ => '%',
     };
     (
         ch,
-        Style::default().fg(fg).add_modifier(Modifier::BOLD),
+        Style::default().fg(ore.color).add_modifier(Modifier::BOLD),
     )
 }
 

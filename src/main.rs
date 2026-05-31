@@ -19,6 +19,7 @@ mod fishing;
 mod fishlist;
 mod narrator;
 mod item;
+mod mining;
 mod notes;
 mod npc;
 mod player;
