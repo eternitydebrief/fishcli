@@ -60,6 +60,18 @@ pub enum Scene {
     /// next expected character of the ore's name; wrong keys are ignored.
     /// Completing the name grants the ore and consumes a vein charge.
     Mining(crate::mining::Mining),
+    /// Inside someone's house. Procedural one-room interior keyed by the
+    /// world-coords of the door used to enter. Player moves with hjkl in
+    /// a small grid; stepping back onto the interior door tile exits.
+    HouseInterior {
+        /// Player position within the interior grid.
+        px: i32,
+        py: i32,
+        /// Overworld coords to restore the player to on exit.
+        return_xy: (i32, i32),
+        /// Seed for procedural furniture layout (derived from door coords).
+        seed: u32,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -1158,6 +1170,46 @@ impl App {
             }
             Scene::NamePrompt(_) => {}
             Scene::Mining(_) => self.handle_mining_key(code),
+            Scene::HouseInterior { .. } => self.handle_house_key(code),
+        }
+    }
+
+    fn handle_house_key(&mut self, code: KeyCode) {
+        let Scene::HouseInterior { px, py, return_xy, seed } = &mut self.scene else { return };
+        let (dx, dy) = match code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                let r = *return_xy;
+                self.player.x = r.0;
+                self.player.y = r.1;
+                self.scene = Scene::Overworld;
+                self.narrator.say("You step back outside.");
+                return;
+            }
+            KeyCode::Char('h') | KeyCode::Left => (-1, 0),
+            KeyCode::Char('l') | KeyCode::Right => (1, 0),
+            KeyCode::Char('k') | KeyCode::Up => (0, -1),
+            KeyCode::Char('j') | KeyCode::Down => (0, 1),
+            KeyCode::Char('x') => {
+                let f = crate::house::tile_at(*px, *py, *seed);
+                self.narrator.say(f.describe());
+                return;
+            }
+            _ => return,
+        };
+        let nx = *px + dx;
+        let ny = *py + dy;
+        let f = crate::house::tile_at(nx, ny, *seed);
+        if matches!(f, crate::house::Furn::Exit) {
+            let r = *return_xy;
+            self.player.x = r.0;
+            self.player.y = r.1;
+            self.scene = Scene::Overworld;
+            self.narrator.say("You step back outside.");
+            return;
+        }
+        if f.walkable() {
+            *px = nx;
+            *py = ny;
         }
     }
 
@@ -1674,6 +1726,20 @@ impl App {
             Tile::MineExit => {
                 self.world.dim = crate::world::Dimension::Surface;
                 self.narrator.say("You climb back up to Sentinel's air.");
+            }
+            Tile::DoorHouse => {
+                let seed = ((nx as u32).wrapping_mul(0x9E37_79B1))
+                    .wrapping_add((ny as u32).wrapping_mul(0x85EB_CA77))
+                    ^ 0xD1B5_4A32;
+                self.narrator.say("You step inside.");
+                // Interior layout uses the canonical 18x10 room defined in
+                // house.rs; spawn at the exit door (bottom-center).
+                self.scene = Scene::HouseInterior {
+                    px: crate::house::EXIT_X,
+                    py: crate::house::EXIT_Y - 1,
+                    return_xy: (self.player.x, self.player.y + 1),
+                    seed,
+                };
             }
             Tile::OreRock => {
                 if !self.player.has_pickaxe {
@@ -2266,6 +2332,9 @@ impl App {
                 render_fishmonger(frame, cursor, &step_snap, &listing, self.player.valu);
             }
             Scene::Mining(m) => render_mining(frame, m),
+            Scene::HouseInterior { px, py, seed, .. } => {
+                render_house(frame, *px, *py, *seed);
+            }
         }
 
         if matches!(self.scene, Scene::NamePrompt(_)) {
@@ -2533,6 +2602,7 @@ fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
         Tile::Wall => ('#', Color::Rgb(180, 145, 95)),
         Tile::Roof => ('#', Color::Rgb(200, 100, 70)),
         Tile::DoorRod | Tile::DoorSchool => ('D', Color::Rgb(245, 215, 90)),
+        Tile::DoorHouse => ('D', Color::Rgb(180, 150, 110)),
         Tile::TreeCanopy | Tile::TreeTrunk => ('T', Color::Rgb(110, 200, 95)),
         Tile::BigRock | Tile::MediumRock | Tile::Rock => ('#', Color::Rgb(170, 170, 170)),
         Tile::Path => ('.', Color::Rgb(195, 170, 130)),
@@ -4114,6 +4184,69 @@ fn render_notes(frame: &mut Frame, buf: &NotesBuf) {
         .collect();
     let p = Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false });
     frame.render_widget(p, inner);
+}
+
+fn render_house(frame: &mut Frame, px: i32, py: i32, seed: u32) {
+    let area = frame.area();
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" house ")
+        .border_style(Style::default().fg(Color::Rgb(180, 150, 110)));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    // Center the room inside `inner`.
+    let room_w = crate::house::WIDTH as u16;
+    let room_h = crate::house::HEIGHT as u16;
+    if inner.width < room_w || inner.height < room_h {
+        return;
+    }
+    let ox = inner.x + (inner.width - room_w) / 2;
+    let oy = inner.y + (inner.height - room_h) / 2;
+
+    let buf = frame.buffer_mut();
+    for y in 0..crate::house::HEIGHT {
+        for x in 0..crate::house::WIDTH {
+            let f = crate::house::tile_at(x, y, seed);
+            let (g, style) = furn_style(f);
+            let sx = ox + x as u16;
+            let sy = oy + y as u16;
+            buf[(sx, sy)].set_char(g).set_style(style);
+        }
+    }
+    // Player on top
+    let sx = ox + px as u16;
+    let sy = oy + py as u16;
+    buf[(sx, sy)]
+        .set_char('@')
+        .set_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
+}
+
+fn furn_style(f: crate::house::Furn) -> (char, Style) {
+    use crate::house::Furn;
+    let (g, fg) = match f {
+        Furn::Floor => ('.', Color::Rgb(120, 95, 70)),
+        Furn::Wall => ('#', Color::Rgb(180, 145, 95)),
+        Furn::Window => ('O', Color::Rgb(170, 210, 240)),
+        Furn::Bed => ('=', Color::Rgb(200, 180, 150)),
+        Furn::Pillow => ('*', Color::Rgb(240, 230, 210)),
+        Furn::Stove => ('@', Color::Rgb(200, 90, 60)),
+        Furn::Counter => ('~', Color::Rgb(170, 130, 90)),
+        Furn::Sink => ('U', Color::Rgb(190, 200, 215)),
+        Furn::Table => ('T', Color::Rgb(150, 105, 70)),
+        Furn::Chair => ('h', Color::Rgb(150, 105, 70)),
+        Furn::Rug => (',', Color::Rgb(130, 80, 75)),
+        Furn::Exit => ('D', Color::Rgb(245, 215, 90)),
+    };
+    let mut style = Style::default().fg(fg);
+    if matches!(
+        f,
+        Furn::Wall | Furn::Stove | Furn::Sink | Furn::Window | Furn::Exit
+    ) {
+        style = style.add_modifier(Modifier::BOLD);
+    }
+    (g, style)
 }
 
 fn render_mining(frame: &mut Frame, m: &crate::mining::Mining) {

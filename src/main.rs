@@ -13,6 +13,7 @@ mod app;
 mod buffs;
 mod fish;
 mod gametime;
+mod house;
 mod weather;
 mod fishdex;
 mod fishing;

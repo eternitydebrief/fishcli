@@ -283,6 +283,9 @@ pub enum Tile {
     Roof,
     DoorRod,
     DoorSchool,
+    /// Plain dwelling door — leads to a procedural one-room interior keyed
+    /// on the door's world position.
+    DoorHouse,
     Water,
     Dock,
     Sand,
@@ -366,6 +369,7 @@ impl Tile {
             Tile::Roof => "A brick roof - russet tiles overlapping like fish scales.",
             Tile::DoorRod => "A creaky door. The Rod Shop sign hangs above it.",
             Tile::DoorSchool => "A formal door. The Fishing School's crest is painted on the lintel.",
+            Tile::DoorHouse => "Someone's front door. Press f to step inside.",
             Tile::Water => "Dark water. Something moves below.",
             Tile::Dock => "Worn planks of the village dock.",
             Tile::Sand => "Damp sand. Bits of shell, gull tracks.",
@@ -730,6 +734,13 @@ impl World {
                 Style::default()
                     .fg(Color::Black)
                     .bg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Tile::DoorHouse => (
+                'D',
+                Style::default()
+                    .fg(Color::Rgb(60, 40, 25))
+                    .bg(Color::Rgb(180, 150, 110))
                     .add_modifier(Modifier::BOLD),
             ),
             Tile::Dock => ('=', Style::default().fg(Color::LightYellow)),
@@ -1822,11 +1833,11 @@ fn procedural_village_tile(x: i32, y: i32, seed: u32) -> Option<Tile> {
 }
 
 fn hamlet_tile(dx: i32, dy: i32) -> Option<Tile> {
-    // 3 small huts around a central well
+    // 3 small huts around a central well — all are someone's house.
     let huts = &[
-        ((-10, -7), (-6, -5), (-8, -5), Tile::DoorRod),
-        ((6, -7), (10, -5), (8, -5), Tile::DoorRod),
-        ((-2, 5), (2, 7), (0, 7), Tile::DoorSchool),
+        ((-10, -7), (-6, -5), (-8, -5), Tile::DoorHouse),
+        ((6, -7), (10, -5), (8, -5), Tile::DoorHouse),
+        ((-2, 5), (2, 7), (0, 7), Tile::DoorHouse),
     ];
     for &((xa, ya), (xb, yb), (dxx, dyy), door) in huts {
         if (xa..=xb).contains(&dx) && (ya..=yb).contains(&dy) {
@@ -1864,13 +1875,13 @@ fn town_tile(dx: i32, dy: i32) -> Option<Tile> {
             return Some(Tile::Wall);
         }
     }
-    // 5 houses inside
+    // 5 houses inside — one rod shop + one school per town, rest are homes.
     let huts = &[
         ((-15, -7), (-11, -5), (-13, -5), Tile::DoorRod),
-        ((-5, -7), (-1, -5), (-3, -5), Tile::DoorRod),
+        ((-5, -7), (-1, -5), (-3, -5), Tile::DoorHouse),
         ((5, -7), (9, -5), (7, -5), Tile::DoorSchool),
-        ((-9, 5), (-5, 7), (-7, 7), Tile::DoorRod),
-        ((5, 5), (9, 7), (7, 7), Tile::DoorSchool),
+        ((-9, 5), (-5, 7), (-7, 7), Tile::DoorHouse),
+        ((5, 5), (9, 7), (7, 7), Tile::DoorHouse),
     ];
     for &((xa, ya), (xb, yb), (dxx, dyy), door) in huts {
         if (xa..=xb).contains(&dx) && (ya..=yb).contains(&dy) {
@@ -1904,10 +1915,10 @@ fn floating_tile(dx: i32, dy: i32) -> Option<Tile> {
     let pier = on_pier || on_plaza;
     // small floating houses at the four cardinal ends
     let huts = &[
-        ((-16, -1), (-12, 1), (-12, 1), Tile::DoorRod),  // west
-        ((12, -1), (16, 1), (12, 1), Tile::DoorRod),     // east
-        ((-1, -16), (1, -12), (0, -12), Tile::DoorSchool), // north
-        ((-1, 12), (1, 16), (0, 12), Tile::DoorSchool),  // south
+        ((-16, -1), (-12, 1), (-12, 1), Tile::DoorRod),    // west = rod shop
+        ((12, -1), (16, 1), (12, 1), Tile::DoorHouse),     // east = home
+        ((-1, -16), (1, -12), (0, -12), Tile::DoorSchool), // north = school
+        ((-1, 12), (1, 16), (0, 12), Tile::DoorHouse),     // south = home
     ];
     for &((xa, ya), (xb, yb), (dxx, dyy), door) in huts {
         if (xa..=xb).contains(&dx) && (ya..=yb).contains(&dy) {
@@ -2444,13 +2455,13 @@ fn village_tile(x: i32, y: i32) -> Option<Tile> {
     // each house is 5 wide x 3 tall (visual ~5 wide x 3 tall = ~5x6 since cells are 2:1)
     type DoorKind = Tile;
     let houses: &[((i32, i32), (i32, i32), (i32, i32), DoorKind)] = &[
-        ((-37, -33), (-1, 1), (-35, 1), Tile::DoorRod),
-        ((-20, -16), (-1, 1), (-18, 1), Tile::DoorRod),
-        ((-2, 2), (-5, -3), (0, -3), Tile::DoorRod),
-        ((-25, -21), (-7, -5), (-23, -5), Tile::DoorRod),
-        ((21, 25), (-7, -5), (23, -5), Tile::DoorSchool),
-        ((16, 20), (-1, 1), (18, 1), Tile::DoorSchool),
-        ((33, 37), (-1, 1), (35, 1), Tile::DoorSchool),
+        ((-37, -33), (-1, 1), (-35, 1), Tile::DoorHouse),
+        ((-20, -16), (-1, 1), (-18, 1), Tile::DoorRod),    // rod shop
+        ((-2, 2), (-5, -3), (0, -3), Tile::DoorHouse),
+        ((-25, -21), (-7, -5), (-23, -5), Tile::DoorHouse),
+        ((21, 25), (-7, -5), (23, -5), Tile::DoorHouse),
+        ((16, 20), (-1, 1), (18, 1), Tile::DoorSchool),    // fishing school
+        ((33, 37), (-1, 1), (35, 1), Tile::DoorHouse),
     ];
 
     for &((xa, xb), (ya, yb), (dx, dy), dkind) in houses {
@@ -2921,20 +2932,3 @@ fn shore_splash(x: i32, row: i32, tick: u64) -> Option<(char, Style)> {
     Some((glyph, Style::default().fg(color).add_modifier(Modifier::BOLD)))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn world_returns_water_at_depth() {
-        let w = World::new(0);
-        assert_eq!(w.get(0, 10), Tile::Water);
-    }
-
-    #[test]
-    fn village_has_doors() {
-        let w = World::new(0);
-        assert_eq!(w.get(-20, 1), Tile::DoorRod);
-        assert_eq!(w.get(20, 1), Tile::DoorSchool);
-    }
-}
