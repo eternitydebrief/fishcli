@@ -31,6 +31,11 @@ pub struct FishDef {
     /// selects this pool from the loot-pool menu. Pool names: "cosmic",
     /// "divine", "mineral", "forest", "desert", "tundra", "swamp", etc.
     pub pool: Vec<String>,
+    /// Weather where this fish is more likely to bite. Empty = no
+    /// preference. Names match the weather enum: "Clear", "Rain", "Snow",
+    /// "Blizzard", "Sandstorm", "Scorching", "Fog", "Windy",
+    /// "Thunderstorm", "Heat Wave", "Cloudy".
+    pub preferred_weather: Vec<String>,
 }
 
 impl Default for FishDef {
@@ -47,6 +52,7 @@ impl Default for FishDef {
             joke: false,
             unique: false,
             pool: Vec::new(),
+            preferred_weather: Vec::new(),
         }
     }
 }
@@ -126,6 +132,20 @@ pub fn pick_fish_weighted<'a>(
     pool: Option<&str>,
     rare_boost: bool,
 ) -> &'a FishDef {
+    pick_fish_full(rng, fish, biome, water, pool, rare_boost, None)
+}
+
+/// Most general pick. `preferred_weather` (if provided) applies a 3x
+/// weight boost to fish that list it in `preferred_weather`.
+pub fn pick_fish_full<'a>(
+    rng: &mut u32,
+    fish: &'a [FishDef],
+    biome: &str,
+    water: &str,
+    pool: Option<&str>,
+    rare_boost: bool,
+    weather: Option<&str>,
+) -> &'a FishDef {
     let eligible: Vec<&'a FishDef> = if let Some(p) = pool {
         fish.iter()
             .filter(|f| f.pool.iter().any(|tag| tag.eq_ignore_ascii_case(p)))
@@ -141,11 +161,19 @@ pub fn pick_fish_weighted<'a>(
         eligible
     };
     let weight_of = |f: &FishDef| -> f32 {
+        let mut w = f.rarity;
         if rare_boost && f.rarity > 0.0 && f.rarity < 0.01 {
-            f.rarity * 10.0
-        } else {
-            f.rarity
+            w *= 10.0;
         }
+        if let Some(weather_name) = weather {
+            if f.preferred_weather
+                .iter()
+                .any(|s| s.eq_ignore_ascii_case(weather_name))
+            {
+                w *= 3.0;
+            }
+        }
+        w
     };
     let total: f32 = pool_vec.iter().map(|f| weight_of(f)).sum();
     if total <= 0.0 || pool_vec.is_empty() {

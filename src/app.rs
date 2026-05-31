@@ -1594,13 +1594,15 @@ impl App {
                     .or_else(|| dim_pool.map(|s| s.to_string()));
                 let rare_window =
                     crate::gametime::time_of_day(self.total_play_secs()).is_rare_window();
-                let f = crate::fish::pick_fish_weighted(
+                let weather_name = weather.value();
+                let f = crate::fish::pick_fish_full(
                     &mut self.rng_state,
                     fishlist::fish(),
                     &biome,
                     water_kind,
                     pool_override.as_deref(),
                     rare_window,
+                    Some(weather_name),
                 );
                 self.narrator.say("Casting line - aim for the green!");
                 self.stats.casts += 1;
@@ -1625,13 +1627,15 @@ impl App {
                     let (water_kind, biome) = fishing_context(&self.world, nx, ny);
                     let rare_window =
                         crate::gametime::time_of_day(self.total_play_secs()).is_rare_window();
-                    let f = crate::fish::pick_fish_weighted(
+                    let w = self.current_weather();
+                    let f = crate::fish::pick_fish_full(
                         &mut self.rng_state,
                         fishlist::fish(),
                         &biome,
                         water_kind,
                         pool_override.as_deref(),
                         rare_window,
+                        Some(w.value()),
                     );
                     self.narrator
                         .say(format!("THE ROD pierces reality. Pool: {}.", pool_override.as_deref().unwrap_or("?")));
