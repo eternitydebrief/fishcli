@@ -2275,12 +2275,10 @@ impl App {
         let full = frame.area();
         let cmdline_h = 1u16;
         let effective_h = full.height.saturating_sub(cmdline_h);
-        // hide log/valu inside the fishing reel scene and during a dialogue
-        // (dialogue is fullscreen and shouldn't be covered).
-        let in_modal = matches!(
-            self.scene,
-            Scene::Fishing(_) | Scene::Dialogue { .. }
-        );
+        // The log/valu HUD only belongs over the Overworld. Every other
+        // scene is a full-screen menu and shouldn't have the log slab
+        // covering its bottom-left corner.
+        let in_modal = !matches!(self.scene, Scene::Overworld);
         if in_modal {
             // only render cmdline at the very bottom
             if cmdline_h > 0 && full.height >= cmdline_h {
