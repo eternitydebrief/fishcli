@@ -2904,6 +2904,7 @@ fn weather_light_mult(w: crate::weather::Weather) -> f32 {
         crate::weather::Weather::Sandstorm => 0.70,
         crate::weather::Weather::Blizzard => 0.80,
         crate::weather::Weather::Scorching => 1.10,
+        crate::weather::Weather::HeatWave => 1.20,
         _ => 1.0,
     }
 }

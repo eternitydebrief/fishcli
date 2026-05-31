@@ -26,6 +26,8 @@ pub enum Weather {
     Fog,
     Windy,
     Thunderstorm,
+    /// Summer-only extreme: even hotter than Scorching.
+    HeatWave,
     // Mines: Tectonic Activity
     TectonicLow,
     TectonicMedium,
@@ -65,6 +67,7 @@ impl Weather {
             Weather::Fog => "Fog",
             Weather::Windy => "Windy",
             Weather::Thunderstorm => "Thunderstorm",
+            Weather::HeatWave => "Heat Wave",
             Weather::TectonicLow | Weather::TempLow | Weather::PopLow => "Low",
             Weather::TectonicMedium | Weather::TempMedium | Weather::PopMedium => "Medium",
             Weather::TectonicHigh | Weather::TempHigh | Weather::PopHigh => "High",
@@ -83,6 +86,7 @@ impl Weather {
             Weather::Fog => Color::Rgb(170, 180, 180),
             Weather::Windy => Color::Rgb(180, 200, 220),
             Weather::Thunderstorm => Color::Rgb(200, 200, 255),
+            Weather::HeatWave => Color::Rgb(255, 100, 30),
             Weather::TectonicLow | Weather::TempLow | Weather::PopLow => Color::Yellow,
             Weather::TectonicMedium | Weather::TempMedium | Weather::PopMedium => {
                 Color::Rgb(255, 150, 60)
@@ -102,6 +106,7 @@ impl Weather {
             Weather::Fog => '=',
             Weather::Windy => '>',
             Weather::Thunderstorm => '!',
+            Weather::HeatWave => '*',
             Weather::TectonicLow | Weather::TempLow | Weather::PopLow => '.',
             Weather::TectonicMedium | Weather::TempMedium | Weather::PopMedium => '~',
             Weather::TectonicHigh | Weather::TempHigh | Weather::PopHigh => '#',
@@ -176,68 +181,161 @@ fn surface_weather(day: u64, biome: Biome, seed: u32) -> Weather {
 }
 
 fn surface_weather_with_season(day: u64, biome: Biome, seed: u32, season: Season) -> Weather {
-    // each biome has its own pool of plausible weathers, filtered by
-    // season so winter doesn't see rain and summer doesn't see snow
-    let candidates: &[Weather] = match biome {
-        Biome::Desert => &[Weather::Clear, Weather::Scorching, Weather::Sandstorm, Weather::Windy],
-        Biome::Tundra => &[Weather::Clear, Weather::Snow, Weather::Blizzard, Weather::Cloudy],
-        Biome::Swamp => &[
-            Weather::Clear,
-            Weather::Rain,
-            Weather::Fog,
-            Weather::Cloudy,
-            Weather::Thunderstorm,
-            Weather::Snow,
-        ],
-        Biome::Forest => &[
-            Weather::Clear,
-            Weather::Rain,
-            Weather::Cloudy,
-            Weather::Windy,
-            Weather::Thunderstorm,
-            Weather::Snow,
-        ],
-        Biome::Meadow => &[
-            Weather::Clear,
-            Weather::Rain,
-            Weather::Cloudy,
-            Weather::Windy,
-            Weather::Thunderstorm,
-            Weather::Snow,
-        ],
-        Biome::Rocky | Biome::Scrub => &[
-            Weather::Clear,
-            Weather::Cloudy,
-            Weather::Windy,
-            Weather::Rain,
-            Weather::Snow,
-        ],
-    };
-    let pool: Vec<Weather> = candidates
-        .iter()
-        .copied()
-        .filter(|w| weather_fits_season(*w, season))
-        .collect();
-    let pool: &[Weather] = if pool.is_empty() { candidates } else { &pool };
+    // Two-stage roll. Per-season Clear chance: Summer 40%, Spring/Autumn 25%,
+    // Winter 25%. Otherwise pick from the (biome, season) weighted table.
     let salt = 0x444 + biome_salt(biome) + season_salt(season);
-    let h = hash_day(day, salt, seed) as usize % pool.len();
-    pool[h]
+    let h = hash_day(day, salt, seed);
+    let clear_pct = match season {
+        Season::Summer => 400,
+        _ => 250,
+    };
+    if h % 1000 < clear_pct {
+        return Weather::Clear;
+    }
+    let table = weather_table(biome, season);
+    if table.is_empty() {
+        return Weather::Clear;
+    }
+    let total: u32 = table.iter().map(|(_, w)| *w).sum();
+    if total == 0 {
+        return Weather::Clear;
+    }
+    let pick = (h / 1000) % total;
+    let mut acc = 0;
+    for (w, weight) in table {
+        acc += weight;
+        if pick < acc {
+            return w;
+        }
+    }
+    Weather::Clear
 }
 
-fn weather_fits_season(w: Weather, s: Season) -> bool {
+/// Per-(biome, season) weighted weather table. Higher weight = more likely.
+/// Heat Wave only shows in Summer; Blizzard only in Winter; etc.
+fn weather_table(biome: Biome, season: Season) -> Vec<(Weather, u32)> {
     use Season::*;
     use Weather::*;
-    match (w, s) {
-        // No rain or thunderstorms in winter (it'd be snow).
-        (Rain, Winter) | (Thunderstorm, Winter) => false,
-        // No snow or blizzards in summer.
-        (Snow, Summer) | (Blizzard, Summer) => false,
-        // Scorching only in summer.
-        (Scorching, Spring) | (Scorching, Autumn) | (Scorching, Winter) => false,
-        // Blizzards only in winter (snowflake in autumn is fine).
-        (Blizzard, Spring) | (Blizzard, Autumn) => false,
-        _ => true,
-    }
+    let base: Vec<(Weather, u32)> = match (biome, season) {
+        // ---- Desert ----
+        (Biome::Desert, Summer) => vec![
+            (HeatWave, 30),
+            (Scorching, 30),
+            (Sandstorm, 25),
+            (Windy, 15),
+            (Cloudy, 5),
+        ],
+        (Biome::Desert, Spring) | (Biome::Desert, Autumn) => vec![
+            (Sandstorm, 30),
+            (Windy, 25),
+            (Cloudy, 15),
+            (Rain, 5),
+        ],
+        (Biome::Desert, Winter) => vec![
+            (Sandstorm, 20),
+            (Windy, 30),
+            (Cloudy, 30),
+            (Snow, 5),
+        ],
+
+        // ---- Tundra ----
+        (Biome::Tundra, Winter) => vec![
+            (Blizzard, 35),
+            (Snow, 35),
+            (Cloudy, 20),
+            (Windy, 10),
+        ],
+        (Biome::Tundra, Autumn) | (Biome::Tundra, Spring) => vec![
+            (Snow, 35),
+            (Cloudy, 30),
+            (Windy, 15),
+            (Rain, 10),
+            (Fog, 10),
+        ],
+        (Biome::Tundra, Summer) => vec![
+            (Cloudy, 35),
+            (Windy, 20),
+            (Rain, 20),
+            (Fog, 15),
+        ],
+
+        // ---- Swamp ----
+        (Biome::Swamp, Summer) => vec![
+            (Rain, 30),
+            (Thunderstorm, 5),
+            (Fog, 25),
+            (Cloudy, 20),
+            (HeatWave, 5),
+            (Scorching, 10),
+        ],
+        (Biome::Swamp, Spring) | (Biome::Swamp, Autumn) => vec![
+            (Rain, 35),
+            (Thunderstorm, 10),
+            (Fog, 30),
+            (Cloudy, 15),
+            (Windy, 5),
+        ],
+        (Biome::Swamp, Winter) => vec![
+            (Snow, 35),
+            (Fog, 30),
+            (Cloudy, 25),
+            (Blizzard, 5),
+        ],
+
+        // ---- Forest ----
+        (Biome::Forest, Summer) => vec![
+            (Rain, 25),
+            (Thunderstorm, 5),
+            (Cloudy, 25),
+            (Windy, 15),
+            (HeatWave, 5),
+            (Scorching, 10),
+        ],
+        (Biome::Forest, Spring) | (Biome::Forest, Autumn) => vec![
+            (Rain, 30),
+            (Thunderstorm, 15),
+            (Cloudy, 25),
+            (Windy, 20),
+            (Fog, 10),
+        ],
+        (Biome::Forest, Winter) => vec![
+            (Snow, 35),
+            (Blizzard, 10),
+            (Cloudy, 30),
+            (Windy, 15),
+            (Fog, 10),
+        ],
+
+        // ---- Meadow ----
+        (Biome::Meadow, Summer) => vec![
+            (Rain, 25),
+            (Thunderstorm, 5),
+            (Cloudy, 25),
+            (Windy, 15),
+            (HeatWave, 10),
+            (Scorching, 10),
+        ],
+        (Biome::Meadow, Spring) | (Biome::Meadow, Autumn) => vec![
+            (Rain, 35),
+            (Thunderstorm, 15),
+            (Cloudy, 20),
+            (Windy, 20),
+        ],
+        (Biome::Meadow, Winter) => vec![
+            (Snow, 40),
+            (Blizzard, 10),
+            (Cloudy, 25),
+            (Windy, 15),
+        ],
+
+        // ---- Rocky / Scrub (catch-all, similar to meadow but drier) ----
+        (Biome::Rocky, s) | (Biome::Scrub, s) => match s {
+            Summer => vec![(Cloudy, 30), (Windy, 30), (Rain, 15), (Scorching, 10)],
+            Spring | Autumn => vec![(Cloudy, 30), (Windy, 25), (Rain, 25), (Fog, 10)],
+            Winter => vec![(Snow, 35), (Cloudy, 30), (Windy, 20), (Blizzard, 5)],
+        },
+    };
+    base
 }
 
 fn season_salt(s: Season) -> u32 {
