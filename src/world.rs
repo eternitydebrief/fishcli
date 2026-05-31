@@ -602,7 +602,7 @@ impl World {
             }
         }
         // Lakebed cave zone: mostly mineral water with the very occasional
-        // stone island. The Fallen Fish lives in here.
+        // stone island. No ores in the water — they only live on wall margins.
         if lakebed_region(x, y, self.seed) {
             let r = hash2(x, y, self.seed.wrapping_add(0x1A4E_BED0)) % 1000;
             if r < 20 {
@@ -611,17 +611,15 @@ impl World {
             if r < 35 {
                 return Tile::Rock;
             }
-            if r < 45 {
-                return Tile::OreRock;
-            }
-            // ~95% mineral water — flooded cave
             return Tile::MineralWater;
         }
         let open = cave_open_at(x, y, self.seed);
         let r = hash2(x, y, self.seed.wrapping_add(0xCAFE_C0DE)) % 1000;
         if !open {
-            // solid walls with the occasional ore vein and stalactite
-            if r < 30 {
+            // Ores ONLY on wall cells that touch an open neighbor — i.e.
+            // the very borders of wall masses. Walls deep inside a mass
+            // never produce ore (and render invisible elsewhere).
+            if r < 80 && is_mines_wall_margin(x, y, self.seed) {
                 return Tile::OreRock;
             }
             if r < 55 {
@@ -685,10 +683,12 @@ impl World {
         if is_mine_entrance_anchor(x, y, self.seed) {
             return Tile::MineExit;
         }
-        let open = cave_open_at(x, y, self.seed.wrapping_add(0x1AFE_5A00));
+        let inferno_seed = self.seed.wrapping_add(0x1AFE_5A00);
+        let open = cave_open_at(x, y, inferno_seed);
         let r = hash2(x, y, self.seed.wrapping_add(0xF1AE_F1AE)) % 1000;
         if !open {
-            if r < 20 {
+            // Inferno ores also only on wall margins, never deep inside.
+            if r < 60 && is_inferno_wall_margin(x, y, inferno_seed) {
                 return Tile::OreRock;
             }
             if r < 50 {
@@ -802,7 +802,15 @@ impl World {
             ),
             Tile::MineFrame => mine_frame_glyph(x, y, self.seed),
             Tile::CaveFloor => cave_floor_glyph(x, y),
-            Tile::CaveWall => cave_wall_glyph(x, y),
+            Tile::CaveWall => {
+                // Walls fully buried inside a mass render pitch black so
+                // the cave reads as solid stone, not a wall of hashes.
+                if is_buried_wall(x, y, self.seed) {
+                    (' ', Style::default())
+                } else {
+                    cave_wall_glyph(x, y)
+                }
+            }
             Tile::Stalactite => {
                 let h = hash2(x, y, 0x57AC_1117);
                 let g = match h % 3 {
@@ -851,7 +859,13 @@ impl World {
                 };
                 (g, Style::default().fg(Color::Rgb(r, gc, b)).add_modifier(Modifier::BOLD))
             }
-            Tile::InfernoWall => inferno_wall_glyph(x, y),
+            Tile::InfernoWall => {
+                if is_buried_wall(x, y, self.seed.wrapping_add(0x1AFE_5A00)) {
+                    (' ', Style::default())
+                } else {
+                    inferno_wall_glyph(x, y)
+                }
+            }
             Tile::InfernoFloor => inferno_floor_glyph(x, y),
             Tile::Lava => lava_glyph(x, y, tick),
             Tile::LandmarkWall => landmark_wall_glyph(x, y, self.dim),
@@ -2074,6 +2088,53 @@ fn cave_open_at(x: i32, y: i32, seed: u32) -> bool {
     let jitter = (hash2(x, y, seed.wrapping_add(0xCAFE_5A1A)) as f32 / u32::MAX as f32) * 0.6
         - 0.3;
     v + jitter > -0.2
+}
+
+/// True when (x,y) is a mines wall (closed) cell that touches at least one
+/// open cell. Ores spawn only here so they hug the borders of wall masses.
+fn is_mines_wall_margin(x: i32, y: i32, seed: u32) -> bool {
+    if cave_open_at(x, y, seed) {
+        return false;
+    }
+    for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+        if cave_open_at(x + dx, y + dy, seed) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Same idea as `is_mines_wall_margin` but for the inferno's cave_open noise.
+fn is_inferno_wall_margin(x: i32, y: i32, seed: u32) -> bool {
+    if cave_open_at(x, y, seed) {
+        return false;
+    }
+    for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+        if cave_open_at(x + dx, y + dy, seed) {
+            return true;
+        }
+    }
+    false
+}
+
+/// True when (x,y) is a wall cell with NO open neighbor in any of the 8
+/// directions — i.e. fully buried inside a wall mass. Rendered pitch black
+/// so the cave reads as solid stone instead of a sea of tiled hashes.
+fn is_buried_wall(x: i32, y: i32, seed: u32) -> bool {
+    if cave_open_at(x, y, seed) {
+        return false;
+    }
+    for dy in -1..=1i32 {
+        for dx in -1..=1i32 {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            if cave_open_at(x + dx, y + dy, seed) {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 fn mineral_pool_at(x: i32, y: i32, seed: u32) -> bool {
