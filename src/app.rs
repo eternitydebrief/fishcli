@@ -361,6 +361,7 @@ impl App {
         self.skills = data.skills.clone();
         self.buffs = data.buffs.clone();
         self.skill_tree = data.skill_tree.clone();
+        self.player.has_boat = data.has_boat;
         self.player.rods = if data.rods.max_owned == 0 {
             crate::rod::OwnedRods { max_owned: 1, equipped: 1 }
         } else {
@@ -411,6 +412,7 @@ impl App {
             caught_context: self.caught_context.clone(),
             buffs: self.buffs.clone(),
             skill_tree: self.skill_tree.clone(),
+            has_boat: self.player.has_boat,
             dim: self.world.dim,
         }
     }
@@ -1495,6 +1497,17 @@ impl App {
             return;
         }
         let t = self.world.get(tx, ty);
+        // Inspect-to-board: if the player has a boat and the inspected
+        // tile is open water, step into it and become the boat.
+        if self.player.has_boat && is_boatable(t) && !self.player.on_boat {
+            self.player.on_boat = true;
+            self.player.x = tx;
+            self.player.y = ty;
+            self.narrator.say("You push off, riding the boat.");
+            self.check_biome_change();
+            self.mark_seen_around_player();
+            return;
+        }
         self.narrator.say(t.describe());
     }
 
@@ -1506,19 +1519,26 @@ impl App {
             return; // blocked by NPC; press f to interact
         }
         let t = self.world.get(nx, ny);
-        if t.walkable() {
-            self.player.x = nx;
-            self.player.y = ny;
-            self.check_biome_change();
-            self.mark_seen_around_player();
-            let weight: u64 = if dy != 0 { 2 } else { 1 };
-            self.stats.steps += weight;
-            self.skills.walking_xp += weight;
-            for _ in 0..weight {
-                self.quest_progress_silent("walk", "any");
-                if let Some(b) = self.current_biome {
-                    self.quest_progress_silent("walk", b.label());
-                }
+        let walkable = t.walkable() || is_swimmable(t) || (self.player.on_boat && is_boatable(t));
+        if !walkable {
+            return;
+        }
+        self.player.x = nx;
+        self.player.y = ny;
+        // Stepping onto a non-water tile dismounts the boat.
+        if self.player.on_boat && !is_boatable(t) {
+            self.player.on_boat = false;
+            self.narrator.say("You step ashore, leaving the boat behind.");
+        }
+        self.check_biome_change();
+        self.mark_seen_around_player();
+        let weight: u64 = if dy != 0 { 2 } else { 1 };
+        self.stats.steps += weight;
+        self.skills.walking_xp += weight;
+        for _ in 0..weight {
+            self.quest_progress_silent("walk", "any");
+            if let Some(b) = self.current_biome {
+                self.quest_progress_silent("walk", b.label());
             }
         }
     }
@@ -1566,6 +1586,10 @@ impl App {
                     step: FishmongerStep::PickFish,
                 };
                 self.mode = Mode::Insert;
+                return;
+            }
+            if npc.id == "shipwright" {
+                self.interact_shipwright();
                 return;
             }
             self.narrator.say(format!("You greet {}.", npc.name));
@@ -1946,6 +1970,30 @@ impl App {
     /// Sailor on the pier. Until 1000 fish lifetime, he just chats. After
     /// that, he offers to row you out and dive — instantly puts you in
     /// Atlantis.
+    /// Shipwright: builds the player a boat once they've caught 1250 fish.
+    /// One-time. After the build, the player can `:inspect` water to board.
+    fn interact_shipwright(&mut self) {
+        const GATE: u64 = 1250;
+        if self.player.has_boat {
+            self.narrator.say(
+                "Shipwright: \"She's yours. :inspect the water to push off; step onto land to disembark.\"",
+            );
+            return;
+        }
+        if self.stats.fish_caught < GATE {
+            self.narrator.say(format!(
+                "Shipwright: \"You've landed {}. Bring me {} and I'll build you a hull.\"",
+                self.stats.fish_caught, GATE
+            ));
+            return;
+        }
+        self.player.has_boat = true;
+        self.narrator.say("*** Shipwright builds you a boat. ***");
+        self.narrator.say(
+            "Shipwright: \":inspect any water to push off. Step onto land to leave the boat.\"",
+        );
+    }
+
     fn interact_sailor(&mut self) {
         const GATE: u64 = 1000;
         if self.stats.fish_caught < GATE {
@@ -2031,12 +2079,20 @@ impl App {
                     .border_style(Style::default().fg(Color::Cyan));
                 let inner = block.inner(area);
                 frame.render_widget(block, area);
+                // swimming: player isn't on boat but is standing on a
+                // water tile (Water/DeepWater/Seabed/etc.)
+                let on_water = is_swimmable(
+                    self.world.get(self.player.x, self.player.y),
+                );
+                let swimming = on_water && !self.player.on_boat;
                 frame.render_widget(
                     WorldView {
                         world: &self.world,
                         player: (self.player.x, self.player.y),
                         player_facing: self.player.facing,
                         tick: anim_tick,
+                        player_on_boat: self.player.on_boat,
+                        player_swimming: swimming,
                     },
                     inner,
                 );
@@ -3486,6 +3542,22 @@ fn render_debug_console(
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// True if the player can swim onto this tile (no boat required). The
+/// player swims slow but free — exists so the ocean isn't a hard wall.
+fn is_swimmable(t: Tile) -> bool {
+    matches!(
+        t,
+        Tile::Water | Tile::DeepWater | Tile::Seabed | Tile::Kelp | Tile::Anemone | Tile::Dock
+    )
+}
+
+/// True if the player can ride a boat onto this tile. Slightly stricter
+/// than swimmable (no Lava — boats burn). Wells and MineralWater also
+/// excluded for now (small water pockets, not navigable).
+fn is_boatable(t: Tile) -> bool {
+    matches!(t, Tile::Water | Tile::DeepWater | Tile::Seabed | Tile::Kelp | Tile::Anemone)
 }
 
 fn water_kind_at(world: &World, x: i32, y: i32) -> &'static str {

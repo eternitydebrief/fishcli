@@ -76,6 +76,8 @@ pub struct SaveData {
     #[serde(default)]
     pub skill_tree: crate::skill_tree::SkillTree,
     #[serde(default)]
+    pub has_boat: bool,
+    #[serde(default)]
     pub dim: Dimension,
 }
 

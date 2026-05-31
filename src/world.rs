@@ -418,6 +418,8 @@ pub struct WorldView<'a> {
     pub player: (i32, i32),
     pub player_facing: (i32, i32),
     pub tick: u64,
+    pub player_on_boat: bool,
+    pub player_swimming: bool,
 }
 
 impl<'a> Widget for WorldView<'a> {
@@ -440,12 +442,18 @@ impl<'a> Widget for WorldView<'a> {
                 let sx = (i % area_w) as i32;
                 let sy = (i / area_w) as i32;
                 if sx == half_w && sy == half_h {
-                    let g = match self.player_facing {
-                        (0, -1) => '^',
-                        (0, 1) => 'v',
-                        (-1, 0) => '<',
-                        (1, 0) => '>',
-                        _ => '@',
+                    let g = if self.player_on_boat {
+                        '8'
+                    } else if self.player_swimming {
+                        'o'
+                    } else {
+                        match self.player_facing {
+                            (0, -1) => '^',
+                            (0, 1) => 'v',
+                            (-1, 0) => '<',
+                            (1, 0) => '>',
+                            _ => '@',
+                        }
                     };
                     return (g, player_style);
                 }
