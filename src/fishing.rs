@@ -304,8 +304,13 @@ impl Fishing {
     }
 
     pub fn render(&self, frame: &mut Frame, area: ratatui::layout::Rect, anim_tick: u64) {
-        let stars = "*".repeat(self.fish.difficulty as usize);
-        let title = format!(" fishing - {} {} ", self.fish.name, stars);
+        let caught = matches!(self.finished, Some(FishingResult::Caught));
+        let title = if caught {
+            let stars = "*".repeat(self.fish.difficulty as usize);
+            format!(" fishing - {} {} ", self.fish.name, stars)
+        } else {
+            " fishing - ??? ".to_string()
+        };
         let outer = Block::default()
             .borders(Borders::ALL)
             .title(title)
@@ -381,7 +386,7 @@ impl Fishing {
                 Color::Green,
             ),
             Some(FishingResult::Escaped) => (
-                format!("the {} got away.", self.fish.name),
+                "it slipped away. you'll never know what.".into(),
                 Color::Red,
             ),
             None => (
@@ -398,7 +403,16 @@ impl Fishing {
         let rod_name = crate::rod::get(self.rod_tier)
             .map(|r| r.name.as_str())
             .unwrap_or("?");
-        let stars = "*".repeat(self.fish.difficulty as usize);
+        let caught = matches!(self.finished, Some(FishingResult::Caught));
+        let (fish_name, fish_stars, fish_desc) = if caught {
+            (
+                self.fish.name.clone(),
+                "*".repeat(self.fish.difficulty as usize),
+                self.fish.description.clone(),
+            )
+        } else {
+            ("???".to_string(), "?".to_string(), String::new())
+        };
         let info_lines = vec![
             Line::from(vec![
                 Span::styled(
@@ -427,7 +441,7 @@ impl Fishing {
                     Style::default().fg(Color::DarkGray),
                 ),
                 Span::styled(
-                    self.fish.name.clone(),
+                    fish_name,
                     Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                 ),
             ]),
@@ -437,13 +451,13 @@ impl Fishing {
                     Style::default().fg(Color::DarkGray),
                 ),
                 Span::styled(
-                    stars,
+                    fish_stars,
                     Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                 ),
             ]),
             Line::from(""),
             Line::from(Span::styled(
-                format!("  {}", self.fish.description),
+                format!("  {}", fish_desc),
                 Style::default().fg(Color::Gray),
             )),
         ];

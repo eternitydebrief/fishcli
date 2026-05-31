@@ -518,7 +518,7 @@ impl App {
                 self.pending_catch_loc = Some((biome, water));
                 self.cast = None;
                 self.narrator
-                    .say(format!("Hooked a {}!", fish.name));
+                    .say("Something hits the line!".to_string());
                 self.scene = Scene::Fishing(Fishing::new_with_skills(
                     fish,
                     self.rng_state,
@@ -1440,7 +1440,7 @@ impl App {
                     self.quest_progress_silent("catch", "any");
                 } else if escaped {
                     self.narrator
-                        .say(format!("The {} slips away.", fish_ref.name));
+                        .say("It slipped the line. You'll never know what.".to_string());
                     self.stats.fish_escaped += 1;
                 } else {
                     self.narrator.say("You leave the line slack and step away.");
