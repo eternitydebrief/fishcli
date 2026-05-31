@@ -1,6 +1,7 @@
 use crate::world::Dimension;
 use ratatui::style::Color;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 const NPCS_JSON: &str = include_str!("../assets/npcs.json");
@@ -22,6 +23,12 @@ pub struct Npc {
     /// back-compat with the original village NPCs.
     #[serde(default)]
     pub dim: Dimension,
+    /// Transactional response strings keyed by short event id. Format
+    /// placeholders like `{cost}`, `{have}`, `{need}`, `{count}` are
+    /// substituted by the caller. All gameplay-visible NPC text lives
+    /// here or in `dialogue` — never hardcoded in source.
+    #[serde(default)]
+    pub responses: HashMap<String, String>,
 }
 
 fn default_glyph() -> String {
@@ -34,6 +41,21 @@ fn default_color() -> String {
 impl Npc {
     pub fn render_char(&self) -> char {
         self.glyph.chars().next().unwrap_or('@')
+    }
+
+    /// Look up a transactional response by key, applying `{name}`-style
+    /// placeholder substitution. Returns a fallback if the key is missing
+    /// so the player always sees *something* rather than silence.
+    pub fn response(&self, key: &str, vars: &[(&str, String)]) -> String {
+        let mut s = self
+            .responses
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| format!("({}: missing response '{key}')", self.name));
+        for (k, v) in vars {
+            s = s.replace(&format!("{{{k}}}"), v);
+        }
+        s
     }
 
     pub fn render_color(&self) -> Color {

@@ -73,7 +73,11 @@
     "dialogue": [
       "The Sailor stares past you, at the horizon.",
       "\"You need a thousand fish before you'll survive what's down there. Come back when you have them.\""
-    ]
+    ],
+    "responses": {
+      "not_enough": "Sailor: \"You've landed {count} fish. Bring me a thousand and I'll show you the deep.\"",
+      "taking_you": "Sailor: \"Hold your breath. Or don't.\""
+    }
   },
 
   { "_comment": "DIMENSION TUTORIAL NPCs. Each gives a quest hinting at how to reach a non-surface dimension." },
@@ -117,7 +121,12 @@
       "\"Wanna learn mining? Sells you a pick for 500 valu. After that, hit f on any ore vein and start typing the ore's name. The faster and cleaner you spell it, the cleaner the cut.\"",
       "\"Each vein takes three swings before it rests for thirty real minutes. So pace yourself.\"",
       "(Talk again with 500 valu to buy the pickaxe.)"
-    ]
+    ],
+    "responses": {
+      "owns_pickaxe": "Miner: \"Pick's yours. Bump an ore vein with f and start typing.\"",
+      "cannot_afford": "Miner: \"Pick's {cost} valu. You've got {have}.\"",
+      "sold": "*** Miner hands you a pickaxe ({cost}$V). ***"
+    }
   },
   {
     "id": "shipwright",
@@ -130,7 +139,13 @@
       "The Shipwright sizes you up.",
       "\"At 1,250 fish I'll build you a hull. Until then, swim if you must.\"",
       "\"Boat-mode: :inspect open water to push off. Step onto land to disembark.\""
-    ]
+    ],
+    "responses": {
+      "owns_boat": "Shipwright: \"She's yours. :inspect the water to push off; step onto land to disembark.\"",
+      "not_enough": "Shipwright: \"You've landed {count}. Bring me {need} and I'll build you a hull.\"",
+      "built": "*** Shipwright builds you a boat. ***",
+      "built_tip": "Shipwright: \":inspect any water to push off. Step onto land to leave the boat.\""
+    }
   },
   {
     "id": "nereus",

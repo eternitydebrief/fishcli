@@ -2003,63 +2003,63 @@ impl App {
     /// One-time. After the build, the player can `:inspect` water to board.
     fn interact_miner(&mut self) {
         const PICKAXE_COST: u64 = 500;
+        let Some(npc) = npc::npcs().iter().find(|n| n.id == "miner") else { return };
         if self.player.has_pickaxe {
-            self.narrator
-                .say("Miner: \"Pick's yours. Bump an ore vein with f and start typing.\"");
+            self.narrator.say(npc.response("owns_pickaxe", &[]));
             return;
         }
         if self.player.valu < PICKAXE_COST {
-            self.narrator.say(format!(
-                "Miner: \"Pick's {PICKAXE_COST} valu. You've got {}.\"",
-                self.player.valu
+            self.narrator.say(npc.response(
+                "cannot_afford",
+                &[
+                    ("cost", PICKAXE_COST.to_string()),
+                    ("have", self.player.valu.to_string()),
+                ],
             ));
             return;
         }
         self.player.valu -= PICKAXE_COST;
         self.player.has_pickaxe = true;
-        self.narrator.say(format!(
-            "*** Miner hands you a pickaxe ({PICKAXE_COST}$V). ***"
-        ));
+        self.narrator
+            .say(npc.response("sold", &[("cost", PICKAXE_COST.to_string())]));
     }
 
     fn interact_shipwright(&mut self) {
         const GATE: u64 = 1250;
+        let Some(npc) = npc::npcs().iter().find(|n| n.id == "shipwright") else { return };
         if self.player.has_boat {
-            self.narrator.say(
-                "Shipwright: \"She's yours. :inspect the water to push off; step onto land to disembark.\"",
-            );
+            self.narrator.say(npc.response("owns_boat", &[]));
             return;
         }
         if self.stats.fish_caught < GATE {
-            self.narrator.say(format!(
-                "Shipwright: \"You've landed {}. Bring me {} and I'll build you a hull.\"",
-                self.stats.fish_caught, GATE
+            self.narrator.say(npc.response(
+                "not_enough",
+                &[
+                    ("count", self.stats.fish_caught.to_string()),
+                    ("need", GATE.to_string()),
+                ],
             ));
             return;
         }
         self.player.has_boat = true;
-        self.narrator.say("*** Shipwright builds you a boat. ***");
-        self.narrator.say(
-            "Shipwright: \":inspect any water to push off. Step onto land to leave the boat.\"",
-        );
+        self.narrator.say(npc.response("built", &[]));
+        self.narrator.say(npc.response("built_tip", &[]));
     }
 
     fn interact_sailor(&mut self) {
         const GATE: u64 = 1000;
+        let Some(npc) = npc::npcs().iter().find(|n| n.id == "sailor") else { return };
         if self.stats.fish_caught < GATE {
-            self.narrator.say(format!(
-                "Sailor: \"You've landed {} fish. Bring me a thousand and I'll show you the deep.\"",
-                self.stats.fish_caught
+            self.narrator.say(npc.response(
+                "not_enough",
+                &[("count", self.stats.fish_caught.to_string())],
             ));
             return;
         }
         self.world.dim = crate::world::Dimension::Atlantis;
-        // spawn the player just south of the Elders' castle so they walk up
-        // through the door to enter the throne room
         self.player.x = 0;
         self.player.y = 7;
-        self.narrator
-            .say("Sailor: \"Hold your breath. Or don't.\"");
+        self.narrator.say(npc.response("taking_you", &[]));
         self.narrator
             .say("*** You dive. Khei opens. Atlantis spreads below you. ***");
         self.narrator
