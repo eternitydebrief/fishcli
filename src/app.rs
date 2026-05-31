@@ -2824,68 +2824,55 @@ fn apply_world_overlay(
         }
     }
 
-    // Compute the wipe front column. To the LEFT of the front we still
-    // draw OLD weather. To the RIGHT we draw NEW weather. During the
-    // settle phase the front is past the right edge — old is fully
-    // visible, new is invisible.
-    let (front_col, in_settle) = if let Some(t) = transition {
+    // Crossfade transition: instead of a per-column wipe (which made
+    // particles "jump" between patterns at the boundary), both weathers
+    // fade their density together.
+    //   - Settle phase: only OLD draws, density fading 1.0 → 0
+    //   - Wipe phase:   only NEW draws, density fading 0 → 1
+    // No column gating means no visible boundary line.
+    let full_cols = 0..rect.width as i32;
+    if let Some(t) = transition {
         if t.settle_left > 0 {
-            (rect.width as i32 + 1, true)
+            draw_weather_layer(
+                frame,
+                rect,
+                t.old,
+                tick,
+                tod,
+                full_cols.clone(),
+                t.settle_progress(),
+                world,
+                player,
+            );
         } else {
+            // wipe phase: new fades in from 0 → 1
             let p = t.wipe_progress();
-            let col = (rect.width as f32 * (1.0 - p)) as i32;
-            (col, false)
+            draw_weather_layer(
+                frame,
+                rect,
+                display_weather,
+                tick,
+                tod,
+                full_cols,
+                p,
+                world,
+                player,
+            );
         }
     } else {
-        (-1, false) // no transition — front off-screen left = all "new"
-    };
-
-    // OLD pass (only relevant during a transition; in the settle phase old
-    // covers everything, in wipe phase old covers x < front_col, in normal
-    // mode old isn't drawn).
-    if let Some(t) = transition {
-        let old_cols = if in_settle {
-            0..rect.width as i32
-        } else {
-            0..front_col.max(0).min(rect.width as i32)
-        };
-        // settle phase: old particles fade out (less density as settle
-        // progresses).
-        let old_fade = if in_settle {
-            t.settle_progress()
-        } else {
-            1.0
-        };
+        // no transition — new at full density
         draw_weather_layer(
             frame,
             rect,
-            t.old,
+            display_weather,
             tick,
             tod,
-            old_cols,
-            old_fade,
+            full_cols,
+            1.0,
             world,
             player,
         );
     }
-
-    // NEW pass — always (when no transition, "new" == current).
-    let new_cols = if transition.is_some() {
-        front_col.max(0).min(rect.width as i32)..rect.width as i32
-    } else {
-        0..rect.width as i32
-    };
-    draw_weather_layer(
-        frame,
-        rect,
-        display_weather,
-        tick,
-        tod,
-        new_cols,
-        1.0,
-        world,
-        player,
-    );
     // Third pass: lightning bolt. Bright cells on top of everything; the
     // first frames flash white, then it fades. Lightning itself ignores
     // night dimming (it's the lightning that brightens the sky).
