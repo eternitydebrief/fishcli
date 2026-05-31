@@ -1664,6 +1664,7 @@ impl App {
                     pool_override.as_deref(),
                     rare_window,
                     Some(weather_name),
+                    self.stats.fish_caught,
                 );
                 self.narrator.say("Casting line - aim for the green!");
                 self.stats.casts += 1;
@@ -1697,6 +1698,7 @@ impl App {
                         pool_override.as_deref(),
                         rare_window,
                         Some(w.value()),
+                        self.stats.fish_caught,
                     );
                     self.narrator
                         .say(format!("THE ROD pierces reality. Pool: {}.", pool_override.as_deref().unwrap_or("?")));

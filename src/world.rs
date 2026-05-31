@@ -583,8 +583,24 @@ impl World {
         }
         // The exit is wherever the surface had an entrance, so the player
         // can always climb back the way they came.
-        if is_mine_entrance_anchor(x, y, self.seed) {
+        if is_mine_entrance_anchor(x, y, self.seed) || is_lakebed_entrance_anchor(x, y, self.seed) {
             return Tile::MineExit;
+        }
+        // Carve a safe 3x3 pocket of CaveFloor around every exit so the
+        // player isn't immediately walled in when they drop down.
+        for dx in -1..=1i32 {
+            for dy in -1..=1i32 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let ax = x + dx;
+                let ay = y + dy;
+                if is_mine_entrance_anchor(ax, ay, self.seed)
+                    || is_lakebed_entrance_anchor(ax, ay, self.seed)
+                {
+                    return Tile::CaveFloor;
+                }
+            }
         }
         // Lakebed cave zone: mostly mineral water with the very occasional
         // stone island. The Fallen Fish lives in here.
@@ -924,17 +940,12 @@ fn mineral_water_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
         _ => '~',
     };
     let (r, gc, b) = match phase {
-        0 => (90, 200, 240),
-        1 => (140, 220, 200),
-        2 => (200, 200, 240),
-        _ => (160, 200, 220),
+        0 => (35, 70, 95),
+        1 => (45, 85, 80),
+        2 => (60, 70, 95),
+        _ => (50, 75, 85),
     };
-    (
-        g,
-        Style::default()
-            .fg(Color::Rgb(r, gc, b))
-            .add_modifier(Modifier::BOLD),
-    )
+    (g, Style::default().fg(Color::Rgb(r, gc, b)))
 }
 
 fn seabed_glyph(x: i32, y: i32) -> (char, Style) {

@@ -104,7 +104,10 @@ impl FishDef {
 /// appear when their pool is explicitly chosen. When `rare_boost` is true,
 /// fish with very low rarity (< 0.01) get a 10x weight multiplier — used
 /// for Dusk/Midnight windows. `weather` (if provided) applies a 3x weight
-/// boost to fish that list it in `preferred_weather`.
+/// boost to fish that list it in `preferred_weather`. `catches` is the
+/// player's lifetime catch count; for the first 100 catches, easier fish
+/// (difficulty 1-3) get a sharp weight boost so beginners aren't drowned
+/// in rare/impossible fish.
 pub fn pick_fish_full<'a>(
     rng: &mut u32,
     fish: &'a [FishDef],
@@ -113,6 +116,7 @@ pub fn pick_fish_full<'a>(
     pool: Option<&str>,
     rare_boost: bool,
     weather: Option<&str>,
+    catches: u64,
 ) -> &'a FishDef {
     let eligible: Vec<&'a FishDef> = if let Some(p) = pool {
         fish.iter()
@@ -128,6 +132,8 @@ pub fn pick_fish_full<'a>(
     } else {
         eligible
     };
+    // Early-game ramp: at 0 catches, factor = 1.0; at 100, factor = 0.0.
+    let early_factor = (1.0 - (catches as f32) / 100.0).clamp(0.0, 1.0);
     let weight_of = |f: &FishDef| -> f32 {
         let mut w = f.rarity;
         if rare_boost && f.rarity > 0.0 && f.rarity < 0.01 {
@@ -141,7 +147,16 @@ pub fn pick_fish_full<'a>(
                 w *= 3.0;
             }
         }
-        w
+        // Easy-fish boost: difficulty 1 → 6x at 0 catches, decaying to 1x.
+        // Difficulty 2 → 4x decaying. Difficulty 3 → 2x decaying. >=4 → no
+        // boost. So newbies catch carp/bluegill/sunfish instead of leviathans.
+        let ease_boost = match f.difficulty {
+            1 => 1.0 + early_factor * 5.0,
+            2 => 1.0 + early_factor * 3.0,
+            3 => 1.0 + early_factor * 1.0,
+            _ => 1.0,
+        };
+        w * ease_boost
     };
     let total: f32 = pool_vec.iter().map(|f| weight_of(f)).sum();
     if total <= 0.0 || pool_vec.is_empty() {
