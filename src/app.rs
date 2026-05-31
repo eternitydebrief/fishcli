@@ -1778,6 +1778,8 @@ impl App {
                     self.weather_transition.as_ref(),
                     season,
                     self.world.dim,
+                    &self.world,
+                    (self.player.x, self.player.y),
                 );
                 render_world_hud(
                     frame,
@@ -2779,6 +2781,8 @@ fn apply_world_overlay(
     transition: Option<&WeatherTransition>,
     season: crate::gametime::Season,
     dim: crate::world::Dimension,
+    world: &World,
+    player: (i32, i32),
 ) {
     // Lighting: use the CURRENT (new) weather. We deliberately don't
     // try to blend old/new tints during a transition — the per-column
@@ -2851,6 +2855,8 @@ fn apply_world_overlay(
             tod,
             old_cols,
             old_fade,
+            world,
+            player,
         );
     }
 
@@ -2868,6 +2874,8 @@ fn apply_world_overlay(
         tod,
         new_cols,
         1.0,
+        world,
+        player,
     );
     // Third pass: lightning bolt. Bright cells on top of everything; the
     // first frames flash white, then it fades. Lightning itself ignores
@@ -2923,12 +2931,14 @@ fn draw_weather_layer(
     tod: crate::gametime::TimeOfDay,
     cols: std::ops::Range<i32>,
     density_mult: f32,
+    world: &World,
+    player: (i32, i32),
 ) {
     if cols.is_empty() {
         return;
     }
     if matches!(weather, crate::weather::Weather::Windy) {
-        draw_wind_streaks_clipped(frame, rect, tick, cols.clone(), density_mult);
+        draw_wind_streaks_clipped(frame, rect, tick, cols.clone(), density_mult, world, player);
         return;
     }
     let Some((density, glyph_options, fg)) = weather_particle(weather) else {
@@ -2949,11 +2959,22 @@ fn draw_weather_layer(
     let weather_mult = weather_light_mult(weather);
     let particle_fg = scale_color(fg, tod.light_factor() * weather_mult);
     let phase = (tick / stride) as u32;
+    let half_w = (rect.width as i32) / 2;
+    let half_h = (rect.height as i32) / 2;
     let buf = frame.buffer_mut();
     for sy in rect.y..rect.y + rect.height {
         for sx_rel in cols.clone() {
             let sx_abs = rect.x as i32 + sx_rel;
             if sx_abs < rect.x as i32 || sx_abs >= (rect.x + rect.width) as i32 {
+                continue;
+            }
+            // Skip cells that show world structures or living things — they
+            // render OVER the weather, not under it.
+            let screen_dx = sx_abs - rect.x as i32;
+            let screen_dy = (sy as i32) - rect.y as i32;
+            let wx = player.0 - half_w + screen_dx;
+            let wy = player.1 - half_h + screen_dy;
+            if is_weather_protected(world, wx, wy, player) {
                 continue;
             }
             let fallen_y = sy as u32;
@@ -2966,6 +2987,30 @@ fn draw_weather_layer(
             }
         }
     }
+}
+
+/// True if the cell at (wx, wy) should NOT be overpainted by weather:
+/// player position, any NPC tile, or any wall/roof/door tile.
+fn is_weather_protected(world: &World, wx: i32, wy: i32, player: (i32, i32)) -> bool {
+    if (wx, wy) == player {
+        return true;
+    }
+    if crate::npc::npc_at_dim(wx, wy, world.dim).is_some() {
+        return true;
+    }
+    matches!(
+        world.get(wx, wy),
+        Tile::Wall
+            | Tile::Roof
+            | Tile::DoorRod
+            | Tile::DoorSchool
+            | Tile::MineEntrance
+            | Tile::MineFrame
+            | Tile::MineExit
+            | Tile::LandmarkWall
+            | Tile::LandmarkDoor
+            | Tile::Tombstone
+    )
 }
 
 /// (density per-mille, glyph choices, color) for weather particles. None
@@ -2991,22 +3036,22 @@ fn weather_particle(
 /// Draws horizontal wind gust streaks `____` in stacked pairs/triplets
 /// drifting right across the screen. Streak positions are deterministic
 /// from the (anchor) tile coords but their x-offset advances with tick so
-/// the streaks slide along.
-fn draw_wind_streaks(frame: &mut ratatui::Frame, rect: ratatui::layout::Rect, tick: u64) {
-    draw_wind_streaks_clipped(frame, rect, tick, 0..rect.width as i32, 1.0);
-}
-
+/// the streaks slide along. `density_mult` thins out groups for fade-in/out.
 fn draw_wind_streaks_clipped(
     frame: &mut ratatui::Frame,
     rect: ratatui::layout::Rect,
     tick: u64,
     cols: std::ops::Range<i32>,
     density_mult: f32,
+    world: &World,
+    player: (i32, i32),
 ) {
     use ratatui::style::Color;
     if density_mult <= 0.0 || cols.is_empty() {
         return;
     }
+    let half_w = (rect.width as i32) / 2;
+    let half_h = (rect.height as i32) / 2;
     let buf = frame.buffer_mut();
     // Sparser layout — bigger spacing between groups, fewer per row.
     let drift = tick as i32;
@@ -3047,6 +3092,11 @@ fn draw_wind_streaks_clipped(
                         continue;
                     }
                     if !cols.contains(&sx) {
+                        continue;
+                    }
+                    let wx = player.0 - half_w + sx;
+                    let wy = player.1 - half_h + line_y;
+                    if is_weather_protected(world, wx, wy, player) {
                         continue;
                     }
                     let cx = rect.x + sx as u16;

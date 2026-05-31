@@ -1191,7 +1191,6 @@ fn lava_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
 }
 
 fn mine_frame_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
-    // figure out which neighbor cell is the anchor
     for dx in -1..=1i32 {
         for dy in -1..=0i32 {
             if dx == 0 && dy == 0 {
@@ -1210,8 +1209,7 @@ fn mine_frame_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
                 return (
                     glyph,
                     Style::default()
-                        .fg(Color::Rgb(120, 80, 45))
-                        .bg(Color::Rgb(40, 28, 18))
+                        .fg(Color::Rgb(140, 95, 55))
                         .add_modifier(Modifier::BOLD),
                 );
             }
@@ -1830,6 +1828,26 @@ fn mine_entrance_tile_at(x: i32, y: i32, seed: u32) -> Option<Tile> {
             }
             if is_mine_entrance_anchor(x - dx, y - dy, seed) {
                 return Some(Tile::MineFrame);
+            }
+        }
+    }
+    // Rocky halo: surround the entrance with a stone outcrop so it looks
+    // like a mineshaft cut into rock instead of standing in grass. Halo
+    // is a 7x5 ellipse-ish area around the anchor, minus the frame cells.
+    for dx in -3..=3i32 {
+        for dy in -3..=1i32 {
+            let in_frame = (-1..=1).contains(&dx) && (-1..=0).contains(&dy);
+            if in_frame {
+                continue;
+            }
+            // skip the cells directly south (player's approach lane)
+            if dx.abs() <= 1 && dy == 1 {
+                continue;
+            }
+            let ax = x - dx;
+            let ay = y - dy;
+            if is_mine_entrance_anchor(ax, ay, seed) {
+                return Some(Tile::Rock);
             }
         }
     }
