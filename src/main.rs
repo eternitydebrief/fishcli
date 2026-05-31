@@ -25,6 +25,7 @@ mod player;
 mod quest;
 mod rod;
 mod save;
+mod skill_tree;
 mod stats;
 mod world;
 

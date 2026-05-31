@@ -74,6 +74,8 @@ pub struct SaveData {
     #[serde(default)]
     pub buffs: Buffs,
     #[serde(default)]
+    pub skill_tree: crate::skill_tree::SkillTree,
+    #[serde(default)]
     pub dim: Dimension,
 }
 

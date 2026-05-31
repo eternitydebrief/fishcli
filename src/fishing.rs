@@ -128,6 +128,26 @@ impl Fishing {
         }
     }
 
+    /// Hard downward yank. Baseline strength is 0.30 (weak); the Rod of
+    /// Legends T1 skill tree ramps it toward 1.20 (= same as yank up) at
+    /// max rank. Caller passes the computed strength.
+    pub fn input_yank_down(&mut self, kind: KeyEventKind, strength: f32) {
+        if matches!(kind, KeyEventKind::Press) {
+            self.rect_vy += strength;
+            self.down_held = true;
+            self.down_held_until = self.tick_count + 6;
+        }
+    }
+
+    /// Hard upward yank — mirror of yank_down for symmetry.
+    pub fn input_yank_up(&mut self, kind: KeyEventKind) {
+        if matches!(kind, KeyEventKind::Press) {
+            self.rect_vy -= 1.20;
+            self.up_held = true;
+            self.up_held_until = self.tick_count + 6;
+        }
+    }
+
     pub fn tick(&mut self) {
         if self.finished.is_some() {
             return;

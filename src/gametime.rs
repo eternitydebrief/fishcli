@@ -1,16 +1,14 @@
 //! Game time and calendar.
 //!
-//! Real-time pacing: 1 real second = 6 game minutes. So 4 real minutes = 1
-//! game day, 28 days = 1 game month, 10 months = 1 game year.
-//! 4 seasons of uneven length: Spring(2 mo), Summer(3 mo), Autumn(2 mo),
-//! Winter(3 mo) = 10 months total.
+//! Real-time pacing: 6 real seconds = 1 game minute. So 6 real minutes =
+//! 1 game hour, ~2.4 real hours = 1 game day. 28 days = 1 game month.
+//! 10 months = 1 game year. Seasons: Spring(2) Summer(3) Autumn(2) Winter(3).
 
 use ratatui::style::Color;
 
-/// Game minutes since session start (well — since the player started fishing
-/// the first time, since we use `total_play_secs`).
+/// Game minutes since session start. 6 real seconds = 1 game minute.
 pub fn game_minutes(total_play_secs: u64) -> u64 {
-    total_play_secs.saturating_mul(6)
+    total_play_secs / 6
 }
 
 pub fn game_hours(total_play_secs: u64) -> u64 {

@@ -163,6 +163,7 @@ pub struct App {
     pub stats: Stats,
     pub skills: Skills,
     pub buffs: crate::buffs::Buffs,
+    pub skill_tree: crate::skill_tree::SkillTree,
     /// When set, all future casts ignore biome/water and pull from this
     /// named loot pool ("cosmic", "infernal", "angelic", "mineral", ...).
     /// Only settable by The Rod's k-menu and cleared by selecting Default.
@@ -232,6 +233,7 @@ impl App {
             stats: Stats::default(),
             skills: Skills::default(),
             buffs: crate::buffs::Buffs::default(),
+            skill_tree: crate::skill_tree::SkillTree::default(),
             current_pool_override: None,
             lightning: None,
             autosave_tx: spawn_autosaver(),
@@ -346,6 +348,7 @@ impl App {
         self.stats = data.stats.clone();
         self.skills = data.skills.clone();
         self.buffs = data.buffs.clone();
+        self.skill_tree = data.skill_tree.clone();
         self.player.rods = if data.rods.max_owned == 0 {
             crate::rod::OwnedRods { max_owned: 1, equipped: 1 }
         } else {
@@ -395,6 +398,7 @@ impl App {
             caught_at: self.caught_at.clone(),
             caught_context: self.caught_context.clone(),
             buffs: self.buffs.clone(),
+            skill_tree: self.skill_tree.clone(),
             dim: self.world.dim,
         }
     }
@@ -598,12 +602,24 @@ impl App {
         if matches!(self.mode, Mode::Insert) {
             if let Scene::Fishing(g) = &mut self.scene {
                 match key.code {
-                    KeyCode::Char('k') | KeyCode::Up => {
+                    KeyCode::Char('k') | KeyCode::Char('w') | KeyCode::Up => {
                         g.input_up(key.kind);
                         return;
                     }
-                    KeyCode::Char('j') | KeyCode::Down => {
+                    KeyCode::Char('j') | KeyCode::Char('s') | KeyCode::Down => {
                         g.input_down(key.kind);
+                        return;
+                    }
+                    KeyCode::Char('r') => {
+                        // "yank up" — a stronger explicit upward pull.
+                        g.input_yank_up(key.kind);
+                        return;
+                    }
+                    KeyCode::Char('t') | KeyCode::Enter => {
+                        // "yank down" — strength scales with Rod of
+                        // Legends "Heavy Yank" skill (weak → equal to yank-up)
+                        let strength = self.skill_tree.yank_down_strength();
+                        g.input_yank_down(key.kind, strength);
                         return;
                     }
                     _ => {}
@@ -1820,9 +1836,13 @@ impl App {
         let full = frame.area();
         let cmdline_h = 1u16;
         let effective_h = full.height.saturating_sub(cmdline_h);
-        // hide log/valu inside the fishing reel scene
-        let in_fishing = matches!(self.scene, Scene::Fishing(_));
-        if in_fishing {
+        // hide log/valu inside the fishing reel scene and during a dialogue
+        // (dialogue is fullscreen and shouldn't be covered).
+        let in_modal = matches!(
+            self.scene,
+            Scene::Fishing(_) | Scene::Dialogue { .. }
+        );
+        if in_modal {
             // only render cmdline at the very bottom
             if cmdline_h > 0 && full.height >= cmdline_h {
                 let cmd_area = Rect {
@@ -2667,9 +2687,18 @@ fn apply_world_overlay(
             }
         }
     }
-    // Second pass: weather particles.
+    // Windy is its own routine: horizontal "____" gusts drifting right
+    // in pairs/triplets, not random scatter (much nicer than dots).
+    if matches!(weather, crate::weather::Weather::Windy) {
+        draw_wind_streaks(frame, rect, tick);
+    }
+    // Second pass: weather particles (skipped for Windy).
     let buf = frame.buffer_mut();
-    let particle = weather_particle(weather);
+    let particle = if matches!(weather, crate::weather::Weather::Windy) {
+        None
+    } else {
+        weather_particle(weather)
+    };
     if let Some((density, glyph_options, fg)) = particle {
         // hash(sx, sy, tick_window) decides whether a cell becomes a
         // particle this frame; uses a small tick stride so particles
@@ -2727,7 +2756,8 @@ fn apply_world_overlay(
 }
 
 /// (density per-mille, glyph choices, color) for weather particles. None
-/// means this weather has no per-cell particle (clear/cloudy/windy/...).
+/// means this weather has no per-cell particle (clear/cloudy/windy uses a
+/// custom streak routine instead).
 fn weather_particle(
     w: crate::weather::Weather,
 ) -> Option<(u32, &'static [char], ratatui::style::Color)> {
@@ -2740,8 +2770,55 @@ fn weather_particle(
         Weather::Blizzard => Some((180, &['*', '.', '+'], Color::Rgb(250, 250, 255))),
         Weather::Sandstorm => Some((180, &['~', '.', '`'], Color::Rgb(220, 190, 130))),
         Weather::Fog => Some((40, &['='], Color::Rgb(190, 190, 200))),
-        Weather::Windy => Some((30, &['~', '`'], Color::Rgb(200, 220, 235))),
         _ => None,
+    }
+}
+
+/// Draws horizontal wind gust streaks `____` in stacked pairs/triplets
+/// drifting right across the screen. Streak positions are deterministic
+/// from the (anchor) tile coords but their x-offset advances with tick so
+/// the streaks slide along.
+fn draw_wind_streaks(frame: &mut ratatui::Frame, rect: ratatui::layout::Rect, tick: u64) {
+    use ratatui::style::{Color, Modifier};
+    let buf = frame.buffer_mut();
+    // ~9 anchor cells across the screen; each anchor spawns a small group
+    // of stacked horizontal lines.
+    let drift = (tick / 1) as i32; // 1 cell/frame at 20 fps = readable
+    let group_spacing_x: i32 = 22;
+    let group_spacing_y: i32 = 6;
+    for gy in 0..(rect.height as i32 / group_spacing_y + 2) {
+        for gx in 0..(rect.width as i32 / group_spacing_x + 2) {
+            // jitter using gx/gy as seeds for stable per-group placement
+            let h1 = noise_hash(gx, gy, 0xA17A);
+            let h2 = noise_hash(gx, gy, 0xB17B);
+            let stack = 2 + (h1 % 2) as i32; // 2 or 3 lines per group
+            let length = 4 + (h2 % 4) as i32; // 4-7 chars long
+            let base_x = gx * group_spacing_x + (h1 as i32 % group_spacing_x);
+            let base_y = gy * group_spacing_y + (h2 as i32 % (group_spacing_y - 2));
+            // drift slower for groups on lower rows so the speed feels varied
+            let group_drift = drift - (gy * 3);
+            let sx_start = (base_x - group_drift)
+                .rem_euclid(rect.width as i32 + length * 2)
+                - length;
+            for line_i in 0..stack {
+                let line_y = base_y + line_i;
+                if line_y < 0 || line_y >= rect.height as i32 {
+                    continue;
+                }
+                for k in 0..length {
+                    let sx = sx_start + k;
+                    if sx < 0 || sx >= rect.width as i32 {
+                        continue;
+                    }
+                    let cx = rect.x + sx as u16;
+                    let cy = rect.y + line_y as u16;
+                    let cell = &mut buf[(cx, cy)];
+                    cell.set_char('_');
+                    cell.fg = Color::Rgb(200, 220, 240);
+                    cell.modifier.insert(Modifier::BOLD);
+                }
+            }
+        }
     }
 }
 
@@ -2818,10 +2895,6 @@ fn render_world_hud(
             ratatui::text::Span::styled(
                 tod.label(),
                 Style::default().fg(tod.color()).add_modifier(Modifier::BOLD),
-            ),
-            ratatui::text::Span::styled(
-                if tod.is_rare_window() { " (rare!)" } else { "" },
-                Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
             ),
         ]),
         ratatui::text::Line::from(vec![
@@ -3256,10 +3329,10 @@ fn fishing_context(world: &World, x: i32, y: i32) -> (&'static str, String) {
 
 fn direction_for(code: KeyCode) -> Option<(i32, i32)> {
     match code {
-        KeyCode::Char('h') | KeyCode::Left => Some((-1, 0)),
-        KeyCode::Char('j') | KeyCode::Down => Some((0, 1)),
-        KeyCode::Char('k') | KeyCode::Up => Some((0, -1)),
-        KeyCode::Char('l') | KeyCode::Right => Some((1, 0)),
+        KeyCode::Char('h') | KeyCode::Char('a') | KeyCode::Left => Some((-1, 0)),
+        KeyCode::Char('j') | KeyCode::Char('s') | KeyCode::Down => Some((0, 1)),
+        KeyCode::Char('k') | KeyCode::Char('w') | KeyCode::Up => Some((0, -1)),
+        KeyCode::Char('l') | KeyCode::Char('d') | KeyCode::Right => Some((1, 0)),
         _ => None,
     }
 }
@@ -3662,36 +3735,50 @@ fn render_notes(frame: &mut Frame, buf: &NotesBuf) {
 }
 
 fn render_dialogue(frame: &mut Frame, npc: &Npc, line: usize) {
+    // Fullscreen, top-down. All previously-seen lines render above the
+    // current one (waterfall style), so the player sees the full conversation.
     let area = frame.area();
-    let h = 7u16.min(area.height);
-    let w = area.width;
-    let box_area = Rect {
-        x: area.x,
-        y: area.y + area.height.saturating_sub(h),
-        width: w,
-        height: h,
-    };
-    frame.render_widget(Clear, box_area);
+    frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
         .title(format!(" {} ", npc.name))
         .border_style(Style::default().fg(Color::Cyan));
-    let inner = block.inner(box_area);
-    frame.render_widget(block, box_area);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
 
     let total = npc.dialogue.len();
-    let body = npc.dialogue.get(line).map(String::as_str).unwrap_or("");
+    let shown = (line + 1).min(total);
+    let mut lines: Vec<ratatui::text::Line> = Vec::with_capacity(shown + 4);
+    for (i, dline) in npc.dialogue.iter().take(shown).enumerate() {
+        // dim past lines, bold the current one
+        let style = if i + 1 == shown {
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Gray)
+        };
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+            dline.clone(),
+            style,
+        )));
+        lines.push(ratatui::text::Line::from(""));
+    }
+    lines.push(ratatui::text::Line::from(""));
     let footer = if line + 1 >= total {
         "(enter/space to leave)".to_string()
     } else {
-        format!("({}/{} - enter/space to continue, q to leave)", line + 1, total)
+        format!(
+            "({}/{} - enter/space to continue, q to leave)",
+            line + 1,
+            total
+        )
     };
-    let p = Paragraph::new(vec![
-        ratatui::text::Line::from(body),
-        ratatui::text::Line::from(""),
-        ratatui::text::Line::from(footer),
-    ])
-    .wrap(ratatui::widgets::Wrap { trim: false });
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        footer,
+        Style::default().fg(Color::DarkGray),
+    )));
+    let p = Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false });
     frame.render_widget(p, inner);
 }
 
