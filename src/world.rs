@@ -1475,10 +1475,6 @@ const WATER_CELL_W: i32 = 36;
 const WATER_CELL_H: i32 = 22;
 const RING_OUTER: f32 = 1.40;
 
-fn water_body_at(x: i32, y: i32, seed: u32) -> bool {
-    compute_water_info(x, y, seed).in_water
-}
-
 fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
     let mut info = CellWaterInfo::default();
     if in_village_zone(x, y) {
@@ -1945,34 +1941,55 @@ pub fn lakebed_region(x: i32, y: i32, seed: u32) -> bool {
     s + t > 1.2
 }
 
-/// A lakebed entrance must:
-///   - be a sparse anchor (hash gate, ~1/700)
-///   - sit on an island (grass or sand) INSIDE a lake (so the player
-///     can walk to it)
-///   - the same (x,y) in mines must be a lakebed region (so descending
-///     opens a flooded cave instead of a regular cave)
+/// A lakebed entrance: a wooden A-frame that sits on a lake island and
+/// descends into flooded lakebed caves. Requirements:
+///   - sparse hash gate (~1/1200 cells pass)
+///   - anchor + 3x2 frame + southern approach all sit on island land
+///     (grass or sand). Without this the frame dangles over water and
+///     the entrance is unreachable.
+///   - underground (x,y) must fall inside a lakebed_region so descending
+///     opens flooded caves instead of dry stone.
 fn is_lakebed_entrance_anchor(x: i32, y: i32, seed: u32) -> bool {
     let h = hash2(x, y, seed.wrapping_add(0x1A4E_BED0));
-    if h % 700 != 3 {
+    if h % 1200 != 3 {
+        return false;
+    }
+    if y >= 4 {
         return false;
     }
     if in_village_zone(x, y) {
         return false;
     }
-    let info = cached_water_info(x, y, seed);
-    if !info.island_grass && !info.island_sand {
+    if !lakebed_region(x, y, seed) {
         return false;
     }
-    lakebed_region(x, y, seed)
+    let on_island = |x: i32, y: i32| -> bool {
+        let i = cached_water_info(x, y, seed);
+        i.island_grass || i.island_sand
+    };
+    if !on_island(x, y) {
+        return false;
+    }
+    for dx in -1..=1i32 {
+        for dy in -1..=0i32 {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            if !on_island(x + dx, y + dy) {
+                return false;
+            }
+        }
+    }
+    if !on_island(x, y + 1) {
+        return false;
+    }
+    true
 }
 
 fn mine_entrance_tile_at(x: i32, y: i32, seed: u32) -> Option<Tile> {
-    if is_mine_entrance_anchor(x, y, seed) {
+    if is_mine_entrance_anchor(x, y, seed) || is_lakebed_entrance_anchor(x, y, seed) {
         return Some(Tile::MineEntrance);
     }
-    // Lakebed entrances were spawning on tiny lake-islands that were often
-    // unreachable; player can still access lakebed caves by descending a
-    // regular mine entrance whose underground (x,y) is inside a lakebed_region.
     // frame cells: anchor is at (ax, ay) with frame at the 5 cells of the
     // 3-wide, 2-tall box (excluding the anchor itself which is the opening).
     for dx in -1..=1i32 {
@@ -1980,7 +1997,9 @@ fn mine_entrance_tile_at(x: i32, y: i32, seed: u32) -> Option<Tile> {
             if dx == 0 && dy == 0 {
                 continue;
             }
-            if is_mine_entrance_anchor(x - dx, y - dy, seed) {
+            if is_mine_entrance_anchor(x - dx, y - dy, seed)
+                || is_lakebed_entrance_anchor(x - dx, y - dy, seed)
+            {
                 return Some(Tile::MineFrame);
             }
         }

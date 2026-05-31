@@ -97,46 +97,14 @@ impl FishDef {
     }
 }
 
-pub fn pick_fish<'a>(
-    rng: &mut u32,
-    fish: &'a [FishDef],
-    biome: &str,
-    water: &str,
-) -> &'a FishDef {
-    pick_fish_with_pool(rng, fish, biome, water, None)
-}
-
 /// Pick a fish honouring an optional pool override. When `pool` is `Some`,
 /// only fish whose `pool` tag list contains that name are eligible. When it
 /// is `None`, the normal biome/water filter is used and fish carrying any
 /// pool tag are excluded — variant fish (cosmic/divine/mineral) only
-/// appear when their pool is explicitly chosen.
-pub fn pick_fish_with_pool<'a>(
-    rng: &mut u32,
-    fish: &'a [FishDef],
-    biome: &str,
-    water: &str,
-    pool: Option<&str>,
-) -> &'a FishDef {
-    pick_fish_weighted(rng, fish, biome, water, pool, false)
-}
-
-/// Like `pick_fish_with_pool`, but if `rare_boost` is true, fish with very
-/// low rarity (< 0.01) get a 10x multiplier applied to their weight — used
-/// for the Dusk and Midnight time-of-day windows where rare fish surface.
-pub fn pick_fish_weighted<'a>(
-    rng: &mut u32,
-    fish: &'a [FishDef],
-    biome: &str,
-    water: &str,
-    pool: Option<&str>,
-    rare_boost: bool,
-) -> &'a FishDef {
-    pick_fish_full(rng, fish, biome, water, pool, rare_boost, None)
-}
-
-/// Most general pick. `preferred_weather` (if provided) applies a 3x
-/// weight boost to fish that list it in `preferred_weather`.
+/// appear when their pool is explicitly chosen. When `rare_boost` is true,
+/// fish with very low rarity (< 0.01) get a 10x weight multiplier — used
+/// for Dusk/Midnight windows. `weather` (if provided) applies a 3x weight
+/// boost to fish that list it in `preferred_weather`.
 pub fn pick_fish_full<'a>(
     rng: &mut u32,
     fish: &'a [FishDef],

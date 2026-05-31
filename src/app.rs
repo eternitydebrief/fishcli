@@ -1332,24 +1332,6 @@ impl App {
         }
     }
 
-    fn list_quests(&mut self) {
-        let mut any = false;
-        for q in quest::quests() {
-            if self.quest_done.contains(&q.id) {
-                continue;
-            }
-            let progress = self.quest_progress.get(&q.id).copied().unwrap_or(0);
-            self.narrator.say(format!(
-                "[{}/{}] {} - {}",
-                progress, q.objective.count, q.title, q.description
-            ));
-            any = true;
-        }
-        if !any {
-            self.narrator.say("All tasks complete!");
-        }
-    }
-
     fn exit_subscene(&mut self) {
         match &self.scene {
             Scene::Fishing(g) => {
@@ -4211,17 +4193,6 @@ pub fn format_valu(v: u64) -> String {
         return short(v as f64 / 1_000_000_000.0, "B");
     }
     short(v as f64 / 1_000_000_000_000.0, "T")
-}
-
-fn render_placeholder(frame: &mut Frame, title: &str, body: &str) {
-    let area = frame.area();
-    let widget = Paragraph::new(body.to_owned()).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(title.to_owned())
-            .border_style(Style::default().fg(Color::Cyan)),
-    );
-    frame.render_widget(widget, area);
 }
 
 #[cfg(test)]

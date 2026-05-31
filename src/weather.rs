@@ -176,10 +176,6 @@ fn weather_for_season(
     }
 }
 
-fn surface_weather(day: u64, biome: Biome, seed: u32) -> Weather {
-    surface_weather_with_season(day, biome, seed, Season::Spring)
-}
-
 fn surface_weather_with_season(day: u64, biome: Biome, seed: u32, season: Season) -> Weather {
     // Two-stage roll. Per-season Clear chance: Summer 40%, Spring/Autumn 25%,
     // Winter 25%. Otherwise pick from the (biome, season) weighted table.

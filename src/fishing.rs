@@ -13,29 +13,6 @@ pub enum FishingResult {
     Escaped,
 }
 
-const SCENE_W: usize = 25;
-const SCENE_H: usize = 18;
-const BITE_WINDOW_TICKS: u32 = 40; // 2 seconds at 20 fps
-
-fn scene_water(x: usize, y: usize, tick: u64) -> (char, Style) {
-    let phase = (x as u64 + (y as u64) * 3 + tick / 4) % 12;
-    let glyph = match phase {
-        0 | 1 => '~',
-        2 | 3 => '=',
-        4 => '-',
-        5..=8 => '~',
-        9 => '-',
-        _ => '~',
-    };
-    let color = match phase {
-        0..=2 => Color::Blue,
-        3..=5 => Color::LightBlue,
-        6..=8 => Color::Cyan,
-        _ => Color::Blue,
-    };
-    (glyph, Style::default().fg(color))
-}
-
 pub struct Fishing {
     pub fish: &'static FishDef,
     pub fishing_level: u32,
@@ -87,22 +64,6 @@ pub struct Fishing {
 }
 
 impl Fishing {
-    pub fn new(
-        fish: &'static FishDef,
-        rng_seed: u32,
-        fishing_level: u32,
-        rod_tier: u32,
-    ) -> Self {
-        Self::new_with_skills(
-            fish,
-            rng_seed,
-            fishing_level,
-            rod_tier,
-            0.0,
-            &crate::skill_tree::SkillTree::default(),
-        )
-    }
-
     /// Construct a Fishing scene with skill-tree effects + cast strength
     /// (used by Quickcatch T2's "perfect throw" bonus).
     pub fn new_with_skills(
