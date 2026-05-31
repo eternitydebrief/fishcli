@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 pub const T1_MAX_RANK: u32 = 5;
 pub const TM_T2_MAX_RANK: u32 = 4;
+pub const T3_MAX_RANK: u32 = 5;
 
 /// Casts required per skill point. Tuned so 29 points (full tree maxed)
 /// takes ~500 hours of active fishing.
@@ -31,6 +32,15 @@ pub struct SkillTree {
     /// Rod of Legends "Heavy Yank" — strength of the yank-down key.
     /// 0 = weak (0.30), 5 = full (1.20, same as yank-up). No prereq.
     pub legends_yank: u32,
+    /// Quickcatch T3 "Effortless" — +10% catch progress per rank when
+    /// fish is inside rectangle. Unlocked after Quickcatch T2 maxed.
+    pub quickcatch_t3: u32,
+    /// Rod of Legends T3 "Phantom Rod" — rectangle drifts toward fish_y
+    /// when no input held; per-rank pull strength. Unlocked after T2 max.
+    pub legends_t3: u32,
+    /// Tamer T3 "Telepathic Lure" — fish doesn't change direction for
+    /// first 2s per rank. Unlocked after Tamer T2 maxed.
+    pub tamer_t3: u32,
     /// Tamer tier 1: fish chaos reduce (0..=5)
     pub tamer_t1: u32,
     /// Tamer tier 2: active fish slow strength (0..=4)
@@ -53,11 +63,32 @@ impl SkillTree {
     pub fn total_invested(&self) -> u32 {
         self.quickcatch_t1
             + self.quickcatch_t2
+            + self.quickcatch_t3
             + self.legends_t1
             + self.legends_t2
             + self.legends_yank
+            + self.legends_t3
             + self.tamer_t1
             + self.tamer_t2
+            + self.tamer_t3
+    }
+
+    /// Quickcatch T3 "Effortless": +10% per rank to in-rect catch progress
+    /// on top of T1/T2.
+    pub fn effortless_mult(&self) -> f32 {
+        1.0 + 0.10 * self.quickcatch_t3 as f32
+    }
+
+    /// Rod of Legends T3 "Phantom Rod": pull strength toward fish_y when
+    /// no input. 0.04/rank — at max ranks=5 → 0.20 (pretty grippy).
+    pub fn phantom_pull(&self) -> f32 {
+        0.04 * self.legends_t3 as f32
+    }
+
+    /// Tamer T3 "Telepathic Lure": fish doesn't change direction for the
+    /// first N seconds; N = 2 * rank.
+    pub fn telepathic_grace_frames(&self) -> u32 {
+        40 * self.tamer_t3
     }
 
     /// Strength of the yank-down impulse. Scales from 0.30 (rank 0) to
@@ -120,33 +151,42 @@ impl SkillTree {
 pub enum SkillNode {
     QuickcatchT1,
     QuickcatchT2,
+    QuickcatchT3,
     LegendsT1,
     LegendsT2,
     LegendsYank,
+    LegendsT3,
     TamerT1,
     TamerT2,
+    TamerT3,
 }
 
 impl SkillNode {
     pub const ALL: &'static [SkillNode] = &[
         SkillNode::QuickcatchT1,
         SkillNode::QuickcatchT2,
+        SkillNode::QuickcatchT3,
         SkillNode::LegendsT1,
         SkillNode::LegendsT2,
         SkillNode::LegendsYank,
+        SkillNode::LegendsT3,
         SkillNode::TamerT1,
         SkillNode::TamerT2,
+        SkillNode::TamerT3,
     ];
 
     pub fn label(self) -> &'static str {
         match self {
             SkillNode::QuickcatchT1 => "Quickcatch",
             SkillNode::QuickcatchT2 => "Perfect Throw",
+            SkillNode::QuickcatchT3 => "Effortless",
             SkillNode::LegendsT1 => "Rod of Legends",
             SkillNode::LegendsT2 => "Rod Boost",
             SkillNode::LegendsYank => "Heavy Yank",
+            SkillNode::LegendsT3 => "Phantom Rod",
             SkillNode::TamerT1 => "The Tamer",
             SkillNode::TamerT2 => "Slow Fish",
+            SkillNode::TamerT3 => "Telepathic Lure",
         }
     }
 
@@ -154,11 +194,14 @@ impl SkillNode {
         match self {
             SkillNode::QuickcatchT1 => "+0.5% catch speed per rank.",
             SkillNode::QuickcatchT2 => "+20% catch progress per rank when your throw was near-max strength.",
+            SkillNode::QuickcatchT3 => "+10% per rank to in-rect catch progress. Stacks with the rest.",
             SkillNode::LegendsT1 => "Less rectangle inertia per rank. Maxed: nearly robotic + coyote hover.",
             SkillNode::LegendsT2 => "Active 'b' during fishing: +1 rectangle height for 2s/rank.",
             SkillNode::LegendsYank => "Stronger yank-down ('t') per rank. Maxed: equal to yank-up.",
+            SkillNode::LegendsT3 => "Rectangle drifts toward the fish when no key is held; pull +4%/rank.",
             SkillNode::TamerT1 => "Fish change direction 0.5% less per rank.",
             SkillNode::TamerT2 => "Active 's' during fishing: slow fish by 10% per rank for 5s.",
+            SkillNode::TamerT3 => "Fish stays still for the first 2s/rank of the reel minigame.",
         }
     }
 
@@ -166,16 +209,21 @@ impl SkillNode {
         match self {
             SkillNode::TamerT2 => TM_T2_MAX_RANK,
             SkillNode::QuickcatchT2 | SkillNode::LegendsT2 | SkillNode::LegendsYank => 5,
+            SkillNode::QuickcatchT3 | SkillNode::LegendsT3 | SkillNode::TamerT3 => T3_MAX_RANK,
             _ => T1_MAX_RANK,
         }
     }
 
-    /// The T1 node this T2 depends on. None for T1 nodes themselves.
+    /// The prereq node. None for T1/Yank nodes. T2 needs its T1 maxed.
+    /// T3 needs its T2 maxed (Tamer T3 needs T2 maxed at 4).
     pub fn prerequisite(self) -> Option<SkillNode> {
         match self {
             SkillNode::QuickcatchT2 => Some(SkillNode::QuickcatchT1),
             SkillNode::LegendsT2 => Some(SkillNode::LegendsT1),
             SkillNode::TamerT2 => Some(SkillNode::TamerT1),
+            SkillNode::QuickcatchT3 => Some(SkillNode::QuickcatchT2),
+            SkillNode::LegendsT3 => Some(SkillNode::LegendsT2),
+            SkillNode::TamerT3 => Some(SkillNode::TamerT2),
             _ => None,
         }
     }
@@ -184,11 +232,14 @@ impl SkillNode {
         match self {
             SkillNode::QuickcatchT1 => tree.quickcatch_t1,
             SkillNode::QuickcatchT2 => tree.quickcatch_t2,
+            SkillNode::QuickcatchT3 => tree.quickcatch_t3,
             SkillNode::LegendsT1 => tree.legends_t1,
             SkillNode::LegendsT2 => tree.legends_t2,
             SkillNode::LegendsYank => tree.legends_yank,
+            SkillNode::LegendsT3 => tree.legends_t3,
             SkillNode::TamerT1 => tree.tamer_t1,
             SkillNode::TamerT2 => tree.tamer_t2,
+            SkillNode::TamerT3 => tree.tamer_t3,
         }
     }
 
@@ -214,11 +265,14 @@ pub fn invest(tree: &mut SkillTree, node: SkillNode) -> bool {
     match node {
         SkillNode::QuickcatchT1 => tree.quickcatch_t1 += 1,
         SkillNode::QuickcatchT2 => tree.quickcatch_t2 += 1,
+        SkillNode::QuickcatchT3 => tree.quickcatch_t3 += 1,
         SkillNode::LegendsT1 => tree.legends_t1 += 1,
         SkillNode::LegendsT2 => tree.legends_t2 += 1,
         SkillNode::LegendsYank => tree.legends_yank += 1,
+        SkillNode::LegendsT3 => tree.legends_t3 += 1,
         SkillNode::TamerT1 => tree.tamer_t1 += 1,
         SkillNode::TamerT2 => tree.tamer_t2 += 1,
+        SkillNode::TamerT3 => tree.tamer_t3 += 1,
     }
     tree.spent += 1;
     true

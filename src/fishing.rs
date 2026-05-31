@@ -77,6 +77,13 @@ pub struct Fishing {
     tm_slow_strength: f32,
     tm_slow_available: bool,
     tm_slow_left: u32,
+    // ---- T3 effects ----
+    /// Quickcatch T3 multiplier (1.0 = neutral)
+    qc_effortless_mult: f32,
+    /// Rod of Legends T3 phantom pull strength
+    rl_phantom_pull: f32,
+    /// Tamer T3 grace frames remaining (fish stays put)
+    tm_grace_left: u32,
 }
 
 impl Fishing {
@@ -148,6 +155,9 @@ impl Fishing {
             tm_slow_strength: tree.tamer_slow_strength(),
             tm_slow_available: tree.tamer_slow_strength() > 0.0,
             tm_slow_left: 0,
+            qc_effortless_mult: tree.effortless_mult(),
+            rl_phantom_pull: tree.phantom_pull(),
+            tm_grace_left: tree.telepathic_grace_frames(),
         };
         if s.target_change_ticks == 0 {
             s.target_change_ticks = 1;
@@ -260,6 +270,13 @@ impl Fishing {
             self.rect_vy += 0.45;
             self.coyote_left = self.rl_coyote_frames;
         }
+        // Phantom Rod (RoL T3): when neither key is held, the rectangle is
+        // pulled toward the fish position.
+        if !self.up_held && !self.down_held && self.rl_phantom_pull > 0.0 {
+            let rect_center = self.rect_y + (self.rect_h + self.rl_rect_h_bonus) * 0.5;
+            let pull_dy = self.fish_y - rect_center;
+            self.rect_vy += pull_dy.signum() * self.rl_phantom_pull * pull_dy.abs().min(3.0);
+        }
         // Rod of Legends T1: blend gravity/damping toward "robotic" as
         // inertia_reduce → 1.0. Maxed-out → near-zero gravity AND high
         // damping, with coyote_frames preventing immediate drop after release.
@@ -286,7 +303,10 @@ impl Fishing {
             self.rect_y = max_top;
             self.rect_vy = 0.0;
         }
-        if self.tick_count % self.target_change_ticks == 0 {
+        // Telepathic Lure (Tamer T3): fish stays put for grace frames.
+        if self.tm_grace_left > 0 {
+            self.tm_grace_left -= 1;
+        } else if self.tick_count % self.target_change_ticks == 0 {
             self.fish_target_y = self.next_target();
         }
         let effective_fish_speed = if self.tm_slow_left > 0 {
@@ -302,7 +322,7 @@ impl Fishing {
         }
         let in_rect = self.fish_y >= self.rect_y && self.fish_y <= self.rect_y + effective_rect_h;
         let fishing_mult = 1.0 + (self.fishing_level as f32) * 0.0025;
-        let speed_mult = self.qc_speed_mult * self.qc_perfect_mult;
+        let speed_mult = self.qc_speed_mult * self.qc_perfect_mult * self.qc_effortless_mult;
         if in_rect {
             self.progress += 0.8 * fishing_mult * speed_mult;
         } else {

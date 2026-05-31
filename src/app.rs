@@ -3057,9 +3057,9 @@ fn render_skill_tree(
 fn node_tree_initial(n: crate::skill_tree::SkillNode) -> char {
     use crate::skill_tree::SkillNode::*;
     match n {
-        QuickcatchT1 | QuickcatchT2 => 'Q',
-        LegendsT1 | LegendsT2 | LegendsYank => 'L',
-        TamerT1 | TamerT2 => 'T',
+        QuickcatchT1 | QuickcatchT2 | QuickcatchT3 => 'Q',
+        LegendsT1 | LegendsT2 | LegendsYank | LegendsT3 => 'L',
+        TamerT1 | TamerT2 | TamerT3 => 'T',
     }
 }
 
