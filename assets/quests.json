@@ -42,5 +42,29 @@
     "description": "Walk 80 steps through the Desert biome.",
     "objective": { "kind": "walk", "target": "Desert", "count": 80 },
     "reward": { "valu": 250 }
+  },
+
+  { "_comment": "DIMENSION TUTORIAL QUESTS. Each is given by a thematically-named NPC who hints at the dimension's unlock mechanic." },
+
+  {
+    "id": "borins-shaft",
+    "title": "Borin's Shaft",
+    "description": "Borin lost the way down. Find a mineshaft entrance somewhere in the world - a wooden A-frame against a big rock - and press f at the opening. Step into the dark. The world has cousins beneath it.",
+    "objective": { "kind": "talk", "target": "borin", "count": 1 },
+    "reward": { "valu": 500 }
+  },
+  {
+    "id": "dantes-descent",
+    "title": "Dante's Descent",
+    "description": "Dante says the village wells run deeper than well water. Cast a line into any well a hundred times. On the hundredth, the bottom will open. He hasn't been back, but he says it was worth it.",
+    "objective": { "kind": "talk", "target": "dante", "count": 1 },
+    "reward": { "valu": 800 }
+  },
+  {
+    "id": "nereus-invitation",
+    "title": "Nereus' Invitation",
+    "description": "Nereus stands at the pier's end and watches the horizon. He will row you to the deep - but only after a thousand fish on your line. Atlantis is real; the Five Elders do not entertain dilettantes.",
+    "objective": { "kind": "talk", "target": "nereus", "count": 1 },
+    "reward": { "valu": 1000 }
   }
 ]

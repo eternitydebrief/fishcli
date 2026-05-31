@@ -76,6 +76,49 @@
     ]
   },
 
+  { "_comment": "DIMENSION TUTORIAL NPCs. Each gives a quest hinting at how to reach a non-surface dimension." },
+
+  {
+    "id": "borin",
+    "name": "Borin the Prospector",
+    "x": -7,
+    "y": -3,
+    "glyph": "B",
+    "color": "yellow",
+    "dialogue": [
+      "Borin taps his pickaxe against his boot.",
+      "\"There's a way down, walker. The world has cousins beneath it. Look for a big rock with a wooden A-frame nailed to it - that's a mineshaft. Step on the opening and press f.\"",
+      "\"The mines have their own people. Don't trust the ones that don't have faces.\""
+    ]
+  },
+  {
+    "id": "dante",
+    "name": "Dante",
+    "x": -5,
+    "y": 1,
+    "glyph": "D",
+    "color": "red",
+    "dialogue": [
+      "Dante leans on the well's rim and grins, badly.",
+      "\"Heaven and earth, walker. The wells go deeper than well water. I've cast into this one - HOW many times now? - and on a hundred casts the bottom opens.\"",
+      "\"What's down there is... well. You'll see. Don't bring anything you'd miss.\"",
+      "\"Abandon all wait, ye who fish here.\""
+    ]
+  },
+  {
+    "id": "nereus",
+    "name": "Nereus the Old",
+    "x": -1,
+    "y": 13,
+    "glyph": "N",
+    "color": "lightcyan",
+    "dialogue": [
+      "Nereus looks like he's been on this pier since before the pier.",
+      "\"A thousand fish, walker. Not nine hundred. Not unique - any thousand. Bring that count to the Sailor and he'll take you out.\"",
+      "\"Down there the water is the city. The Five Elders preside. Mind your manners.\""
+    ]
+  },
+
   { "_comment": "ATLANTIS - centered around (0, 0) in the Atlantis dim. Five Elders in their throne room; Bluefin Celestial Dragons flank them; guards with golden Y tridents on the walls; citizens around the city." },
 
   {
