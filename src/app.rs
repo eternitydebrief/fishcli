@@ -2776,27 +2776,15 @@ fn apply_world_overlay(
     season: crate::gametime::Season,
     dim: crate::world::Dimension,
 ) {
-    // Display weather: while a transition is wiping, the NEW weather
-    // dictates the light/bg of the swept region and the OLD weather the
-    // unswept region. For the light multiplier we average them by the
-    // wipe progress for a smooth tint shift.
+    // Lighting: use the CURRENT (new) weather. We deliberately don't
+    // try to blend old/new tints during a transition — the per-column
+    // wipe in particle land already telegraphs the change, and a
+    // global blend caused visible flashing as the multiplier slid.
+    // Also: no global lightning flash — the bolt itself is bright
+    // enough; brightening the entire scene was disorienting.
     let display_weather = weather;
     let mut light = tod.light_factor();
-    if let Some(b) = lightning {
-        let age = b.total_frames - b.frames_remaining;
-        if age == 0 {
-            light = (light + 0.15).min(1.2);
-        }
-    }
-    let weather_mult = weather_light_mult(display_weather);
-    let blended_mult = if let Some(t) = transition {
-        let p = t.wipe_progress();
-        let old_mult = weather_light_mult(t.old);
-        old_mult * (1.0 - p) + weather_mult * p
-    } else {
-        weather_mult
-    };
-    light *= blended_mult;
+    light *= weather_light_mult(display_weather);
     let season_tint = if matches!(dim, crate::world::Dimension::Surface) {
         Some(season_color_shift(season))
     } else {
