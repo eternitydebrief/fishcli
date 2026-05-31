@@ -203,6 +203,12 @@ pub struct App {
     /// Total mastery milestones earned across all species (sum, not per-fish).
     /// Used to track skill-point granting so we never double-count.
     pub mastery_milestones: u32,
+    /// Lifetime achievement progress (unlocked ids + total points granted).
+    pub achievements: crate::achievements::AchievementProgress,
+    /// Per-dimension first-visit flags. Persisted in save.
+    pub visited_mines: bool,
+    pub visited_atlantis: bool,
+    pub visited_inferno: bool,
     /// When set, all future casts ignore biome/water and pull from this
     /// named loot pool ("cosmic", "infernal", "angelic", "mineral", ...).
     /// Only settable by The Rod's k-menu and cleared by selecting Default.
@@ -257,6 +263,10 @@ impl App {
             caught_context: vec![None; fishlist::fish().len()],
             mastery: vec![0; fishlist::fish().len()],
             mastery_milestones: 0,
+            achievements: crate::achievements::AchievementProgress::default(),
+            visited_mines: false,
+            visited_atlantis: false,
+            visited_inferno: false,
             pending_catch_loc: None,
             narrator,
             quest_progress: HashMap::new(),
@@ -398,6 +408,10 @@ impl App {
             }
         }
         self.mastery_milestones = data.mastery_milestones;
+        self.achievements = data.achievements.clone();
+        self.visited_mines = data.visited_mines;
+        self.visited_atlantis = data.visited_atlantis;
+        self.visited_inferno = data.visited_inferno;
         self.veins = data
             .veins
             .iter()
@@ -463,6 +477,10 @@ impl App {
             dim: self.world.dim,
             mastery: self.mastery.clone(),
             mastery_milestones: self.mastery_milestones,
+            achievements: self.achievements.clone(),
+            visited_mines: self.visited_mines,
+            visited_atlantis: self.visited_atlantis,
+            visited_inferno: self.visited_inferno,
             veins: self
                 .veins
                 .iter()
@@ -629,6 +647,7 @@ impl App {
         // a threshold is crossed and that god isn't already granted.
         if self.anim_tick % 20 == 0 {
             self.check_pantheon_unlocks();
+            self.check_achievements();
         }
 
         let movement_allowed =
@@ -916,7 +935,7 @@ impl App {
                     KeyCode::Enter | KeyCode::Char(' ') => {
                         let node = &nodes[*cursor];
                         let lvl = self.skills.fishing_level();
-                        let available = self.skill_tree.available(lvl, 0, self.mastery_milestones);
+                        let available = self.skill_tree.available(lvl, self.achievements.points_granted, self.mastery_milestones);
                         if available == 0 {
                             self.narrator.say("No skill points to spend.");
                         } else if self.skill_tree.rank(&node.id) >= node.max_rank {
@@ -1759,6 +1778,7 @@ impl App {
             }
             Tile::MineEntrance => {
                 self.world.dim = crate::world::Dimension::Mines;
+                self.visited_mines = true;
                 self.narrator.say("You descend the mineshaft. The light dies behind you.");
             }
             Tile::MineExit => {
@@ -1822,6 +1842,7 @@ impl App {
                         self.narrator
                             .say("*** The well's bottom opens. You fall into the Inferno. ***");
                         self.world.dim = crate::world::Dimension::Inferno;
+                        self.visited_inferno = true;
                         self.player.x = 0;
                         self.player.y = 7;
                         self.narrator
@@ -2010,6 +2031,40 @@ impl App {
 
     /// Group the (non-unique) basket by species name. Returns
     /// (name, unit_price_with_buff, count). Stable ordering matches inv.
+    fn check_achievements(&mut self) {
+        let snap = crate::achievements::Snapshot {
+            catch_total: self.stats.fish_caught,
+            casts: self.stats.casts,
+            steps: self.stats.steps,
+            valu_earned: self.stats.valu_earned,
+            fish_sold: self.stats.fish_sold,
+            unique_species: self.caught.iter().filter(|c| **c).count() as u32,
+            mastery_total: self.mastery_milestones,
+            rod_tier: self.player.rods.max_owned,
+            mining_level: self.skills.mining_level(),
+            fishing_level: self.skills.fishing_level(),
+            play_hours: self.total_play_secs() / 3600,
+            has_pickaxe: self.player.has_pickaxe,
+            has_boat: self.player.has_boat,
+            visited_mines: self.visited_mines,
+            visited_atlantis: self.visited_atlantis,
+            visited_inferno: self.visited_inferno,
+            already_unlocked: &self.achievements.unlocked,
+        };
+        let new_unlocks = crate::achievements::newly_unlocked(&snap);
+        for def in new_unlocks {
+            self.achievements.unlocked.push(def.id.clone());
+            self.achievements.points_granted =
+                self.achievements.points_granted.saturating_add(def.reward_points);
+            self.narrator.say(format!(
+                "*** Achievement: {} (+{} skill point{}). ***",
+                def.title,
+                def.reward_points,
+                if def.reward_points == 1 { "" } else { "s" }
+            ));
+        }
+    }
+
     /// +2% sale value per 5 mastery on that species, capped at +50% (125).
     fn mastery_value_bonus(&self, fish_ref: &crate::fish::FishDef) -> f32 {
         let m = fishlist::fish()
@@ -2173,6 +2228,7 @@ impl App {
             return;
         }
         self.world.dim = crate::world::Dimension::Atlantis;
+        self.visited_atlantis = true;
         self.player.x = 0;
         self.player.y = 7;
         self.narrator.say(npc.response("taking_you", &[]));
@@ -2289,6 +2345,7 @@ impl App {
                 *cursor,
                 &self.skill_tree,
                 self.skills.fishing_level(),
+                self.achievements.points_granted,
                 self.mastery_milestones,
             ),
             Scene::Fishing(g) => {
@@ -3216,13 +3273,14 @@ fn render_skill_tree(
     cursor: usize,
     tree: &crate::skill_tree::SkillTree,
     fishing_level: u32,
+    achievements: u32,
     mastery_milestones: u32,
 ) {
     use crate::skill_tree::SkillTree;
     use ratatui::widgets::Paragraph;
     let area = frame.area();
-    let earned = SkillTree::earned(fishing_level, 0, mastery_milestones);
-    let available = tree.available(fishing_level, 0, mastery_milestones);
+    let earned = SkillTree::earned(fishing_level, achievements, mastery_milestones);
+    let available = tree.available(fishing_level, achievements, mastery_milestones);
     let title = format!(
         " fishing school - {} points available ({} earned, 1 per fishing level, q/esc to leave) ",
         available, earned,

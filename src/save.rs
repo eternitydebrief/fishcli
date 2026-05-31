@@ -89,6 +89,14 @@ pub struct SaveData {
     pub mastery: Vec<u32>,
     #[serde(default)]
     pub mastery_milestones: u32,
+    #[serde(default)]
+    pub achievements: crate::achievements::AchievementProgress,
+    #[serde(default)]
+    pub visited_mines: bool,
+    #[serde(default)]
+    pub visited_atlantis: bool,
+    #[serde(default)]
+    pub visited_inferno: bool,
 }
 
 /// Saves live in ./saves/ relative to the current working directory so they

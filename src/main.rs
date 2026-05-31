@@ -9,6 +9,7 @@ use crossterm::{
 use std::io::stdout;
 use std::time::{Duration, Instant};
 
+mod achievements;
 mod app;
 mod buffs;
 mod fish;
