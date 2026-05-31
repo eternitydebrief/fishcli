@@ -1046,6 +1046,14 @@ fn deep_water_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
 /// The Five Elders' castle in Atlantis. 16-wide x 9-tall rectangle around
 /// (0, 0). Interior is open seabed. Door at south-center (0, 4).
 fn atlantis_castle_at(x: i32, y: i32) -> Option<Tile> {
+    // Satellite outpost — small fortified ring around 23, 16 (south-east)
+    if let Some(t) = small_hut_at(x, y, 21, 14)
+        .or_else(|| small_hut_at(x, y, 25, 14))
+        .or_else(|| small_hut_at(x, y, 19, 17))
+        .or_else(|| small_hut_at(x, y, 23, 18))
+    {
+        return Some(t);
+    }
     // First check the central castle.
     let in_x = (-8..=8).contains(&x);
     let in_y = (-4..=4).contains(&y);
@@ -1075,8 +1083,25 @@ fn atlantis_castle_at(x: i32, y: i32) -> Option<Tile> {
 }
 
 /// The Crypt in the Mines. 11x7 rectangle around (0, 0), interior dotted
-/// with tombstones. Door at south.
+/// with tombstones. Door at south. A smaller secondary crypt sits east.
 fn mines_crypt_at(x: i32, y: i32) -> Option<Tile> {
+    // Second crypt — east of central, smaller (7x5)
+    let sx = x - 22;
+    let sy = y;
+    if (-3..=3).contains(&sx) && (-2..=2).contains(&sy) {
+        let is_perim = sx == -3 || sx == 3 || sy == -2 || sy == 2;
+        let is_door = sx == 0 && sy == 2;
+        if is_door {
+            return Some(Tile::LandmarkDoor);
+        }
+        if is_perim {
+            return Some(Tile::LandmarkWall);
+        }
+        if sy == 0 && sx.abs() == 2 {
+            return Some(Tile::Tombstone);
+        }
+        return Some(Tile::CaveFloor);
+    }
     let in_x = (-5..=5).contains(&x);
     let in_y = (-3..=3).contains(&y);
     if !in_x || !in_y {

@@ -479,5 +479,113 @@
     "name": "Infernal Guard",
     "x": 2, "y": 2, "glyph": "Y", "color": "red", "dim": "Inferno",
     "dialogue": [ "The guard's pitchfork drips.", "\"Move along.\"" ]
+  },
+
+  { "_comment": "ATLANTIS satellite — coral-bound outpost south of the capital." },
+
+  {
+    "id": "atl-scout-1",
+    "name": "Atlantean Scout",
+    "x": 22, "y": 16, "glyph": "s", "color": "lightcyan", "dim": "Atlantis",
+    "dialogue": [
+      "The scout drifts in place.",
+      "\"This is the outer reef. The Elders keep us posted here for any walker that swims too far.\""
+    ]
+  },
+  {
+    "id": "atl-merchant",
+    "name": "Atlantean Pearl Merchant",
+    "x": 24, "y": 16, "glyph": "m", "color": "yellow", "dim": "Atlantis",
+    "dialogue": [
+      "The merchant's tentacles roll a string of pearls.",
+      "\"Walker. I deal in things only the deep gives. We'll trade — when I'm wired up.\""
+    ]
+  },
+  {
+    "id": "atl-dragon-3",
+    "name": "Bluefin Celestial Dragon",
+    "x": 26, "y": 14, "glyph": "D", "color": "lightblue", "dim": "Atlantis",
+    "dialogue": [
+      "Another dragon, watching the outer reef.",
+      "\"You came back. The Elders said you would.\""
+    ]
+  },
+  {
+    "id": "atl-citizen-3",
+    "name": "Atlantean Fry",
+    "x": 20, "y": 18, "glyph": "f", "color": "lightcyan", "dim": "Atlantis",
+    "dialogue": [
+      "A small fish darts up to you.",
+      "\"You're TALL. My grandfish never said you were so tall.\""
+    ]
+  },
+
+  { "_comment": "MINES extension — second crypt hall east of the central one, with more ghouls." },
+
+  {
+    "id": "ghoul-2",
+    "name": "Crypt Ghoul",
+    "x": 20, "y": 0, "glyph": "g", "color": "darkgray", "dim": "Mines",
+    "dialogue": [
+      "The ghoul rocks back and forth.",
+      "\"more... below... more...\""
+    ]
+  },
+  {
+    "id": "ghoul-3",
+    "name": "Crypt Ghoul",
+    "x": 22, "y": 1, "glyph": "g", "color": "darkgray", "dim": "Mines",
+    "dialogue": [
+      "Another ghoul, jaw working silently.",
+      "\"the stone... bring it...\""
+    ]
+  },
+  {
+    "id": "ghost-3",
+    "name": "Old Miner's Ghost",
+    "x": 24, "y": -1, "glyph": "%", "color": "lightcyan", "dim": "Mines",
+    "dialogue": [
+      "The ghost holds a translucent pickaxe.",
+      "\"I broke ore for forty years. The ore broke me right back.\""
+    ]
+  },
+  {
+    "id": "ghost-4",
+    "name": "Crypt Sage",
+    "x": -20, "y": 0, "glyph": "S", "color": "white", "dim": "Mines",
+    "dialogue": [
+      "The Sage doesn't blink.",
+      "\"There are ways down deeper. We do not name them.\""
+    ]
+  },
+
+  { "_comment": "INFERNO retinue — additional imps + a damned soul around the keep." },
+
+  {
+    "id": "imp-3",
+    "name": "Infernal Imp",
+    "x": -5, "y": 3, "glyph": "i", "color": "red", "dim": "Inferno",
+    "dialogue": [
+      "The imp tugs your sleeve.",
+      "\"Pet me! No, don't. Yes, do. No. Choose, walker.\""
+    ]
+  },
+  {
+    "id": "imp-4",
+    "name": "Infernal Imp",
+    "x": 5, "y": 3, "glyph": "i", "color": "red", "dim": "Inferno",
+    "dialogue": [
+      "Imp giggling.",
+      "\"He doesn't ALWAYS rebel against grandfather Fish. Sometimes he naps.\""
+    ]
+  },
+  {
+    "id": "damned-soul",
+    "name": "A Damned Soul",
+    "x": 0, "y": 6, "glyph": "?", "color": "darkgray", "dim": "Inferno",
+    "dialogue": [
+      "The soul flickers, half-here.",
+      "\"I cast a hundred times. I should have stopped. I should have stopped.\""
+    ]
   }
 ]
