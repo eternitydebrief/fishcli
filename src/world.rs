@@ -350,7 +350,6 @@ impl Tile {
                 | Tile::Flower
                 | Tile::Path
                 | Tile::Dock
-                | Tile::MineEntrance
                 | Tile::CaveFloor
                 | Tile::MineExit
                 | Tile::Seabed
