@@ -25,7 +25,7 @@ use ratatui::{
 pub enum Scene {
     Overworld,
     RodShop { cursor: u32 },
-    FishingSchool,
+    FishingSchool { cursor: usize },
     Fishing(Fishing),
     Fishdex(Fishdex),
     NamePrompt(String),
@@ -821,9 +821,43 @@ impl App {
                     _ => {}
                 }
             }
-            Scene::FishingSchool => {
-                if matches!(code, KeyCode::Char('q')) {
-                    self.exit_subscene();
+            Scene::FishingSchool { cursor } => {
+                let nodes = crate::skill_tree::SkillNode::ALL;
+                let n = nodes.len();
+                match code {
+                    KeyCode::Char('q') | KeyCode::Esc => self.exit_subscene(),
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        *cursor = (*cursor + 1).min(n.saturating_sub(1));
+                    }
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        *cursor = cursor.saturating_sub(1);
+                    }
+                    KeyCode::Enter | KeyCode::Char(' ') => {
+                        let node = nodes[*cursor];
+                        let casts = self.stats.casts;
+                        let available = self.skill_tree.available(casts);
+                        if available == 0 {
+                            self.narrator.say("No skill points to spend.");
+                        } else if !node.can_invest(&self.skill_tree) {
+                            if node.prerequisite().is_some()
+                                && node.prerequisite().unwrap().rank(&self.skill_tree)
+                                    < node.prerequisite().unwrap().max_rank()
+                            {
+                                self.narrator.say("Prerequisite not yet maxed.");
+                            } else {
+                                self.narrator.say("Already at max rank.");
+                            }
+                        } else {
+                            crate::skill_tree::invest(&mut self.skill_tree, node);
+                            self.narrator.say(format!(
+                                "Invested 1 point in {} (now rank {}/{}).",
+                                node.label(),
+                                node.rank(&self.skill_tree),
+                                node.max_rank()
+                            ));
+                        }
+                    }
+                    _ => {}
                 }
             }
             Scene::Fishing(_) => {
@@ -1369,7 +1403,7 @@ impl App {
                     self.narrator.say("You leave the line slack and step away.");
                 }
             }
-            Scene::RodShop { .. } | Scene::FishingSchool => {
+            Scene::RodShop { .. } | Scene::FishingSchool { .. } => {
                 self.narrator.say("You step back outside.");
             }
             _ => {}
@@ -1497,7 +1531,7 @@ impl App {
             }
             Tile::DoorSchool => {
                 self.narrator.say("You step into the fishing school.");
-                self.scene = Scene::FishingSchool;
+                self.scene = Scene::FishingSchool { cursor: 0 };
             }
             Tile::MineEntrance => {
                 self.world.dim = crate::world::Dimension::Mines;
@@ -1754,10 +1788,11 @@ impl App {
                 self.player.rods.equipped,
                 self.player.valu,
             ),
-            Scene::FishingSchool => render_placeholder(
+            Scene::FishingSchool { cursor } => render_skill_tree(
                 frame,
-                " fishing school ",
-                "techniques coming soon\n\nq or esc: leave",
+                *cursor,
+                &self.skill_tree,
+                self.stats.casts,
             ),
             Scene::Fishing(g) => {
                 // fishing scene gets the whole frame; log is hidden during reel
@@ -2940,6 +2975,107 @@ fn render_world_hud(
         Paragraph::new(lines).alignment(ratatui::layout::Alignment::Right),
         rect,
     );
+}
+
+// ---- Fishing School skill tree ----------------------------------------
+
+fn render_skill_tree(
+    frame: &mut Frame,
+    cursor: usize,
+    tree: &crate::skill_tree::SkillTree,
+    casts: u64,
+) {
+    use crate::skill_tree::{SkillNode, SkillTree};
+    use ratatui::widgets::Paragraph;
+    let area = frame.area();
+    let earned = SkillTree::earned(casts);
+    let available = tree.available(casts);
+    let title = format!(
+        " fishing school - {} points available ({}/{} earned, {} per point, q/esc to leave) ",
+        available,
+        earned,
+        earned,
+        crate::skill_tree::CASTS_PER_POINT
+    );
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(Color::Magenta));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        format!("  Lifetime casts: {}", casts),
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(ratatui::text::Line::from(""));
+
+    for (i, node) in SkillNode::ALL.iter().enumerate() {
+        let rank = node.rank(tree);
+        let max = node.max_rank();
+        let prereq_ok = node
+            .prerequisite()
+            .map(|p| p.rank(tree) >= p.max_rank())
+            .unwrap_or(true);
+        let selected = i == cursor;
+        let prefix = if selected { "> " } else { "  " };
+        let status_color = if !prereq_ok {
+            Color::DarkGray
+        } else if rank >= max {
+            Color::Green
+        } else {
+            Color::White
+        };
+        let line_style = if selected {
+            Style::default()
+                .bg(Color::Rgb(40, 40, 40))
+                .fg(status_color)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(status_color)
+        };
+        let pips: String = (0..max)
+            .map(|r| if r < rank { '*' } else { '.' })
+            .collect();
+        let lock = if !prereq_ok {
+            " [LOCKED - max prereq first]"
+        } else {
+            ""
+        };
+        let label = format!(
+            "{prefix}{} {} [{}] ({}/{}){}",
+            node_tree_initial(*node),
+            node.label(),
+            pips,
+            rank,
+            max,
+            lock
+        );
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+            label, line_style,
+        )));
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+            format!("    {}", node.description()),
+            Style::default().fg(Color::DarkGray),
+        )));
+        lines.push(ratatui::text::Line::from(""));
+    }
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        "  j/k navigate, enter to invest 1 point, q/esc to leave",
+        Style::default().fg(Color::DarkGray),
+    )));
+    frame.render_widget(Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }), inner);
+}
+
+fn node_tree_initial(n: crate::skill_tree::SkillNode) -> char {
+    use crate::skill_tree::SkillNode::*;
+    match n {
+        QuickcatchT1 | QuickcatchT2 => 'Q',
+        LegendsT1 | LegendsT2 | LegendsYank => 'L',
+        TamerT1 | TamerT2 => 'T',
+    }
 }
 
 // ---- The Rod loot pool selector ---------------------------------------
