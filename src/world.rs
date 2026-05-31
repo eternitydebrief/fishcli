@@ -118,52 +118,99 @@ struct BiomeParams {
 fn biome_params(b: Biome) -> BiomeParams {
     match b {
         Biome::Meadow => BiomeParams {
-            tree: 0.025, big_rock: 0.0008, medium_rock: 0.0020, rock: 0.0015,
+            tree: 0.025, big_rock: 0.0, medium_rock: 0.0, rock: 0.0015,
             pebble: 0.040, flower: 0.012, cactus: 0.0, puddle_bonus: 0.0,
         },
         Biome::Forest => BiomeParams {
-            tree: 0.090, big_rock: 0.0008, medium_rock: 0.0015, rock: 0.0010,
+            tree: 0.090, big_rock: 0.0, medium_rock: 0.0, rock: 0.0010,
             pebble: 0.020, flower: 0.003, cactus: 0.0, puddle_bonus: 0.0,
         },
         Biome::Rocky => BiomeParams {
-            tree: 0.008, big_rock: 0.0060, medium_rock: 0.0140, rock: 0.0080,
+            tree: 0.008, big_rock: 0.0, medium_rock: 0.0, rock: 0.022,
             pebble: 0.120, flower: 0.001, cactus: 0.0, puddle_bonus: 0.0,
         },
         Biome::Scrub => BiomeParams {
-            tree: 0.005, big_rock: 0.0006, medium_rock: 0.0015, rock: 0.0010,
+            tree: 0.005, big_rock: 0.0, medium_rock: 0.0, rock: 0.0010,
             pebble: 0.020, flower: 0.002, cactus: 0.0, puddle_bonus: 0.0,
         },
         Biome::Desert => BiomeParams {
-            tree: 0.0, big_rock: 0.0020, medium_rock: 0.0050, rock: 0.0035,
+            tree: 0.0, big_rock: 0.0, medium_rock: 0.0, rock: 0.0070,
             pebble: 0.110, flower: 0.0, cactus: 0.012, puddle_bonus: 0.0,
         },
         Biome::Tundra => BiomeParams {
-            tree: 0.012, big_rock: 0.0025, medium_rock: 0.0060, rock: 0.0040,
+            tree: 0.012, big_rock: 0.0, medium_rock: 0.0, rock: 0.0070,
             pebble: 0.080, flower: 0.001, cactus: 0.0, puddle_bonus: 0.0,
         },
         Biome::Swamp => BiomeParams {
-            tree: 0.050, big_rock: 0.0006, medium_rock: 0.0010, rock: 0.0005,
+            tree: 0.050, big_rock: 0.0, medium_rock: 0.0, rock: 0.0005,
             pebble: 0.015, flower: 0.006, cactus: 0.0, puddle_bonus: 0.18,
         },
     }
 }
 
 pub fn biome_at(x: i32, y: i32, seed: u32) -> Biome {
-    let fx = x as f32 * 0.045;
-    let fy = y as f32 * 0.055;
+    // Procedural villages always force their own provenance biome over
+    // their footprint — so a desert town is desert throughout, never a
+    // meadow patch in the middle.
+    if let Some(b) = village_biome_override(x, y, seed) {
+        return b;
+    }
+    // Frequencies halved → biomes roughly 2x larger in each dimension
+    // (~4x the area). Player crosses fewer boundaries per session.
+    let fx = x as f32 * 0.022;
+    let fy = y as f32 * 0.028;
     let s = (seed as f32) * 0.00007;
 
-    // single domain-warp pair (2 sins) gives curvy boundaries
     let warp_x = (fx * 0.42 + fy * 0.31 + s).sin() * 3.5;
     let warp_y = (fx * 0.33 - fy * 0.47 + s * 1.3).sin() * 3.5;
     let wx = fx + warp_x;
     let wy = fy + warp_y;
 
-    // 3 noise channels (one sin each) drive biome selection
     let temp = (wx * 0.18 + wy * 0.07 + s).sin();
     let moist = (wx * 0.13 - wy * 0.21 + s * 1.7).sin();
     let veg = (wx * 0.08 + wy * 0.06 - s * 0.9).sin();
 
+    if temp > 0.55 && moist < -0.1 {
+        Biome::Desert
+    } else if temp < -0.55 {
+        Biome::Tundra
+    } else if moist > 0.55 {
+        Biome::Swamp
+    } else if veg > 0.45 {
+        Biome::Forest
+    } else if moist < -0.3 && veg < 0.0 {
+        Biome::Scrub
+    } else if veg < -0.4 {
+        Biome::Rocky
+    } else {
+        Biome::Meadow
+    }
+}
+
+/// If (x, y) is inside a procedural village's footprint, force the biome
+/// to that village's provenance biome (computed from the village's anchor).
+/// Returns None for the origin Home Village (which sits at the seed) and
+/// for cells outside any village footprint.
+fn village_biome_override(x: i32, y: i32, seed: u32) -> Option<Biome> {
+    let v = village_anchor_for(x, y, seed)?;
+    // Sample biome at the village anchor (using the no-recursion variant)
+    // so the whole village footprint shares its anchor's provenance biome.
+    Some(biome_at_noise(v.ax, v.ay, seed))
+}
+
+/// Same as `biome_at` but does NOT consult the village override. Used by
+/// village placement to pick a village's provenance biome.
+pub fn biome_at_noise(x: i32, y: i32, seed: u32) -> Biome {
+    let fx = x as f32 * 0.022;
+    let fy = y as f32 * 0.028;
+    let s = (seed as f32) * 0.00007;
+    let warp_x = (fx * 0.42 + fy * 0.31 + s).sin() * 3.5;
+    let warp_y = (fx * 0.33 - fy * 0.47 + s * 1.3).sin() * 3.5;
+    let wx = fx + warp_x;
+    let wy = fy + warp_y;
+    let temp = (wx * 0.18 + wy * 0.07 + s).sin();
+    let moist = (wx * 0.13 - wy * 0.21 + s * 1.7).sin();
+    let veg = (wx * 0.08 + wy * 0.06 - s * 0.9).sin();
     if temp > 0.55 && moist < -0.1 {
         Biome::Desert
     } else if temp < -0.55 {
