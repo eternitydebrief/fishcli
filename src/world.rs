@@ -931,41 +931,46 @@ fn ore_rock_glyph(x: i32, y: i32) -> (char, Style) {
 }
 
 fn mineral_water_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
-    // Built like surface water_anim but with a stronger sine pattern and
-    // a moving wave band so the underground pool reads more "patterned"
-    // than the chaotic ocean. Palette is the same cool teal as before so
-    // it still feels like an enclosed mineral pool.
-    let t = tick as f32 * 0.012;
+    // Three overlapping sines at different angles + frequencies create an
+    // interference height field — looks like rippling water with no
+    // obvious banding. Glyph + color follow the local height.
+    let t = tick as f32 * 0.045;
     let fx = x as f32;
     let fy = y as f32;
-    let w1 = (fx * 0.731 + fy * 1.117 + t * 1.27).sin() * 0.55;
-    let w2 = (fx * 1.289 - fy * 0.583 + t * 0.94).sin() * 0.45;
-    // Slow phase noise locked to the cell (no per-frame churn) — keeps
-    // the surface looking *patterned* instead of fizzy like surface water.
-    let slow_noise =
-        (hash2(x, y, 0x9A7E_5A1E) as f32 / u32::MAX as f32 - 0.5) * 0.7;
-    // Clear travelling wave band: when this sine peaks, lay a bright
-    // crest glyph across the water.
-    let wave_band = (fy * 0.55 - t * 2.1).sin();
-    let h = w1 + w2 + slow_noise;
-    let crest = wave_band > 0.88;
-    let (glyph, base) = if crest {
-        ('~', (150, 200, 220))
+    let w1 = (fx * 0.42 + fy * 0.23 + t * 1.0).sin();
+    let w2 = (fx * 0.28 - fy * 0.51 + t * 0.7).sin();
+    let w3 = (fx * 0.17 + fy * 0.34 - t * 0.5).sin() * 0.7;
+    let h = w1 + w2 + w3;
+    let (glyph, base) = if h > 2.0 {
+        ('~', (160, 210, 225))
     } else if h > 1.1 {
-        ('~', (105, 165, 195))
-    } else if h > 0.5 {
-        ('~', (85, 140, 175))
-    } else if h > 0.0 {
-        ('-', (65, 115, 155))
-    } else if h > -0.5 {
-        ('-', (50, 95, 135))
-    } else if h > -1.0 {
+        ('~', (110, 170, 200))
+    } else if h > 0.3 {
+        ('~', (85, 145, 180))
+    } else if h > -0.4 {
+        ('-', (65, 115, 160))
+    } else if h > -1.1 {
+        ('_', (50, 95, 140))
+    } else if h > -1.9 {
         ('.', (40, 80, 120))
     } else {
         (',', (30, 65, 100))
     };
-    let style = Style::default().fg(shade(base, x, y, 0x9A7E_5A1E, 5));
-    let style = if crest { style.add_modifier(Modifier::BOLD) } else { style };
+    // Occasional bright sparkle so the surface twinkles.
+    let sparkle =
+        hash2(x, y, 0x9A7E_5A1E).wrapping_add((tick / 5) as u32) % 90 == 0;
+    if sparkle && h > 0.5 {
+        return (
+            '*',
+            Style::default()
+                .fg(Color::Rgb(190, 230, 240))
+                .add_modifier(Modifier::BOLD),
+        );
+    }
+    let mut style = Style::default().fg(shade(base, x, y, 0x9A7E_5A1E, 4));
+    if h > 1.1 {
+        style = style.add_modifier(Modifier::BOLD);
+    }
     (glyph, style)
 }
 
