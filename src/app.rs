@@ -232,6 +232,14 @@ pub struct App {
     /// Bait consumed at cast time; applied (and cleared) on the next catch.
     /// Tuple is (effect_id, magnitude).
     pub bait_pending: Option<(String, f32)>,
+    /// Daily quest state. `day_id` is the UTC date when progress started;
+    /// if today's date differs, progress resets and `completed` is cleared.
+    pub daily_day_id: String,
+    pub daily_progress: u32,
+    pub daily_completed: bool,
+    /// Bonus skill points granted by daily-quest completions across all
+    /// days. Feeds skill_tree.available().
+    pub daily_bonus_points: u32,
 }
 
 impl App {
@@ -303,6 +311,10 @@ impl App {
             last_step_tick: 0,
             veins: crate::mining::VeinMap::new(),
             bait_pending: None,
+            daily_day_id: String::new(),
+            daily_progress: 0,
+            daily_completed: false,
+            daily_bonus_points: 0,
         }
     }
 
@@ -312,10 +324,55 @@ impl App {
 
     fn quest_progress(&mut self, kind: &str, target: &str) {
         self.tick_quest_progress(kind, target, false);
+        self.tick_daily_progress(kind, target);
     }
 
     fn quest_progress_silent(&mut self, kind: &str, target: &str) {
         self.tick_quest_progress(kind, target, true);
+        self.tick_daily_progress(kind, target);
+    }
+
+    fn refresh_daily(&mut self) {
+        let today = crate::daily::today_id();
+        if today != self.daily_day_id {
+            self.daily_day_id = today;
+            self.daily_progress = 0;
+            self.daily_completed = false;
+            if let Some(def) = crate::daily::today_def() {
+                self.narrator
+                    .say(format!("Today's daily: {}", def.title));
+            }
+        }
+    }
+
+    fn tick_daily_progress(&mut self, kind: &str, target: &str) {
+        if self.daily_completed {
+            return;
+        }
+        self.refresh_daily();
+        let Some(def) = crate::daily::today_def() else { return };
+        if def.kind != kind {
+            return;
+        }
+        // "any" target matches anything of the right kind.
+        if def.target != "any" && !def.target.eq_ignore_ascii_case(target) {
+            return;
+        }
+        self.daily_progress = self.daily_progress.saturating_add(1);
+        if self.daily_progress >= def.count {
+            self.daily_completed = true;
+            self.player.valu = self.player.valu.saturating_add(def.reward_valu);
+            self.lifetime_valu = self.lifetime_valu.saturating_add(def.reward_valu);
+            self.stats.valu_earned = self.stats.valu_earned.saturating_add(def.reward_valu);
+            self.daily_bonus_points = self.daily_bonus_points.saturating_add(def.reward_points);
+            self.narrator.say(format!(
+                "*** Daily complete: {} (+{}$V, +{} skill point{}). ***",
+                def.title,
+                def.reward_valu,
+                def.reward_points,
+                if def.reward_points == 1 { "" } else { "s" }
+            ));
+        }
     }
 
     fn tick_quest_progress(&mut self, kind: &str, target: &str, silent: bool) {
@@ -424,6 +481,10 @@ impl App {
         self.visited_inferno = data.visited_inferno;
         self.player.tackle = data.tackle.clone();
         self.player.bait = data.bait.clone();
+        self.daily_day_id = data.daily_day_id.clone();
+        self.daily_progress = data.daily_progress;
+        self.daily_completed = data.daily_completed;
+        self.daily_bonus_points = data.daily_bonus_points;
         self.veins = data
             .veins
             .iter()
@@ -495,6 +556,10 @@ impl App {
             visited_inferno: self.visited_inferno,
             tackle: self.player.tackle.clone(),
             bait: self.player.bait.clone(),
+            daily_day_id: self.daily_day_id.clone(),
+            daily_progress: self.daily_progress,
+            daily_completed: self.daily_completed,
+            daily_bonus_points: self.daily_bonus_points,
             veins: self
                 .veins
                 .iter()
@@ -662,6 +727,7 @@ impl App {
         if self.anim_tick % 20 == 0 {
             self.check_pantheon_unlocks();
             self.check_achievements();
+            self.refresh_daily();
         }
 
         let movement_allowed =
@@ -949,7 +1015,7 @@ impl App {
                     KeyCode::Enter | KeyCode::Char(' ') => {
                         let node = &nodes[*cursor];
                         let lvl = self.skills.fishing_level();
-                        let available = self.skill_tree.available(lvl, self.achievements.points_granted, self.mastery_milestones);
+                        let available = self.skill_tree.available(lvl, self.achievements.points_granted + self.daily_bonus_points, self.mastery_milestones);
                         if available == 0 {
                             self.narrator.say("No skill points to spend.");
                         } else if self.skill_tree.rank(&node.id) >= node.max_rank {
@@ -2519,7 +2585,7 @@ impl App {
                 *cursor,
                 &self.skill_tree,
                 self.skills.fishing_level(),
-                self.achievements.points_granted,
+                self.achievements.points_granted + self.daily_bonus_points,
                 self.mastery_milestones,
             ),
             Scene::Fishing(g) => {

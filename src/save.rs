@@ -101,6 +101,14 @@ pub struct SaveData {
     pub tackle: crate::tackle::EquippedTackle,
     #[serde(default)]
     pub bait: crate::bait::BaitStock,
+    #[serde(default)]
+    pub daily_day_id: String,
+    #[serde(default)]
+    pub daily_progress: u32,
+    #[serde(default)]
+    pub daily_completed: bool,
+    #[serde(default)]
+    pub daily_bonus_points: u32,
 }
 
 /// Saves live in ./saves/ relative to the current working directory so they

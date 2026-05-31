@@ -13,6 +13,7 @@ mod achievements;
 mod app;
 mod bait;
 mod buffs;
+mod daily;
 mod fish;
 mod gametime;
 mod house;
