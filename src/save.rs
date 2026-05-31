@@ -78,6 +78,8 @@ pub struct SaveData {
     #[serde(default)]
     pub has_boat: bool,
     #[serde(default)]
+    pub has_pickaxe: bool,
+    #[serde(default)]
     pub dim: Dimension,
 }
 

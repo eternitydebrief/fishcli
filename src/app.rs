@@ -362,6 +362,7 @@ impl App {
         self.buffs = data.buffs.clone();
         self.skill_tree = data.skill_tree.clone();
         self.player.has_boat = data.has_boat;
+        self.player.has_pickaxe = data.has_pickaxe;
         self.player.rods = if data.rods.max_owned == 0 {
             crate::rod::OwnedRods { max_owned: 1, equipped: 1 }
         } else {
@@ -413,6 +414,7 @@ impl App {
             buffs: self.buffs.clone(),
             skill_tree: self.skill_tree.clone(),
             has_boat: self.player.has_boat,
+            has_pickaxe: self.player.has_pickaxe,
             dim: self.world.dim,
         }
     }
@@ -1580,6 +1582,10 @@ impl App {
                 self.interact_shipwright();
                 return;
             }
+            if npc.id == "miner" {
+                self.interact_miner();
+                return;
+            }
             self.narrator.say(format!("You greet {}.", npc.name));
             let id = npc.id.clone();
             self.scene = Scene::Dialogue { npc, line: 0 };
@@ -1608,6 +1614,11 @@ impl App {
                 self.narrator.say("You climb back up to Sentinel's air.");
             }
             Tile::OreRock => {
+                if !self.player.has_pickaxe {
+                    self.narrator
+                        .say("You'd need a pickaxe. Find the Miner east of the village.");
+                    return;
+                }
                 self.mine_ore_at(nx, ny);
             }
             Tile::Dock
@@ -1962,6 +1973,27 @@ impl App {
     /// Atlantis.
     /// Shipwright: builds the player a boat once they've caught 1250 fish.
     /// One-time. After the build, the player can `:inspect` water to board.
+    fn interact_miner(&mut self) {
+        const PICKAXE_COST: u64 = 500;
+        if self.player.has_pickaxe {
+            self.narrator
+                .say("Miner: \"Pick's yours. Bump an ore vein with f and start typing.\"");
+            return;
+        }
+        if self.player.valu < PICKAXE_COST {
+            self.narrator.say(format!(
+                "Miner: \"Pick's {PICKAXE_COST} valu. You've got {}.\"",
+                self.player.valu
+            ));
+            return;
+        }
+        self.player.valu -= PICKAXE_COST;
+        self.player.has_pickaxe = true;
+        self.narrator.say(format!(
+            "*** Miner hands you a pickaxe ({PICKAXE_COST}$V). ***"
+        ));
+    }
+
     fn interact_shipwright(&mut self) {
         const GATE: u64 = 1250;
         if self.player.has_boat {

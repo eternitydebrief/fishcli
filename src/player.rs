@@ -19,6 +19,8 @@ pub struct Player {
     /// tiles act like solid ground (faster than swimming). Set true by
     /// inspecting water, set false by stepping onto land.
     pub on_boat: bool,
+    /// Required to mine ore veins. Bought from the Miner NPC.
+    pub has_pickaxe: bool,
 }
 
 impl Player {
@@ -34,6 +36,7 @@ impl Player {
             rods: OwnedRods { max_owned: 1, equipped: 1 },
             has_boat: false,
             on_boat: false,
+            has_pickaxe: false,
         }
     }
 }

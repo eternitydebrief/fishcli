@@ -106,6 +106,20 @@
     ]
   },
   {
+    "id": "miner",
+    "name": "The Miner",
+    "x": 12,
+    "y": 0,
+    "glyph": "M",
+    "color": "yellow",
+    "dialogue": [
+      "The Miner sets down a battered pickaxe.",
+      "\"Wanna learn mining? Sells you a pick for 500 valu. After that, hit f on any ore vein and start typing the ore's name. The faster and cleaner you spell it, the cleaner the cut.\"",
+      "\"Each vein takes three swings before it rests for thirty real minutes. So pace yourself.\"",
+      "(Talk again with 500 valu to buy the pickaxe.)"
+    ]
+  },
+  {
     "id": "shipwright",
     "name": "The Shipwright",
     "x": 4,
