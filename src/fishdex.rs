@@ -37,6 +37,7 @@ impl Fishdex {
         frame: &mut Frame,
         caught: &[bool],
         caught_at: &[Option<(String, String)>],
+        caught_context: &[Option<(String, String, String)>],
     ) {
         let area = frame.area();
         let total = fish().len();
@@ -110,14 +111,95 @@ impl Fishdex {
                 ];
                 if let Some(Some((biome, water))) = caught_at.get(sel) {
                     lines.push(Line::from(vec![
-                        Span::raw("first caught in: "),
+                        Span::raw("location:  "),
                         Span::styled(
-                            format!("{biome} ({water})"),
+                            format!("{biome} / {water}"),
                             Style::default().fg(Color::LightGreen),
                         ),
                     ]));
-                    lines.push(Line::from(""));
                 }
+                if let Some(Some((tod, w, season))) = caught_context.get(sel) {
+                    lines.push(Line::from(vec![
+                        Span::raw("time:      "),
+                        Span::styled(
+                            tod.clone(),
+                            Style::default().fg(Color::LightCyan),
+                        ),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::raw("weather:   "),
+                        Span::styled(
+                            w.clone(),
+                            Style::default().fg(Color::LightBlue),
+                        ),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::raw("season:    "),
+                        Span::styled(
+                            season.clone(),
+                            Style::default().fg(Color::LightYellow),
+                        ),
+                    ]));
+                }
+                // declared preferences from JSON
+                if !f.biomes.is_empty() {
+                    lines.push(Line::from(vec![
+                        Span::raw("prefers:   "),
+                        Span::styled(
+                            f.biomes.join(", "),
+                            Style::default().fg(Color::Green),
+                        ),
+                    ]));
+                }
+                if !f.waters.is_empty() {
+                    lines.push(Line::from(vec![
+                        Span::raw("water:     "),
+                        Span::styled(
+                            f.waters.join(", "),
+                            Style::default().fg(Color::Blue),
+                        ),
+                    ]));
+                }
+                if !f.pool.is_empty() {
+                    lines.push(Line::from(vec![
+                        Span::raw("pool:      "),
+                        Span::styled(
+                            f.pool.join(", "),
+                            Style::default().fg(Color::Magenta),
+                        ),
+                    ]));
+                }
+                if f.price > 0 {
+                    lines.push(Line::from(vec![
+                        Span::raw("price:     "),
+                        Span::styled(
+                            format!("{}$V", f.price),
+                            Style::default().fg(Color::Yellow),
+                        ),
+                    ]));
+                }
+                if let Some(eff) = &f.effect {
+                    lines.push(Line::from(vec![
+                        Span::raw("effect:    "),
+                        Span::styled(
+                            eff.clone(),
+                            Style::default().fg(Color::LightMagenta),
+                        ),
+                    ]));
+                }
+                if f.unique {
+                    lines.push(Line::from(Span::styled(
+                        "UNIQUE - misc tab, cannot be sold or discarded",
+                        Style::default().fg(Color::LightYellow),
+                    )));
+                }
+                if f.joke {
+                    lines.push(Line::from(Span::styled(
+                        "JOKE - not a real fish",
+                        Style::default().fg(Color::DarkGray),
+                    )));
+                }
+                lines.push(Line::from(""));
                 lines.push(Line::from(f.description.as_str()));
                 lines
             } else {

@@ -70,6 +70,8 @@ pub struct SaveData {
     #[serde(default)]
     pub caught_at: Vec<Option<(String, String)>>,
     #[serde(default)]
+    pub caught_context: Vec<Option<(String, String, String)>>,
+    #[serde(default)]
     pub buffs: Buffs,
     #[serde(default)]
     pub dim: Dimension,

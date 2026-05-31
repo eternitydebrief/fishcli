@@ -112,6 +112,20 @@ pub fn pick_fish_with_pool<'a>(
     water: &str,
     pool: Option<&str>,
 ) -> &'a FishDef {
+    pick_fish_weighted(rng, fish, biome, water, pool, false)
+}
+
+/// Like `pick_fish_with_pool`, but if `rare_boost` is true, fish with very
+/// low rarity (< 0.01) get a 10x multiplier applied to their weight — used
+/// for the Dusk and Midnight time-of-day windows where rare fish surface.
+pub fn pick_fish_weighted<'a>(
+    rng: &mut u32,
+    fish: &'a [FishDef],
+    biome: &str,
+    water: &str,
+    pool: Option<&str>,
+    rare_boost: bool,
+) -> &'a FishDef {
     let eligible: Vec<&'a FishDef> = if let Some(p) = pool {
         fish.iter()
             .filter(|f| f.pool.iter().any(|tag| tag.eq_ignore_ascii_case(p)))
@@ -122,19 +136,25 @@ pub fn pick_fish_with_pool<'a>(
             .collect()
     };
     let pool_vec = if eligible.is_empty() {
-        // safety net: never panic; fall back to anything
         fish.iter().collect::<Vec<_>>()
     } else {
         eligible
     };
-    let total: f32 = pool_vec.iter().map(|f| f.rarity).sum();
+    let weight_of = |f: &FishDef| -> f32 {
+        if rare_boost && f.rarity > 0.0 && f.rarity < 0.01 {
+            f.rarity * 10.0
+        } else {
+            f.rarity
+        }
+    };
+    let total: f32 = pool_vec.iter().map(|f| weight_of(f)).sum();
     if total <= 0.0 || pool_vec.is_empty() {
         return &fish[0];
     }
     let r = next_rand_f32(rng) * total;
     let mut acc = 0.0;
     for f in &pool_vec {
-        acc += f.rarity;
+        acc += weight_of(f);
         if r <= acc {
             return f;
         }

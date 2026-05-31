@@ -127,6 +127,8 @@ pub struct App {
     /// First-catch location per fish index (biome label, water type).
     /// `None` if never caught yet (or caught before tracking existed).
     pub caught_at: Vec<Option<(String, String)>>,
+    /// First-catch context (time-of-day label, weather label, season label).
+    pub caught_context: Vec<Option<(String, String, String)>>,
     /// Set when a cast becomes a hooked fight; consumed on catch to record
     /// the first-catch location for that species.
     pub pending_catch_loc: Option<(String, String)>,
@@ -210,6 +212,7 @@ impl App {
             rng_state: 0xC0FF_EE42,
             caught: vec![false; fishlist::fish().len()],
             caught_at: vec![None; fishlist::fish().len()],
+            caught_context: vec![None; fishlist::fish().len()],
             pending_catch_loc: None,
             narrator,
             quest_progress: HashMap::new(),
@@ -305,6 +308,13 @@ impl App {
                 }
             }
         }
+        for (i, ctx) in data.caught_context.iter().enumerate() {
+            if let Some(slot) = self.caught_context.get_mut(i) {
+                if slot.is_none() {
+                    *slot = ctx.clone();
+                }
+            }
+        }
         self.world = World::new(data.world_seed);
         self.world.dim = data.dim;
         if data.rng_state != 0 {
@@ -379,6 +389,7 @@ impl App {
             skills: self.skills.clone(),
             rods: self.player.rods,
             caught_at: self.caught_at.clone(),
+            caught_context: self.caught_context.clone(),
             buffs: self.buffs.clone(),
             dim: self.world.dim,
         }
@@ -1230,6 +1241,28 @@ impl App {
                                 *slot = self.pending_catch_loc.clone();
                             }
                         }
+                        // compute these BEFORE taking &mut slot so we don't
+                        // hold conflicting borrows of self.
+                        let secs = self.total_play_secs();
+                        let game_day = crate::gametime::game_days(secs);
+                        let w = crate::weather::weather_for(
+                            game_day,
+                            self.world.dim,
+                            self.current_biome
+                                .unwrap_or(crate::world::Biome::Meadow),
+                            self.world.seed,
+                        );
+                        let tod = crate::gametime::time_of_day(secs);
+                        let season = crate::gametime::season(secs);
+                        if let Some(slot) = self.caught_context.get_mut(i) {
+                            if slot.is_none() {
+                                *slot = Some((
+                                    tod.label().to_string(),
+                                    format!("{} {}", w.category(), w.value()),
+                                    season.label().to_string(),
+                                ));
+                            }
+                        }
                     }
                     if fish_ref.unique && already_had_unique {
                         self.narrator.say(format!(
@@ -1237,17 +1270,41 @@ impl App {
                             fish_ref.name
                         ));
                     } else {
-                        self.player.inventory.push(fish_ref);
+                        // Atlantis Population is a quantity multiplier:
+                        // Low=1, Medium=2, High=3 copies per catch.
+                        let game_day = crate::gametime::game_days(self.total_play_secs());
+                        let w = crate::weather::weather_for(
+                            game_day,
+                            self.world.dim,
+                            self.current_biome
+                                .unwrap_or(crate::world::Biome::Meadow),
+                            self.world.seed,
+                        );
+                        let copies = match w {
+                            crate::weather::Weather::PopMedium => 2,
+                            crate::weather::Weather::PopHigh => 3,
+                            _ => 1,
+                        };
+                        // unique fish never duplicate
+                        let actual_copies = if fish_ref.unique { 1 } else { copies };
+                        for _ in 0..actual_copies {
+                            self.player.inventory.push(fish_ref);
+                        }
                         let name = fish_ref.name.clone();
                         if fish_ref.unique {
                             self.narrator
                                 .say(format!("*** YOU REEL IN THE {}! ***", name.to_uppercase()));
+                        } else if actual_copies > 1 {
+                            self.narrator.say(format!(
+                                "You reel in {} {}s! (Atlantean Population bonus)",
+                                actual_copies, name
+                            ));
                         } else {
                             self.narrator
                                 .say(format!("You reel in a {}!", name));
                         }
                         self.narrator.say(format!(
-                            "Added to your basket ({} fish).",
+                            "Basket: {} fish.",
                             self.player.inventory.len()
                         ));
                     }
@@ -1456,17 +1513,32 @@ impl App {
                     }
                 }
                 let (water_kind, biome) = fishing_context(&self.world, nx, ny);
-                let dim_pool = dim_default_pool(self.world.dim, self.world.get(nx, ny));
+                let game_day = crate::gametime::game_days(self.total_play_secs());
+                let weather = crate::weather::weather_for(
+                    game_day,
+                    self.world.dim,
+                    self.current_biome.unwrap_or(crate::world::Biome::Meadow),
+                    self.world.seed,
+                );
+                let dim_pool = dim_default_pool(
+                    self.world.dim,
+                    self.world.get(nx, ny),
+                    weather,
+                    &mut self.rng_state,
+                );
                 let pool_override = self
                     .current_pool_override
                     .clone()
                     .or_else(|| dim_pool.map(|s| s.to_string()));
-                let f = crate::fish::pick_fish_with_pool(
+                let rare_window =
+                    crate::gametime::time_of_day(self.total_play_secs()).is_rare_window();
+                let f = crate::fish::pick_fish_weighted(
                     &mut self.rng_state,
                     fishlist::fish(),
                     &biome,
                     water_kind,
                     pool_override.as_deref(),
+                    rare_window,
                 );
                 self.narrator.say("Casting line - aim for the green!");
                 self.stats.casts += 1;
@@ -1489,12 +1561,15 @@ impl App {
                 {
                     let pool_override = self.current_pool_override.clone();
                     let (water_kind, biome) = fishing_context(&self.world, nx, ny);
-                    let f = crate::fish::pick_fish_with_pool(
+                    let rare_window =
+                        crate::gametime::time_of_day(self.total_play_secs()).is_rare_window();
+                    let f = crate::fish::pick_fish_weighted(
                         &mut self.rng_state,
                         fishlist::fish(),
                         &biome,
                         water_kind,
                         pool_override.as_deref(),
+                        rare_window,
                     );
                     self.narrator
                         .say(format!("THE ROD pierces reality. Pool: {}.", pool_override.as_deref().unwrap_or("?")));
@@ -1591,6 +1666,7 @@ impl App {
         let anim_tick = self.anim_tick;
         let caught_snapshot = self.caught.clone();
         let caught_at_snapshot = self.caught_at.clone();
+        let caught_context_snapshot = self.caught_context.clone();
         match &mut self.scene {
             Scene::Overworld => {
                 let area = frame.area();
@@ -1647,7 +1723,12 @@ impl App {
                 // fishing scene gets the whole frame; log is hidden during reel
                 g.render(frame, frame.area(), anim_tick);
             }
-            Scene::Fishdex(d) => d.render(frame, &caught_snapshot, &caught_at_snapshot),
+            Scene::Fishdex(d) => d.render(
+                frame,
+                &caught_snapshot,
+                &caught_at_snapshot,
+                &caught_context_snapshot,
+            ),
             Scene::NamePrompt(buf) => render_name_prompt(frame, buf),
             Scene::Dialogue { npc, line } => render_dialogue(frame, npc, *line),
             Scene::Notes(buf) => render_notes(frame, buf),
@@ -2836,18 +2917,42 @@ fn water_kind_at(world: &World, x: i32, y: i32) -> &'static str {
 /// Derive (water_kind, biome_label) for a fishing cast at (x, y) in the
 /// current dimension. Surface uses real biome+water. Mines and Atlantis
 /// short-circuit to their own pseudo-biome labels.
-/// Default pool to draw from based on the dim + tile being fished, before
-/// any explicit pool override the player set via The Rod. Mines mineral
-/// water yields mineral variants; lava in the Inferno yields infernal.
-fn dim_default_pool(dim: crate::world::Dimension, tile: Tile) -> Option<&'static str> {
+/// Default pool to draw from based on the dim + tile + the day's weather.
+/// In the Inferno the Temperature decides Hot/Burning/Infernal. In the
+/// Mines, Tectonic High forces mineral; Medium gives a 50% mineral chance;
+/// Low only yields mineral when fishing actual mineral water.
+fn dim_default_pool(
+    dim: crate::world::Dimension,
+    tile: Tile,
+    weather: crate::weather::Weather,
+    rng: &mut u32,
+) -> Option<&'static str> {
+    use crate::weather::Weather;
     match dim {
-        crate::world::Dimension::Mines => match tile {
-            Tile::MineralWater => Some("mineral"),
-            _ => None,
+        crate::world::Dimension::Mines => match weather {
+            Weather::TectonicHigh => Some("mineral"),
+            Weather::TectonicMedium => {
+                if crate::fish::next_rand_f32(rng) < 0.5 {
+                    Some("mineral")
+                } else if matches!(tile, Tile::MineralWater) {
+                    Some("mineral")
+                } else {
+                    None
+                }
+            }
+            _ => {
+                if matches!(tile, Tile::MineralWater) {
+                    Some("mineral")
+                } else {
+                    None
+                }
+            }
         },
-        crate::world::Dimension::Inferno => match tile {
-            Tile::Lava => Some("infernal"),
-            _ => Some("infernal"),
+        crate::world::Dimension::Inferno => match weather {
+            Weather::TempLow => Some("hot"),
+            Weather::TempMedium => Some("burning"),
+            Weather::TempHigh => Some("infernal"),
+            _ => Some("hot"),
         },
         _ => None,
     }

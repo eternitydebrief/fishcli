@@ -44,6 +44,22 @@ const VARIANTS: &[Variant] = &[
         rarity: 0.05,
     },
     Variant {
+        prefix: "Hot",
+        pool: "hot",
+        intro: "HOT: warm to the touch, slow to cool.",
+        price_mult: 3,
+        difficulty_bump: 1,
+        rarity: 0.10,
+    },
+    Variant {
+        prefix: "Burning",
+        pool: "burning",
+        intro: "BURNING: actively on fire, somehow alive.",
+        price_mult: 5,
+        difficulty_bump: 2,
+        rarity: 0.05,
+    },
+    Variant {
         prefix: "Infernal",
         pool: "infernal",
         intro: "INFERNAL: smoldering, bites with heat.",
