@@ -18,6 +18,8 @@ impl RodDef {
 
     /// Multiplier applied to fish speed in the minigame. Each tier shaves
     /// 1% off (multiplicatively), so tier 200 ≈ 13.4% of original speed.
+    /// (Planned wiring into the fishing minigame.)
+    #[allow(dead_code)]
     pub fn fish_speed_mult(&self) -> f32 {
         0.99f32.powi(self.tier as i32)
     }

@@ -70,11 +70,8 @@ pub fn npcs() -> &'static [Npc] {
     })
 }
 
-pub fn npc_at(x: i32, y: i32) -> Option<&'static Npc> {
-    npcs().iter().find(|n| n.x == x && n.y == y && n.dim == Dimension::Surface)
-}
-
-/// Dim-aware lookup. Use this from any caller that knows the current dim.
+/// Dim-aware lookup. Surface NPCs only show on Surface, mines NPCs only
+/// in mines, etc.
 pub fn npc_at_dim(x: i32, y: i32, dim: Dimension) -> Option<&'static Npc> {
     npcs().iter().find(|n| n.x == x && n.y == y && n.dim == dim)
 }

@@ -151,6 +151,7 @@ impl Biome {
     }
 }
 
+#[allow(dead_code)] // puddle_bonus is a planned hook for swamp puddles
 struct BiomeParams {
     tree: f32,
     big_rock: f32,

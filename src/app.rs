@@ -2329,7 +2329,9 @@ fn render_cast_overlay(
             let inner_h = bar_h;
             let marker_top = box_top + 1 + ((1.0 - c.cast_pos) * (inner_h - 2) as f32).round() as i32;
             let marker_bot = marker_top + 1;
-            let color = lerp_red_green(c.cast_pos);
+            let r = ((1.0 - c.cast_pos) * 230.0) as u8;
+            let g = (c.cast_pos * 220.0) as u8;
+            let color = Color::Rgb(r, g, 30);
             for sy in [marker_top, marker_bot] {
                 if sy < area.y as i32 || sy >= (area.y + area.height) as i32 {
                     continue;
@@ -2378,11 +2380,6 @@ fn render_cast_overlay(
     }
 }
 
-fn lerp_red_green(frac: f32) -> Color {
-    let r = ((1.0 - frac) * 230.0) as u8;
-    let g = (frac * 220.0) as u8;
-    Color::Rgb(r, g, 30)
-}
 
 fn render_rod_shop(
     frame: &mut Frame,

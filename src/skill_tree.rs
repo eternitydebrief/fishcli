@@ -12,8 +12,6 @@
 use serde::{Deserialize, Serialize};
 
 pub const T1_MAX_RANK: u32 = 5;
-pub const QC_T2_MAX_RANK: u32 = 5;
-pub const RL_T2_MAX_RANK: u32 = 5;
 pub const TM_T2_MAX_RANK: u32 = 4;
 
 /// Casts required per skill point. Tuned so 29 points (full tree maxed)
@@ -41,6 +39,7 @@ pub struct SkillTree {
     pub spent: u32,
 }
 
+#[allow(dead_code)] // getters are planned-API for fishing minigame wiring
 impl SkillTree {
     /// Total points the player has earned, derived from lifetime casts.
     pub fn earned(casts: u64) -> u32 {

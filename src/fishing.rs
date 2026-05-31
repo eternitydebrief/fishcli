@@ -524,9 +524,3 @@ fn next_rand_f32(s: &mut u32) -> f32 {
     (x as f32) / (u32::MAX as f32)
 }
 
-fn lerp_red_green(frac: f32) -> Color {
-    // frac=0 → red, frac=1 → green
-    let r = ((1.0 - frac) * 230.0) as u8;
-    let g = (frac * 220.0) as u8;
-    Color::Rgb(r, g, 30)
-}
