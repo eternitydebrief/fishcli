@@ -1453,6 +1453,9 @@ impl App {
                         }
                     }
                     self.quest_progress("catch", &fish_ref.name);
+                    // also tick the generic "catch any fish" counter so
+                    // quests like Shipwright's Hull (1250 catches) work
+                    self.quest_progress_silent("catch", "any");
                 } else if escaped {
                     self.narrator
                         .say(format!("The {} slips away.", fish_ref.name));

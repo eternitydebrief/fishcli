@@ -66,5 +66,12 @@
     "description": "Nereus stands at the pier's end and watches the horizon. He will row you to the deep - but only after a thousand fish on your line. Atlantis is real; the Five Elders do not entertain dilettantes.",
     "objective": { "kind": "talk", "target": "nereus", "count": 1 },
     "reward": { "valu": 1000 }
+  },
+  {
+    "id": "shipwrights-hull",
+    "title": "The Shipwright's Hull",
+    "description": "The Shipwright won't lift a chisel for less than 1,250 lifetime catches. Bring him the count, then talk to him on the pier — he'll lay you a hull worth riding. After that, :inspect any open water to push off.",
+    "objective": { "kind": "catch", "target": "any", "count": 1250 },
+    "reward": { "valu": 2000 }
   }
 ]
