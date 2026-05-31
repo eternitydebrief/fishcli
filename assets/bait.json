@@ -1,0 +1,14 @@
+[
+  { "_comment": "schema: { id (kebab-case), name, description, cost (valu per single bait), effect (rare_chance | catch_speed | valu_mult | xp_mult), magnitude (f32) }. Bait is consumed one per cast when equipped. Descriptions are user-editable narrative." },
+
+  { "id": "earthworm",     "name": "Earthworm",       "description": "Common bait. +2% catch speed for one cast.",       "cost": 5,    "effect": "catch_speed",  "magnitude": 0.02 },
+  { "id": "minnow",        "name": "Minnow",          "description": "Small live bait. +5% rare chance for one cast.",   "cost": 15,   "effect": "rare_chance",  "magnitude": 0.05 },
+  { "id": "shrimp",        "name": "Shrimp",          "description": "Ocean-friendly. +10% valu on the next sale.",      "cost": 40,   "effect": "valu_mult",    "magnitude": 0.10 },
+  { "id": "cricket",       "name": "Cricket",         "description": "Hyperactive. +5% catch speed.",                    "cost": 25,   "effect": "catch_speed",  "magnitude": 0.05 },
+  { "id": "glowfly",       "name": "Glowfly",         "description": "Luminous. +10% rare-fish chance.",                  "cost": 120,  "effect": "rare_chance",  "magnitude": 0.10 },
+  { "id": "midnight-moth", "name": "Midnight Moth",   "description": "Drawn to depth. +20% rare-fish chance.",            "cost": 400,  "effect": "rare_chance",  "magnitude": 0.20 },
+  { "id": "honey-bait",    "name": "Honey Bait",      "description": "Sticky sweet. +25% catch speed.",                   "cost": 350,  "effect": "catch_speed",  "magnitude": 0.25 },
+  { "id": "atlantean-roe", "name": "Atlantean Roe",   "description": "Forbidden roe. +50% valu on the next sale.",        "cost": 900,  "effect": "valu_mult",    "magnitude": 0.50 },
+  { "id": "fey-lure",      "name": "Fey Lure",        "description": "Wisp-laced. +30% rare chance and +15% xp.",         "cost": 2000, "effect": "rare_chance",  "magnitude": 0.30 },
+  { "id": "infernal-scale","name": "Infernal Scale",  "description": "Black-smoking. Doubles catch speed for one cast.",   "cost": 5000, "effect": "catch_speed",  "magnitude": 1.00 }
+]

@@ -23,6 +23,8 @@ pub struct Player {
     pub has_pickaxe: bool,
     /// Currently-equipped tackle (hat / vest / line / lure).
     pub tackle: crate::tackle::EquippedTackle,
+    /// Bait stock + active bait.
+    pub bait: crate::bait::BaitStock,
 }
 
 impl Player {
@@ -40,6 +42,7 @@ impl Player {
             on_boat: false,
             has_pickaxe: false,
             tackle: crate::tackle::EquippedTackle::default(),
+            bait: crate::bait::BaitStock::default(),
         }
     }
 }

@@ -99,6 +99,8 @@ pub struct SaveData {
     pub visited_inferno: bool,
     #[serde(default)]
     pub tackle: crate::tackle::EquippedTackle,
+    #[serde(default)]
+    pub bait: crate::bait::BaitStock,
 }
 
 /// Saves live in ./saves/ relative to the current working directory so they

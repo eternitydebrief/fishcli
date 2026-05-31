@@ -63,6 +63,9 @@ pub enum Scene {
     /// Tackle shop: 4 slot tabs (hat/vest/line/lure). h/l switch tab,
     /// j/k navigate tiers, enter buys the next tier of the active slot.
     TackleShop { slot_idx: usize, cursor: usize },
+    /// Bait shop: list of baits with current stock; enter buys 1, B equips
+    /// the active bait. q/esc leaves.
+    BaitShop { cursor: usize },
     /// Inside someone's house. Procedural one-room interior keyed by the
     /// world-coords of the door used to enter. Player moves with hjkl in
     /// a small grid; stepping back onto the interior door tile exits.
@@ -226,6 +229,9 @@ pub struct App {
     last_step_tick: u64,
     /// Vein cooldown / charge tracking. Keyed by (dim, x, y).
     pub veins: crate::mining::VeinMap,
+    /// Bait consumed at cast time; applied (and cleared) on the next catch.
+    /// Tuple is (effect_id, magnitude).
+    pub bait_pending: Option<(String, f32)>,
 }
 
 impl App {
@@ -296,6 +302,7 @@ impl App {
             held_until_tick: 0,
             last_step_tick: 0,
             veins: crate::mining::VeinMap::new(),
+            bait_pending: None,
         }
     }
 
@@ -416,6 +423,7 @@ impl App {
         self.visited_atlantis = data.visited_atlantis;
         self.visited_inferno = data.visited_inferno;
         self.player.tackle = data.tackle.clone();
+        self.player.bait = data.bait.clone();
         self.veins = data
             .veins
             .iter()
@@ -486,6 +494,7 @@ impl App {
             visited_atlantis: self.visited_atlantis,
             visited_inferno: self.visited_inferno,
             tackle: self.player.tackle.clone(),
+            bait: self.player.bait.clone(),
             veins: self
                 .veins
                 .iter()
@@ -1209,6 +1218,57 @@ impl App {
             Scene::Mining(_) => self.handle_mining_key(code),
             Scene::HouseInterior { .. } => self.handle_house_key(code),
             Scene::TackleShop { .. } => self.handle_tackle_key(code),
+            Scene::BaitShop { .. } => self.handle_bait_key(code),
+        }
+    }
+
+    fn handle_bait_key(&mut self, code: KeyCode) {
+        let defs = crate::bait::defs();
+        let n = defs.len();
+        let Scene::BaitShop { cursor } = &mut self.scene else { return };
+        match code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.scene = Scene::Overworld;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if n > 0 {
+                    *cursor = (*cursor + 1).min(n - 1);
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                *cursor = cursor.saturating_sub(1);
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                if let Some(d) = defs.get(*cursor) {
+                    if self.player.valu < d.cost {
+                        self.narrator.say(format!(
+                            "Need {}$V for one {}. You have {}$V.",
+                            d.cost, d.name, self.player.valu
+                        ));
+                        return;
+                    }
+                    self.player.valu -= d.cost;
+                    self.player.bait.add(&d.id, 1);
+                    self.narrator
+                        .say(format!("Bought 1 {} ({}$V).", d.name, d.cost));
+                }
+            }
+            KeyCode::Char('e') => {
+                // Equip the bait under the cursor (if owned).
+                if let Some(d) = defs.get(*cursor) {
+                    if self.player.bait.count(&d.id) > 0 {
+                        self.player.bait.active = Some(d.id.clone());
+                        self.narrator.say(format!("Equipped {}.", d.name));
+                    } else {
+                        self.narrator.say("You don't own any of this bait.");
+                    }
+                }
+            }
+            KeyCode::Char('u') => {
+                self.player.bait.active = None;
+                self.narrator.say("Unequipped bait.");
+            }
+            _ => {}
         }
     }
 
@@ -1467,6 +1527,10 @@ impl App {
                 self.scene = Scene::TackleShop { slot_idx: 0, cursor: 0 };
                 self.mode = Mode::Insert;
             }
+            "bait" | "b" => {
+                self.scene = Scene::BaitShop { cursor: 0 };
+                self.mode = Mode::Insert;
+            }
             "k" | "pool" => {
                 if self.player.rods.equipped >= 202 {
                     self.scene = Scene::LootPool { cursor: 0 };
@@ -1632,10 +1696,28 @@ impl App {
                     }
                     let base_xp = fish_catch_xp(fish_ref.difficulty);
                     let tackle_xp = 1.0 + self.player.tackle.sum_effect("xp_mult");
+                    let bait_xp = match &self.bait_pending {
+                        Some((e, m)) if e == "xp_mult" => 1.0 + *m,
+                        _ => 1.0,
+                    };
                     let gained = ((base_xp as f32)
                         * self.skill_tree.global_xp_mult()
-                        * tackle_xp) as u64;
+                        * tackle_xp
+                        * bait_xp) as u64;
                     let gained = gained.max(1);
+                    // Bait valu_mult: pay a one-time bonus equal to the fish's
+                    // sell price * magnitude, right now (so the player doesn't
+                    // have to remember which fish was caught with which bait).
+                    if let Some((e, m)) = self.bait_pending.clone() {
+                        if e == "valu_mult" {
+                            let bonus = ((fish_ref.sell_price() as f32) * m) as u64;
+                            self.player.valu = self.player.valu.saturating_add(bonus);
+                            self.lifetime_valu = self.lifetime_valu.saturating_add(bonus);
+                            self.stats.valu_earned = self.stats.valu_earned.saturating_add(bonus);
+                            self.narrator.say(format!("+{bonus}$V bait bonus."));
+                        }
+                    }
+                    self.bait_pending = None;
                     self.stats.fish_caught += 1;
                     // Fish mastery: bump per-species counter; if we crossed a
                     // milestone (1/5/10/25/50/100), bonus skill point + chat.
@@ -1941,8 +2023,19 @@ impl App {
                     .current_pool_override
                     .clone()
                     .or_else(|| dim_pool.map(|s| s.to_string()));
+                let bait_used = self.player.bait.consume_active();
+                let bait_effect = bait_used.map(|b| (b.effect.clone(), b.magnitude));
+                if let Some(b) = bait_used {
+                    self.narrator.say(format!("Bait: {} consumed.", b.name));
+                }
+                let rare_boost = bait_effect
+                    .as_ref()
+                    .map(|(e, _)| e == "rare_chance")
+                    .unwrap_or(false);
+                self.bait_pending = bait_effect;
                 let rare_window =
-                    crate::gametime::time_of_day(self.total_play_secs()).is_rare_window();
+                    crate::gametime::time_of_day(self.total_play_secs()).is_rare_window()
+                        || rare_boost;
                 let weather_name = weather.value();
                 let f = crate::fish::pick_fish_full(
                     &mut self.rng_state,
@@ -2532,6 +2625,9 @@ impl App {
                     &self.player.tackle,
                     self.player.valu,
                 );
+            }
+            Scene::BaitShop { cursor } => {
+                render_bait_shop(frame, *cursor, &self.player.bait, self.player.valu);
             }
         }
 
@@ -4450,6 +4546,71 @@ fn furn_style(f: crate::house::Furn) -> (char, Style) {
         style = style.add_modifier(Modifier::BOLD);
     }
     (g, style)
+}
+
+fn render_bait_shop(
+    frame: &mut Frame,
+    cursor: usize,
+    stock: &crate::bait::BaitStock,
+    valu: u64,
+) {
+    use ratatui::widgets::Paragraph;
+    let area = frame.area();
+    let title = format!(
+        " bait - j/k browse, enter buy 1, e equip, u unequip, q leave | valu {} ",
+        valu
+    );
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(Color::LightGreen));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let defs = crate::bait::defs();
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    let active_label = stock
+        .active
+        .as_deref()
+        .and_then(crate::bait::def_by_id)
+        .map(|d| d.name.as_str())
+        .unwrap_or("(none)");
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        format!("  Active: {}", active_label),
+        Style::default().fg(Color::LightGreen),
+    )));
+    lines.push(ratatui::text::Line::from(""));
+    for (i, d) in defs.iter().enumerate() {
+        let owned = stock.count(&d.id);
+        let selected = i == cursor;
+        let prefix = if selected { "> " } else { "  " };
+        let style = if selected {
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(40, 40, 40))
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        let line = format!(
+            "{prefix}{} - {}$V  (own {}) +{:.0}% {}",
+            d.name,
+            d.cost,
+            owned,
+            d.magnitude * 100.0,
+            d.effect
+        );
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(line, style)));
+        if selected {
+            lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+                format!("    {}", d.description),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+    }
+    frame.render_widget(
+        Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }),
+        inner,
+    );
 }
 
 fn render_tackle_shop(

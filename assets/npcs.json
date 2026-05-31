@@ -110,6 +110,22 @@
     ]
   },
   {
+    "id": "bait-vendor",
+    "name": "The Bait Vendor",
+    "x": 14,
+    "y": 0,
+    "glyph": "B",
+    "color": "lightgreen",
+    "dialogue": [
+      "The Bait Vendor wipes mud off her hands.",
+      "\"Bait, walker. One per cast. Some'll bring in rarer fish, some'll pull harder, some'll fetch more coin.\"",
+      "\"Talk to me with f, browse with the :bait command, equip and cast.\""
+    ],
+    "responses": {
+      "browse": "Bait Vendor: \"Open :bait to browse and equip.\""
+    }
+  },
+  {
     "id": "miner",
     "name": "The Miner",
     "x": 12,
