@@ -2803,7 +2803,13 @@ fn apply_world_overlay(
     let mut light = tod.light_factor();
     light *= weather_light_mult(display_weather);
     let season_tint = if matches!(dim, crate::world::Dimension::Surface) {
-        Some(season_color_shift(season))
+        let s = season_color_shift(season);
+        // skip the per-cell tint if season is neutral (Spring)
+        if (s.0 - 1.0).abs() > 0.02 || (s.1 - 1.0).abs() > 0.02 || (s.2 - 1.0).abs() > 0.02 {
+            Some(s)
+        } else {
+            None
+        }
     } else {
         None
     };
@@ -2964,8 +2970,16 @@ fn draw_weather_layer(
             if sx_abs < rect.x as i32 || sx_abs >= (rect.x + rect.width) as i32 {
                 continue;
             }
-            // Skip cells that show world structures or living things — they
-            // render OVER the weather, not under it.
+            // Cheap noise gate FIRST — only ~3-18% of cells pass the
+            // density check, so this lets us avoid 80%+ of the expensive
+            // is_weather_protected calls below.
+            let fallen_y = sy as u32;
+            let h = noise_hash(sx_abs, fallen_y as i32, phase);
+            if (h % 1000) >= scaled_density {
+                continue;
+            }
+            // Now check whether the cell is protected (player, npc,
+            // wall, roof, door, landmark, mine frame, tombstone, ...).
             let screen_dx = sx_abs - rect.x as i32;
             let screen_dy = (sy as i32) - rect.y as i32;
             let wx = player.0 - half_w + screen_dx;
@@ -2973,14 +2987,10 @@ fn draw_weather_layer(
             if is_weather_protected(world, wx, wy, player) {
                 continue;
             }
-            let fallen_y = sy as u32;
-            let h = noise_hash(sx_abs, fallen_y as i32, phase);
-            if (h % 1000) < scaled_density {
-                let cell = &mut buf[(sx_abs as u16, sy)];
-                let g = glyph_options[(h as usize) % glyph_options.len()];
-                cell.set_char(g);
-                cell.fg = particle_fg;
-            }
+            let cell = &mut buf[(sx_abs as u16, sy)];
+            let g = glyph_options[(h as usize) % glyph_options.len()];
+            cell.set_char(g);
+            cell.fg = particle_fg;
         }
     }
 }

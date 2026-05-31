@@ -51,8 +51,16 @@ fn main() -> Result<()> {
 fn run(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
     let mut app = App::new();
     let mut last_tick = Instant::now();
+    let mut dirty = true; // render at least once on startup
     while app.running {
-        terminal.draw(|frame| app.render(frame))?;
+        // Render only when something changed or the tick fired. Without
+        // this we drew every event-loop iteration — i.e. once per key
+        // event PLUS once per tick, so holding a movement key drove the
+        // CPU much harder than 20fps required.
+        if dirty {
+            terminal.draw(|frame| app.render(frame))?;
+            dirty = false;
+        }
 
         let timeout = TICK_RATE
             .checked_sub(last_tick.elapsed())
@@ -60,11 +68,13 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
                 app.handle_key(key);
+                dirty = true;
             }
         }
         if last_tick.elapsed() >= TICK_RATE {
             app.tick();
             last_tick = Instant::now();
+            dirty = true;
         }
     }
     Ok(())
