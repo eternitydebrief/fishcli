@@ -1467,6 +1467,7 @@ impl App {
                     self.interact_facing();
                 }
             }
+            KeyCode::Char('x') => self.inspect_surroundings(),
             KeyCode::Char(' ') => self.cast_action(),
             KeyCode::Esc if self.cast.is_some() => self.cancel_cast(),
             _ => {}
@@ -1478,25 +1479,21 @@ impl App {
         let tx = self.player.x + dx;
         let ty = self.player.y + dy;
         if let Some(npc) = npc::npc_at_dim(tx, ty, self.world.dim) {
-            self.narrator.say(format!("{}: press f to talk.", npc.name));
+            self.narrator
+                .say(format!("{}: press f to talk.", npc.name));
             return;
         }
         let t = self.world.get(tx, ty);
         // Inspect-to-board: if the player has a boat and the inspected
-        // tile is open water, step into it and become the boat. Without
-        // a boat, you can't swim — fish are dangerous.
-        if is_boatable(t) {
-            if self.player.has_boat && !self.player.on_boat {
-                self.player.on_boat = true;
-                self.player.x = tx;
-                self.player.y = ty;
-                self.narrator.say("You push off, riding the boat.");
-                self.check_biome_change();
-                self.mark_seen_around_player();
-                return;
-            }
-            self.narrator
-                .say("You cannot swim, fish are dangerous.");
+        // tile is open water, step in and become the boat. Otherwise just
+        // describe what's there — every tile has a describe() entry.
+        if is_boatable(t) && self.player.has_boat && !self.player.on_boat {
+            self.player.on_boat = true;
+            self.player.x = tx;
+            self.player.y = ty;
+            self.narrator.say("You push off, riding the boat.");
+            self.check_biome_change();
+            self.mark_seen_around_player();
             return;
         }
         self.narrator.say(t.describe());

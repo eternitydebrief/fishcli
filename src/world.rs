@@ -351,7 +351,6 @@ impl Tile {
                 | Tile::Path
                 | Tile::Dock
                 | Tile::CaveFloor
-                | Tile::MineExit
                 | Tile::Seabed
                 | Tile::DeepWater
                 | Tile::Kelp
