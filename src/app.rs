@@ -196,6 +196,13 @@ pub struct App {
     pub skills: Skills,
     pub buffs: crate::buffs::Buffs,
     pub skill_tree: crate::skill_tree::SkillTree,
+    /// Per-species catch count (parallel to `caught`). Mastery milestones
+    /// at 1/5/10/25/50/100 each grant a skill point and a small permanent
+    /// sale-value bonus for that species.
+    pub mastery: Vec<u32>,
+    /// Total mastery milestones earned across all species (sum, not per-fish).
+    /// Used to track skill-point granting so we never double-count.
+    pub mastery_milestones: u32,
     /// When set, all future casts ignore biome/water and pull from this
     /// named loot pool ("cosmic", "infernal", "angelic", "mineral", ...).
     /// Only settable by The Rod's k-menu and cleared by selecting Default.
@@ -248,6 +255,8 @@ impl App {
             caught: vec![false; fishlist::fish().len()],
             caught_at: vec![None; fishlist::fish().len()],
             caught_context: vec![None; fishlist::fish().len()],
+            mastery: vec![0; fishlist::fish().len()],
+            mastery_milestones: 0,
             pending_catch_loc: None,
             narrator,
             quest_progress: HashMap::new(),
@@ -382,6 +391,13 @@ impl App {
         self.skill_tree = data.skill_tree.clone();
         self.player.has_boat = data.has_boat;
         self.player.has_pickaxe = data.has_pickaxe;
+        if !data.mastery.is_empty() {
+            let n = self.mastery.len();
+            for (i, &v) in data.mastery.iter().enumerate().take(n) {
+                self.mastery[i] = v;
+            }
+        }
+        self.mastery_milestones = data.mastery_milestones;
         self.veins = data
             .veins
             .iter()
@@ -445,6 +461,8 @@ impl App {
             has_boat: self.player.has_boat,
             has_pickaxe: self.player.has_pickaxe,
             dim: self.world.dim,
+            mastery: self.mastery.clone(),
+            mastery_milestones: self.mastery_milestones,
             veins: self
                 .veins
                 .iter()
@@ -898,7 +916,7 @@ impl App {
                     KeyCode::Enter | KeyCode::Char(' ') => {
                         let node = &nodes[*cursor];
                         let lvl = self.skills.fishing_level();
-                        let available = self.skill_tree.available(lvl, 0, 0);
+                        let available = self.skill_tree.available(lvl, 0, self.mastery_milestones);
                         if available == 0 {
                             self.narrator.say("No skill points to spend.");
                         } else if self.skill_tree.rank(&node.id) >= node.max_rank {
@@ -1523,6 +1541,23 @@ impl App {
                     let gained = ((base_xp as f32) * self.skill_tree.global_xp_mult()) as u64;
                     let gained = gained.max(1);
                     self.stats.fish_caught += 1;
+                    // Fish mastery: bump per-species counter; if we crossed a
+                    // milestone (1/5/10/25/50/100), bonus skill point + chat.
+                    if let Some(i) = fishlist::fish().iter().position(|f| std::ptr::eq(f, fish_ref)) {
+                        let before_m = self.mastery.get(i).copied().unwrap_or(0);
+                        if let Some(slot) = self.mastery.get_mut(i) {
+                            *slot = slot.saturating_add(1);
+                        }
+                        let after_m = before_m + 1;
+                        const MILESTONES: &[u32] = &[1, 5, 10, 25, 50, 100];
+                        if MILESTONES.contains(&after_m) {
+                            self.mastery_milestones = self.mastery_milestones.saturating_add(1);
+                            self.narrator.say(format!(
+                                "*** Mastery {after_m} on {}! +1 skill point. ***",
+                                fish_ref.name
+                            ));
+                        }
+                    }
                     let before = self.skills.fishing_level();
                     self.skills.fishing_xp += gained;
                     let after = self.skills.fishing_level();
@@ -1975,11 +2010,22 @@ impl App {
 
     /// Group the (non-unique) basket by species name. Returns
     /// (name, unit_price_with_buff, count). Stable ordering matches inv.
+    /// +2% sale value per 5 mastery on that species, capped at +50% (125).
+    fn mastery_value_bonus(&self, fish_ref: &crate::fish::FishDef) -> f32 {
+        let m = fishlist::fish()
+            .iter()
+            .position(|f| std::ptr::eq(f, fish_ref))
+            .and_then(|i| self.mastery.get(i).copied())
+            .unwrap_or(0) as f32;
+        ((m / 5.0) * 0.02).min(0.5)
+    }
+
     fn fishmonger_listing(&self) -> Vec<(String, u64, u64)> {
         let mult = self.buffs.price_mult() * self.skill_tree.valu_mult();
         let mut out: Vec<(String, u64, u64)> = Vec::new();
         for f in self.player.inventory.iter().filter(|f| !f.unique) {
-            let price = ((f.sell_price() as f32) * mult).round() as u64;
+            let mbonus = self.mastery_value_bonus(f);
+            let price = ((f.sell_price() as f32) * mult * (1.0 + mbonus)).round() as u64;
             if let Some(entry) = out.iter_mut().find(|(n, _, _)| n == &f.name) {
                 entry.2 += 1;
             } else {
@@ -2001,7 +2047,8 @@ impl App {
             Vec::with_capacity(self.player.inventory.len());
         for f in self.player.inventory.iter() {
             if !f.unique && f.name == name && sold < count {
-                let price = ((f.sell_price() as f32) * mult).round() as u64;
+                let mbonus = self.mastery_value_bonus(f);
+                let price = ((f.sell_price() as f32) * mult * (1.0 + mbonus)).round() as u64;
                 total = total.saturating_add(price);
                 sold += 1;
             } else {
@@ -2242,6 +2289,7 @@ impl App {
                 *cursor,
                 &self.skill_tree,
                 self.skills.fishing_level(),
+                self.mastery_milestones,
             ),
             Scene::Fishing(g) => {
                 // fishing scene gets the whole frame; log is hidden during reel
@@ -3168,12 +3216,13 @@ fn render_skill_tree(
     cursor: usize,
     tree: &crate::skill_tree::SkillTree,
     fishing_level: u32,
+    mastery_milestones: u32,
 ) {
     use crate::skill_tree::SkillTree;
     use ratatui::widgets::Paragraph;
     let area = frame.area();
-    let earned = SkillTree::earned(fishing_level, 0, 0);
-    let available = tree.available(fishing_level, 0, 0);
+    let earned = SkillTree::earned(fishing_level, 0, mastery_milestones);
+    let available = tree.available(fishing_level, 0, mastery_milestones);
     let title = format!(
         " fishing school - {} points available ({} earned, 1 per fishing level, q/esc to leave) ",
         available, earned,

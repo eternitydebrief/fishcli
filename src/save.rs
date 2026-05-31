@@ -84,6 +84,11 @@ pub struct SaveData {
     /// Vein cooldown snapshot: (dim, x, y, charges_used, ready_at_unix_secs).
     #[serde(default)]
     pub veins: Vec<(Dimension, i32, i32, u8, u64)>,
+    /// Per-species mastery (catches), parallel to `caught`.
+    #[serde(default)]
+    pub mastery: Vec<u32>,
+    #[serde(default)]
+    pub mastery_milestones: u32,
 }
 
 /// Saves live in ./saves/ relative to the current working directory so they
