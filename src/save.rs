@@ -97,6 +97,8 @@ pub struct SaveData {
     pub visited_atlantis: bool,
     #[serde(default)]
     pub visited_inferno: bool,
+    #[serde(default)]
+    pub tackle: crate::tackle::EquippedTackle,
 }
 
 /// Saves live in ./saves/ relative to the current working directory so they

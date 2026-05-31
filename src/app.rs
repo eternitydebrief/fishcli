@@ -60,6 +60,9 @@ pub enum Scene {
     /// next expected character of the ore's name; wrong keys are ignored.
     /// Completing the name grants the ore and consumes a vein charge.
     Mining(crate::mining::Mining),
+    /// Tackle shop: 4 slot tabs (hat/vest/line/lure). h/l switch tab,
+    /// j/k navigate tiers, enter buys the next tier of the active slot.
+    TackleShop { slot_idx: usize, cursor: usize },
     /// Inside someone's house. Procedural one-room interior keyed by the
     /// world-coords of the door used to enter. Player moves with hjkl in
     /// a small grid; stepping back onto the interior door tile exits.
@@ -412,6 +415,7 @@ impl App {
         self.visited_mines = data.visited_mines;
         self.visited_atlantis = data.visited_atlantis;
         self.visited_inferno = data.visited_inferno;
+        self.player.tackle = data.tackle.clone();
         self.veins = data
             .veins
             .iter()
@@ -481,6 +485,7 @@ impl App {
             visited_mines: self.visited_mines,
             visited_atlantis: self.visited_atlantis,
             visited_inferno: self.visited_inferno,
+            tackle: self.player.tackle.clone(),
             veins: self
                 .veins
                 .iter()
@@ -1203,6 +1208,69 @@ impl App {
             Scene::NamePrompt(_) => {}
             Scene::Mining(_) => self.handle_mining_key(code),
             Scene::HouseInterior { .. } => self.handle_house_key(code),
+            Scene::TackleShop { .. } => self.handle_tackle_key(code),
+        }
+    }
+
+    fn handle_tackle_key(&mut self, code: KeyCode) {
+        use crate::tackle::Slot;
+        let Scene::TackleShop { slot_idx, cursor } = &mut self.scene else { return };
+        let slot = Slot::ALL[*slot_idx % Slot::ALL.len()];
+        let defs = crate::tackle::defs_for_slot(slot);
+        let n = defs.len();
+        match code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.scene = Scene::Overworld;
+                return;
+            }
+            KeyCode::Char('h') | KeyCode::Left => {
+                *slot_idx = (*slot_idx + Slot::ALL.len() - 1) % Slot::ALL.len();
+                *cursor = 0;
+                return;
+            }
+            KeyCode::Char('l') | KeyCode::Right => {
+                *slot_idx = (*slot_idx + 1) % Slot::ALL.len();
+                *cursor = 0;
+                return;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if n > 0 {
+                    *cursor = (*cursor + 1).min(n - 1);
+                }
+                return;
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                *cursor = cursor.saturating_sub(1);
+                return;
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                if let Some(d) = defs.get(*cursor) {
+                    let owned = self.player.tackle.tier(slot);
+                    if d.tier <= owned {
+                        self.narrator
+                            .say(format!("Already own {} (tier {}).", d.name, d.tier));
+                        return;
+                    }
+                    if d.tier != owned + 1 {
+                        self.narrator
+                            .say("Buy the previous tier first.");
+                        return;
+                    }
+                    if self.player.valu < d.cost {
+                        self.narrator.say(format!(
+                            "Need {}$V. You have {}$V.",
+                            d.cost, self.player.valu
+                        ));
+                        return;
+                    }
+                    self.player.valu -= d.cost;
+                    self.player.tackle.set_tier(slot, d.tier);
+                    self.narrator
+                        .say(format!("Bought {} ({}$V).", d.name, d.cost));
+                }
+                return;
+            }
+            _ => return,
         }
     }
 
@@ -1267,9 +1335,11 @@ impl App {
                     };
                     self.player.items.push(item);
                     let base_weight: u64 = (ore.value / 20).max(2);
+                    let tackle_xp = 1.0 + self.player.tackle.sum_effect("xp_mult");
                     let weight = ((base_weight as f32)
                         * self.skill_tree.global_xp_mult()
-                        * self.skill_tree.mining_xp_mult())
+                        * self.skill_tree.mining_xp_mult()
+                        * tackle_xp)
                         as u64;
                     let weight = weight.max(1);
                     let before = self.skills.mining_level();
@@ -1393,6 +1463,10 @@ impl App {
             "h" => self.narrator.say("Try :help for commands, :c for controls."),
             "inspect" | "look" => self.inspect_surroundings(),
             "g" | "pickup" => self.pickup_here(),
+            "tackle" | "tk" => {
+                self.scene = Scene::TackleShop { slot_idx: 0, cursor: 0 };
+                self.mode = Mode::Insert;
+            }
             "k" | "pool" => {
                 if self.player.rods.equipped >= 202 {
                     self.scene = Scene::LootPool { cursor: 0 };
@@ -1557,7 +1631,10 @@ impl App {
                         ));
                     }
                     let base_xp = fish_catch_xp(fish_ref.difficulty);
-                    let gained = ((base_xp as f32) * self.skill_tree.global_xp_mult()) as u64;
+                    let tackle_xp = 1.0 + self.player.tackle.sum_effect("xp_mult");
+                    let gained = ((base_xp as f32)
+                        * self.skill_tree.global_xp_mult()
+                        * tackle_xp) as u64;
                     let gained = gained.max(1);
                     self.stats.fish_caught += 1;
                     // Fish mastery: bump per-species counter; if we crossed a
@@ -2076,7 +2153,9 @@ impl App {
     }
 
     fn fishmonger_listing(&self) -> Vec<(String, u64, u64)> {
-        let mult = self.buffs.price_mult() * self.skill_tree.valu_mult();
+        let mult = self.buffs.price_mult()
+            * self.skill_tree.valu_mult()
+            * (1.0 + self.player.tackle.sum_effect("valu_mult"));
         let mut out: Vec<(String, u64, u64)> = Vec::new();
         for f in self.player.inventory.iter().filter(|f| !f.unique) {
             let mbonus = self.mastery_value_bonus(f);
@@ -2095,7 +2174,9 @@ impl App {
         if count == 0 {
             return;
         }
-        let mult = self.buffs.price_mult() * self.skill_tree.valu_mult();
+        let mult = self.buffs.price_mult()
+            * self.skill_tree.valu_mult()
+            * (1.0 + self.player.tackle.sum_effect("valu_mult"));
         let mut sold = 0u64;
         let mut total = 0u64;
         let mut keep: Vec<&'static crate::fish::FishDef> =
@@ -2442,6 +2523,15 @@ impl App {
             Scene::Mining(m) => render_mining(frame, m),
             Scene::HouseInterior { px, py, seed, .. } => {
                 render_house(frame, *px, *py, *seed);
+            }
+            Scene::TackleShop { slot_idx, cursor } => {
+                render_tackle_shop(
+                    frame,
+                    *slot_idx,
+                    *cursor,
+                    &self.player.tackle,
+                    self.player.valu,
+                );
             }
         }
 
@@ -4360,6 +4450,93 @@ fn furn_style(f: crate::house::Furn) -> (char, Style) {
         style = style.add_modifier(Modifier::BOLD);
     }
     (g, style)
+}
+
+fn render_tackle_shop(
+    frame: &mut Frame,
+    slot_idx: usize,
+    cursor: usize,
+    equipped: &crate::tackle::EquippedTackle,
+    valu: u64,
+) {
+    use crate::tackle::Slot;
+    use ratatui::widgets::Paragraph;
+    let area = frame.area();
+    let slot = Slot::ALL[slot_idx % Slot::ALL.len()];
+    let owned = equipped.tier(slot);
+    let title = format!(
+        " tackle - {} (h/l switch slot, j/k browse, enter buy, q leave) | valu {} ",
+        slot.label(),
+        valu
+    );
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(Color::Yellow));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    // Tab bar
+    let mut tab_spans: Vec<ratatui::text::Span> = Vec::new();
+    for (i, s) in Slot::ALL.iter().enumerate() {
+        let active = i == slot_idx;
+        let style = if active {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        tab_spans.push(ratatui::text::Span::styled(format!(" {} ", s.label()), style));
+        tab_spans.push(ratatui::text::Span::raw(" "));
+    }
+    lines.push(ratatui::text::Line::from(tab_spans));
+    lines.push(ratatui::text::Line::from(""));
+
+    let defs = crate::tackle::defs_for_slot(slot);
+    for (i, d) in defs.iter().enumerate() {
+        let selected = i == cursor;
+        let prefix = if selected { "> " } else { "  " };
+        let status = if d.tier <= owned {
+            "[OWNED]"
+        } else if d.tier == owned + 1 {
+            "[next]"
+        } else {
+            "[locked]"
+        };
+        let color = if d.tier <= owned {
+            Color::Green
+        } else if d.tier == owned + 1 {
+            Color::White
+        } else {
+            Color::DarkGray
+        };
+        let style = if selected {
+            Style::default()
+                .fg(color)
+                .bg(Color::Rgb(40, 40, 40))
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(color)
+        };
+        let line = format!(
+            "{prefix}T{} {} {} - {}$V  (+{:.0}% {})",
+            d.tier,
+            d.name,
+            status,
+            d.cost,
+            d.magnitude * 100.0,
+            d.effect
+        );
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(line, style)));
+        if selected {
+            lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+                format!("    {}", d.description),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+    }
+    frame.render_widget(Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }), inner);
 }
 
 fn render_mining(frame: &mut Frame, m: &crate::mining::Mining) {

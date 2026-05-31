@@ -1,0 +1,39 @@
+[
+  { "_comment": "schema: { id (kebab-case), slot (hat|vest|line|lure), tier (1..=12, lower = unlocked earlier), name, description, cost (valu), effect (one of: catch_speed | valu_mult | rect_h | rare_chance | xp_mult | mining_xp | typing_speed | inertia | bite_window), magnitude (f32). Each tier is purchasable at the rod shop's tackle tab; previous tier of the same slot is required to buy the next." },
+
+  { "id": "hat-1", "slot": "hat", "tier": 1, "name": "Straw Hat",            "description": "Keeps the sun off; +1% xp.",                    "cost": 100,    "effect": "xp_mult",       "magnitude": 0.01 },
+  { "id": "hat-2", "slot": "hat", "tier": 2, "name": "Fisherman's Cap",      "description": "Sturdier; +2% xp.",                              "cost": 350,    "effect": "xp_mult",       "magnitude": 0.02 },
+  { "id": "hat-3", "slot": "hat", "tier": 3, "name": "Wide-Brim Hat",        "description": "Shade for the patient; +3% xp.",                 "cost": 1200,   "effect": "xp_mult",       "magnitude": 0.03 },
+  { "id": "hat-4", "slot": "hat", "tier": 4, "name": "Oilskin Sou'wester",   "description": "Storm-proof; +5% xp.",                           "cost": 4000,   "effect": "xp_mult",       "magnitude": 0.05 },
+  { "id": "hat-5", "slot": "hat", "tier": 5, "name": "Captain's Hat",        "description": "Authority on the water; +7% xp.",                "cost": 12000,  "effect": "xp_mult",       "magnitude": 0.07 },
+  { "id": "hat-6", "slot": "hat", "tier": 6, "name": "Tricorn",              "description": "A pirate's eye on the take; +10% xp.",           "cost": 35000,  "effect": "xp_mult",       "magnitude": 0.10 },
+  { "id": "hat-7", "slot": "hat", "tier": 7, "name": "Crystal Crown",        "description": "Worn by deep-sea kings; +15% xp.",               "cost": 95000,  "effect": "xp_mult",       "magnitude": 0.15 },
+  { "id": "hat-8", "slot": "hat", "tier": 8, "name": "Atlantean Diadem",     "description": "Drawn from the Five Elders' wake; +20% xp.",     "cost": 250000, "effect": "xp_mult",       "magnitude": 0.20 },
+
+  { "id": "vest-1", "slot": "vest", "tier": 1, "name": "Patched Vest",       "description": "Pockets for hooks; +2% valu.",                   "cost": 150,    "effect": "valu_mult",     "magnitude": 0.02 },
+  { "id": "vest-2", "slot": "vest", "tier": 2, "name": "Tackle Vest",        "description": "Better organised; +4% valu.",                    "cost": 600,    "effect": "valu_mult",     "magnitude": 0.04 },
+  { "id": "vest-3", "slot": "vest", "tier": 3, "name": "Waxed Coat",         "description": "Waterproof; +6% valu.",                          "cost": 2000,   "effect": "valu_mult",     "magnitude": 0.06 },
+  { "id": "vest-4", "slot": "vest", "tier": 4, "name": "Smuggler's Jacket",  "description": "Hidden compartments; +9% valu.",                 "cost": 6500,   "effect": "valu_mult",     "magnitude": 0.09 },
+  { "id": "vest-5", "slot": "vest", "tier": 5, "name": "Pearl-Buttoned Vest","description": "Catches the eye; +12% valu.",                    "cost": 20000,  "effect": "valu_mult",     "magnitude": 0.12 },
+  { "id": "vest-6", "slot": "vest", "tier": 6, "name": "Merchant's Robe",    "description": "Negotiation in stitching; +16% valu.",           "cost": 55000,  "effect": "valu_mult",     "magnitude": 0.16 },
+  { "id": "vest-7", "slot": "vest", "tier": 7, "name": "Atlantean Cape",     "description": "A current woven into cloth; +22% valu.",         "cost": 150000, "effect": "valu_mult",     "magnitude": 0.22 },
+  { "id": "vest-8", "slot": "vest", "tier": 8, "name": "Khei's Mantle",      "description": "The First Water's gift; +30% valu.",             "cost": 500000, "effect": "valu_mult",     "magnitude": 0.30 },
+
+  { "id": "line-1", "slot": "line", "tier": 1, "name": "Cotton Line",        "description": "Common but reliable; +1% catch speed.",          "cost": 120,    "effect": "catch_speed",   "magnitude": 0.01 },
+  { "id": "line-2", "slot": "line", "tier": 2, "name": "Braided Line",       "description": "Tougher weave; +2% catch speed.",                "cost": 450,    "effect": "catch_speed",   "magnitude": 0.02 },
+  { "id": "line-3", "slot": "line", "tier": 3, "name": "Silk Line",          "description": "Smooth as breath; +3% catch speed.",             "cost": 1500,   "effect": "catch_speed",   "magnitude": 0.03 },
+  { "id": "line-4", "slot": "line", "tier": 4, "name": "Steel-Core Line",    "description": "Won't snap; +5% catch speed.",                   "cost": 5000,   "effect": "catch_speed",   "magnitude": 0.05 },
+  { "id": "line-5", "slot": "line", "tier": 5, "name": "Diamond Thread",     "description": "Cuts the water; +7% catch speed.",               "cost": 15000,  "effect": "catch_speed",   "magnitude": 0.07 },
+  { "id": "line-6", "slot": "line", "tier": 6, "name": "Mythril Line",       "description": "Whispers tension to your hands; +10% catch speed.","cost": 45000, "effect": "catch_speed",   "magnitude": 0.10 },
+  { "id": "line-7", "slot": "line", "tier": 7, "name": "Spider-Silk Line",   "description": "Light as breath, strong as fate; +14% catch speed.","cost": 120000,"effect": "catch_speed",   "magnitude": 0.14 },
+  { "id": "line-8", "slot": "line", "tier": 8, "name": "Celestial Thread",   "description": "Spun from a Bluefin Dragon's whisker; +18% catch speed.","cost": 400000,"effect": "catch_speed", "magnitude": 0.18 },
+
+  { "id": "lure-1", "slot": "lure", "tier": 1, "name": "Cork Bobber",        "description": "Plain; +1% rare chance.",                        "cost": 200,    "effect": "rare_chance",   "magnitude": 0.01 },
+  { "id": "lure-2", "slot": "lure", "tier": 2, "name": "Feather Lure",       "description": "Catches the eye; +2% rare chance.",              "cost": 700,    "effect": "rare_chance",   "magnitude": 0.02 },
+  { "id": "lure-3", "slot": "lure", "tier": 3, "name": "Spinner",            "description": "Glints; +3% rare chance.",                       "cost": 2200,   "effect": "rare_chance",   "magnitude": 0.03 },
+  { "id": "lure-4", "slot": "lure", "tier": 4, "name": "Frog Plug",          "description": "Hops along the surface; +4% rare chance.",       "cost": 7000,   "effect": "rare_chance",   "magnitude": 0.04 },
+  { "id": "lure-5", "slot": "lure", "tier": 5, "name": "Crankbait",          "description": "Dives deep; +5% rare chance.",                   "cost": 22000,  "effect": "rare_chance",   "magnitude": 0.05 },
+  { "id": "lure-6", "slot": "lure", "tier": 6, "name": "Jewel Spoon",        "description": "Inset gems; +7% rare chance.",                   "cost": 65000,  "effect": "rare_chance",   "magnitude": 0.07 },
+  { "id": "lure-7", "slot": "lure", "tier": 7, "name": "Living Lure",        "description": "It moves on its own; +9% rare chance.",          "cost": 180000, "effect": "rare_chance",   "magnitude": 0.09 },
+  { "id": "lure-8", "slot": "lure", "tier": 8, "name": "Fallen Fish Scale",  "description": "Plucked from the Inferno's prince; +12% rare chance.","cost": 550000,"effect": "rare_chance", "magnitude": 0.12 }
+]

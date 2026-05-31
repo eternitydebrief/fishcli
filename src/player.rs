@@ -21,6 +21,8 @@ pub struct Player {
     pub on_boat: bool,
     /// Required to mine ore veins. Bought from the Miner NPC.
     pub has_pickaxe: bool,
+    /// Currently-equipped tackle (hat / vest / line / lure).
+    pub tackle: crate::tackle::EquippedTackle,
 }
 
 impl Player {
@@ -37,6 +39,7 @@ impl Player {
             has_boat: false,
             on_boat: false,
             has_pickaxe: false,
+            tackle: crate::tackle::EquippedTackle::default(),
         }
     }
 }

@@ -30,6 +30,7 @@ mod rod;
 mod save;
 mod skill_tree;
 mod stats;
+mod tackle;
 mod world;
 
 use app::App;
