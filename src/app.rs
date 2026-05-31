@@ -1595,6 +1595,9 @@ impl App {
                 self.world.dim = crate::world::Dimension::Surface;
                 self.narrator.say("You climb back up to Sentinel's air.");
             }
+            Tile::OreRock => {
+                self.mine_ore_at(nx, ny);
+            }
             Tile::Dock
             | Tile::Water
             | Tile::Well
@@ -1843,6 +1846,56 @@ impl App {
             "Sold {} {} for {}$V.",
             sold, name, total
         ));
+    }
+
+    /// Break an ore rock: roll which ore drops, add to inventory, grant
+    /// mining xp. The rock visually stays (infinite source for now —
+    /// breaking-state can be added later). The mining skill scales up.
+    fn mine_ore_at(&mut self, x: i32, y: i32) {
+        const ORES: &[(&str, u64, u32)] = &[
+            // (name, sell price hint, weight)
+            ("Gold Nugget", 200, 5),
+            ("Silver Nugget", 120, 10),
+            ("Copper Chunk", 60, 20),
+            ("Turquoise", 90, 8),
+            ("Amethyst", 130, 6),
+            ("Ruby Shard", 220, 4),
+            ("Sapphire Shard", 220, 4),
+            ("Diamond Sliver", 500, 1),
+            ("Plain Stone", 5, 30),
+        ];
+        let h = crate::fish::next_rand_f32(&mut self.rng_state);
+        let total: u32 = ORES.iter().map(|(_, _, w)| *w).sum();
+        let pick = (h * total as f32) as u32;
+        let mut acc = 0u32;
+        let mut chosen = ORES[0];
+        for &entry in ORES {
+            acc += entry.2;
+            if pick < acc {
+                chosen = entry;
+                break;
+            }
+        }
+        let item = crate::item::Item {
+            name: chosen.0.to_string(),
+            category: crate::item::Category::Mineral,
+            description: format!("Mined from an ore vein. Worth ~{}$V to a smith.", chosen.1),
+        };
+        self.player.items.push(item);
+        // mining xp scales with rarity (inverse of weight)
+        let weight = chosen.2.max(1) as u64;
+        let xp = (40 / weight as u64).max(2);
+        let before = self.skills.mining_level();
+        self.skills.mining_xp += xp;
+        let after = self.skills.mining_level();
+        self.show_xp_gain("Mining", xp, self.skills.mining_xp, after);
+        if after > before {
+            self.narrator
+                .say(format!("Mining level up! Now level {after}."));
+        }
+        self.narrator
+            .say(format!("You chip a {} loose from the rock.", chosen.0));
+        let _ = (x, y); // location tracking could be added later
     }
 
     /// Sell every (non-unique) fish in the basket at fishmonger price.
