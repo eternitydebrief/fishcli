@@ -119,6 +119,167 @@
     ]
   },
 
+  { "_comment": "VILLAGE TUTORIAL NPCs. Cover the base mechanics without spoiling the bigger plot. Placed in a rough ring around the village square." },
+
+  {
+    "id": "tut-fishing",
+    "name": "Reel - Fishing Instructor",
+    "x": -6,
+    "y": 2,
+    "glyph": "I",
+    "color": "lightyellow",
+    "dialogue": [
+      "Reel folds her arms.",
+      "\"Step on a dock, well, or water tile and press f. A cast bar pops up - the longer you hold space, the further you throw. Release to lock the cast.\"",
+      "\"Then wait. A bobber blinks when something bites. Hit space at the bite and the reel minigame begins: keep the green rectangle on the moving fish until the meter fills. Don't let it slip.\"",
+      "\"Use a better rod and the fish slows down. Earn fishing xp from every catch, harder fish give more.\""
+    ]
+  },
+  {
+    "id": "tut-weather",
+    "name": "Stratus - Weather-Watcher",
+    "x": 6,
+    "y": 2,
+    "glyph": "W",
+    "color": "lightblue",
+    "dialogue": [
+      "Stratus squints at the top-right of your view.",
+      "\"See the panel up there? Season, time, date, weather. Weather is regional - a meadow gets rain or storms, a desert sees sandstorms, the tundra gets blizzards.\"",
+      "\"Some places have weather you wouldn't call weather. Trust me, you'll know it when you see it.\"",
+      "\"It changes once per game-day. Plan around it.\""
+    ]
+  },
+  {
+    "id": "tut-time",
+    "name": "Skywatcher Vesper",
+    "x": -8,
+    "y": 0,
+    "glyph": "V",
+    "color": "lightmagenta",
+    "dialogue": [
+      "Vesper points at the sky for no clear reason.",
+      "\"Time of day matters. The world brightens and dims as it should. There are two windows when the rarer creatures come up - I won't say which, but pay attention to the top-right panel when it lights up.\"",
+      "\"A real game day is four real minutes. Don't watch a clock; just keep fishing.\""
+    ]
+  },
+  {
+    "id": "tut-rod",
+    "name": "Smith Apprentice Coal",
+    "x": -10,
+    "y": -2,
+    "glyph": "C",
+    "color": "yellow",
+    "dialogue": [
+      "Coal wipes soot from his face.",
+      "\"Yellow D west of here is the rod shop. Buy the next tier with valu - each rod is faster, fish move slower. There are two hundred tiers in wood and metal.\"",
+      "\"You must own the previous tier to buy the next. Save up and climb the ladder.\""
+    ]
+  },
+  {
+    "id": "tut-school",
+    "name": "Headmistress Lila",
+    "x": 10,
+    "y": -2,
+    "glyph": "L",
+    "color": "magenta",
+    "dialogue": [
+      "Lila pats a thick leather-bound book.",
+      "\"Pink D east is the fishing school. Permanent technique upgrades there - bigger rectangle, faster bites, less escape chance. Real work, real changes.\"",
+      "\"The shop sells you a tool. The school changes you.\""
+    ]
+  },
+  {
+    "id": "tut-fishdex",
+    "name": "Archivist Quill",
+    "x": -3,
+    "y": -4,
+    "glyph": "Q",
+    "color": "lightcyan",
+    "dialogue": [
+      "Quill turns a page without looking up.",
+      "\"Type :e to open the fishdex. Every species you've caught gets a full entry - where you found it, when, in what weather, what season. Unknown ones stay locked.\"",
+      "\"There are more species than you'd think. A lot more.\""
+    ]
+  },
+  {
+    "id": "tut-quests",
+    "name": "Notary Ink",
+    "x": 3,
+    "y": -4,
+    "glyph": "T",
+    "color": "green",
+    "dialogue": [
+      "Ink scratches at a tablet.",
+      "\"Type :t for tasks. Active quests show up; press p on one to pin it - the pinned quest sticks to the top-left of your view as you walk.\"",
+      "\"Finish a quest, get valu. Some quests start automatically; some you have to find.\""
+    ]
+  },
+  {
+    "id": "tut-inventory",
+    "name": "Quartermaster Hodge",
+    "x": -3,
+    "y": 4,
+    "glyph": "H",
+    "color": "yellow",
+    "dialogue": [
+      "Hodge thumbs through your imaginary pockets.",
+      "\"Type :i for inventory. Fish go in the Fish tab; plants, minerals, and odd findings in their own tabs. h/l flips tabs.\"",
+      "\"Some catches are one-of-a-kind and go in Misc. They'll stay with you forever.\""
+    ]
+  },
+  {
+    "id": "tut-map",
+    "name": "Cartographer Mara",
+    "x": 3,
+    "y": 4,
+    "glyph": "M",
+    "color": "lightgreen",
+    "dialogue": [
+      "Mara unrolls a half-blank scroll.",
+      "\"Type :m for the map. Wherever you've walked is drawn; the rest is fog. Each dimension has its own map - the surface map doesn't show the caves and the caves don't show the surface.\"",
+      "\"Walk more. Map fills in.\""
+    ]
+  },
+  {
+    "id": "tut-stats",
+    "name": "Accountant Penn",
+    "x": 8,
+    "y": 0,
+    "glyph": "P",
+    "color": "cyan",
+    "dialogue": [
+      "Penn taps a long column of numbers.",
+      "\"Type :s for stats. Lifetime catches, escapes, casts, valu earned, steps, every skill level and xp. It's all there.\"",
+      "\"Numbers tell you what your hands have been doing while you weren't watching.\""
+    ]
+  },
+  {
+    "id": "tut-monger",
+    "name": "Coin the Fishmonger",
+    "x": -2,
+    "y": 6,
+    "glyph": "$",
+    "color": "yellow",
+    "dialogue": [
+      "Coin eyes your basket appraisingly. (Selling not wired yet - coming soon.)",
+      "\"When I'm open, walk a fish over and I'll quote you a price. Rare fish, more valu. Unique fish stay yours.\"",
+      "\"For now, just catch and hoard.\""
+    ]
+  },
+  {
+    "id": "tut-commands",
+    "name": "Vim the Scribe",
+    "x": 0,
+    "y": -6,
+    "glyph": "V",
+    "color": "lightgreen",
+    "dialogue": [
+      "Vim grins.",
+      "\":c for controls. :help for commands. :n for notes. :o for options. :l to leave a non-surface dim.\"",
+      "\"Esc returns to Normal mode; type : to start a command. The whole game's a vim window if you squint.\""
+    ]
+  },
+
   { "_comment": "ATLANTIS - centered around (0, 0) in the Atlantis dim. Five Elders in their throne room; Bluefin Celestial Dragons flank them; guards with golden Y tridents on the walls; citizens around the city." },
 
   {

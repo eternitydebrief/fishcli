@@ -2119,6 +2119,16 @@ fn village_tile(x: i32, y: i32) -> Option<Tile> {
         ((21, 25), (-7, -5), (23, -5), Tile::DoorSchool),
         ((16, 20), (-1, 1), (18, 1), Tile::DoorSchool),
         ((33, 37), (-1, 1), (35, 1), Tile::DoorSchool),
+        // Tutorial quarter - additional civilian dwellings flanking the
+        // village square so the new NPCs feel embedded in a real settlement.
+        ((-15, -11), (-13, -11), (-13, -11), Tile::Wall),
+        ((-5, -1), (-13, -11), (-3, -11), Tile::Wall),
+        ((5, 9), (-13, -11), (7, -11), Tile::Wall),
+        ((15, 19), (-13, -11), (17, -11), Tile::Wall),
+        ((-15, -11), (-10, -8), (-13, -8), Tile::Wall),
+        ((11, 15), (-10, -8), (13, -8), Tile::Wall),
+        ((-32, -28), (-13, -11), (-30, -11), Tile::Wall),
+        ((28, 32), (-13, -11), (30, -11), Tile::Wall),
     ];
 
     for &((xa, xb), (ya, yb), (dx, dy), dkind) in houses {
