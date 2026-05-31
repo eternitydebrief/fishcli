@@ -1498,14 +1498,20 @@ impl App {
         }
         let t = self.world.get(tx, ty);
         // Inspect-to-board: if the player has a boat and the inspected
-        // tile is open water, step into it and become the boat.
-        if self.player.has_boat && is_boatable(t) && !self.player.on_boat {
-            self.player.on_boat = true;
-            self.player.x = tx;
-            self.player.y = ty;
-            self.narrator.say("You push off, riding the boat.");
-            self.check_biome_change();
-            self.mark_seen_around_player();
+        // tile is open water, step into it and become the boat. Without
+        // a boat, you can't swim — fish are dangerous.
+        if is_boatable(t) {
+            if self.player.has_boat && !self.player.on_boat {
+                self.player.on_boat = true;
+                self.player.x = tx;
+                self.player.y = ty;
+                self.narrator.say("You push off, riding the boat.");
+                self.check_biome_change();
+                self.mark_seen_around_player();
+                return;
+            }
+            self.narrator
+                .say("You cannot swim, fish are dangerous.");
             return;
         }
         self.narrator.say(t.describe());
@@ -1519,7 +1525,7 @@ impl App {
             return; // blocked by NPC; press f to interact
         }
         let t = self.world.get(nx, ny);
-        let walkable = t.walkable() || is_swimmable(t) || (self.player.on_boat && is_boatable(t));
+        let walkable = t.walkable() || (self.player.on_boat && is_boatable(t));
         if !walkable {
             return;
         }
@@ -2079,12 +2085,6 @@ impl App {
                     .border_style(Style::default().fg(Color::Cyan));
                 let inner = block.inner(area);
                 frame.render_widget(block, area);
-                // swimming: player isn't on boat but is standing on a
-                // water tile (Water/DeepWater/Seabed/etc.)
-                let on_water = is_swimmable(
-                    self.world.get(self.player.x, self.player.y),
-                );
-                let swimming = on_water && !self.player.on_boat;
                 frame.render_widget(
                     WorldView {
                         world: &self.world,
@@ -2092,7 +2092,7 @@ impl App {
                         player_facing: self.player.facing,
                         tick: anim_tick,
                         player_on_boat: self.player.on_boat,
-                        player_swimming: swimming,
+                        player_swimming: false,
                     },
                     inner,
                 );
@@ -3544,18 +3544,8 @@ fn render_debug_console(
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-/// True if the player can swim onto this tile (no boat required). The
-/// player swims slow but free — exists so the ocean isn't a hard wall.
-fn is_swimmable(t: Tile) -> bool {
-    matches!(
-        t,
-        Tile::Water | Tile::DeepWater | Tile::Seabed | Tile::Kelp | Tile::Anemone | Tile::Dock
-    )
-}
-
-/// True if the player can ride a boat onto this tile. Slightly stricter
-/// than swimmable (no Lava — boats burn). Wells and MineralWater also
-/// excluded for now (small water pockets, not navigable).
+/// True if the player can ride a boat onto this tile. (Swimming isn't a
+/// thing — fish are dangerous. Only a boat lets you cross water.)
 fn is_boatable(t: Tile) -> bool {
     matches!(t, Tile::Water | Tile::DeepWater | Tile::Seabed | Tile::Kelp | Tile::Anemone)
 }
