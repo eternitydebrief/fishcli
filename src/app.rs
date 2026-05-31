@@ -2601,9 +2601,9 @@ impl App {
         if !matches!(weather, crate::weather::Weather::Thunderstorm) {
             return;
         }
-        // ~2.5% per tick (20 fps) → roughly one bolt every two seconds
+        // ~1% per tick (20 fps) → roughly one bolt every five seconds
         let r = crate::fish::next_rand_f32(&mut self.rng_state);
-        if r < 0.025 {
+        if r < 0.01 {
             // We don't know the screen dimensions inside tick(); use a
             // generous canvas of 120 wide x 30 tall. The renderer will
             // clip points outside the actual world rect.
@@ -2692,12 +2692,13 @@ fn apply_world_overlay(
     lightning: Option<&LightningBolt>,
 ) {
     // base light from time of day; a lightning flash brightens for the
-    // first two frames of the bolt.
+    // first frame only (a small bump so the strike registers without
+    // blowing out the whole scene).
     let mut light = tod.light_factor();
     if let Some(b) = lightning {
         let age = b.total_frames - b.frames_remaining;
-        if age <= 1 {
-            light = (light + 0.6).min(1.4);
+        if age == 0 {
+            light = (light + 0.15).min(1.2);
         }
     }
     // weather darkens further (heavy clouds, storm, fog)
@@ -2736,9 +2737,6 @@ fn apply_world_overlay(
         weather_particle(weather)
     };
     if let Some((density, glyph_options, fg)) = particle {
-        // hash(sx, sy, tick_window) decides whether a cell becomes a
-        // particle this frame; uses a small tick stride so particles
-        // appear to "fall".
         let stride = match weather {
             crate::weather::Weather::Rain | crate::weather::Weather::Thunderstorm => 2,
             crate::weather::Weather::Snow => 6,
@@ -2747,36 +2745,39 @@ fn apply_world_overlay(
             crate::weather::Weather::Blizzard => 2,
             _ => 4,
         };
+        // Particles inherit the day/night light so they don't blaze
+        // against a dark night world. Use base light (no flash) so a
+        // lightning strike doesn't repaint every rain drop white.
+        let particle_fg = scale_color(fg, tod.light_factor() * weather_mult);
         let phase = (tick / stride) as u32;
         for sy in rect.y..rect.y + rect.height {
             for sx in rect.x..rect.x + rect.width {
-                // fall: shift y based on phase so the pattern moves down
                 let fallen_y = sy as u32;
                 let h = noise_hash(sx as i32, fallen_y as i32, phase);
                 if (h % 1000) < density {
                     let cell = &mut buf[(sx, sy)];
                     let g = glyph_options[(h as usize) % glyph_options.len()];
                     cell.set_char(g);
-                    cell.fg = fg;
+                    cell.fg = particle_fg;
                 }
             }
         }
     }
-    // Third pass: lightning bolt. Draw bright cells on top of everything.
+    // Third pass: lightning bolt. Bright cells on top of everything; the
+    // first frames flash white, then it fades. Lightning itself ignores
+    // night dimming (it's the lightning that brightens the sky).
     if let Some(b) = lightning {
         let buf = frame.buffer_mut();
-        // brightness fades over the bolt's life
         let age = b.total_frames - b.frames_remaining;
         let brightness = if age <= 1 {
-            (255u8, 255u8, 255u8)
+            (240u8, 240u8, 255u8)
         } else if age == 2 {
-            (220, 220, 255)
+            (180, 180, 220)
         } else {
-            (170, 170, 230)
+            (130, 130, 180)
         };
         for trunk in &b.trunks {
             for &(bx, by, g) in trunk {
-                // bolt coords are 0-based relative to the rect
                 let cx = rect.x + bx;
                 let cy = rect.y + by;
                 if cx < rect.x + rect.width && cy < rect.y + rect.height {
@@ -2799,13 +2800,14 @@ fn weather_particle(
 ) -> Option<(u32, &'static [char], ratatui::style::Color)> {
     use crate::weather::Weather;
     use ratatui::style::Color;
+    // Particles are sparse so the underlying world stays readable.
     match w {
-        Weather::Rain => Some((90, &['/'], Color::Rgb(170, 200, 255))),
-        Weather::Thunderstorm => Some((150, &['/', '\\'], Color::Rgb(190, 200, 255))),
-        Weather::Snow => Some((60, &['*', '.'], Color::Rgb(240, 240, 250))),
-        Weather::Blizzard => Some((180, &['*', '.', '+'], Color::Rgb(250, 250, 255))),
-        Weather::Sandstorm => Some((180, &['~', '.', '`'], Color::Rgb(220, 190, 130))),
-        Weather::Fog => Some((40, &['='], Color::Rgb(190, 190, 200))),
+        Weather::Rain => Some((30, &['/'], Color::Rgb(140, 170, 210))),
+        Weather::Thunderstorm => Some((45, &['/'], Color::Rgb(150, 165, 200))),
+        Weather::Snow => Some((25, &['*', '.'], Color::Rgb(210, 215, 225))),
+        Weather::Blizzard => Some((70, &['*', '.', '+'], Color::Rgb(220, 225, 235))),
+        Weather::Sandstorm => Some((60, &['~', '.', '`'], Color::Rgb(190, 165, 110))),
+        Weather::Fog => Some((20, &['='], Color::Rgb(150, 155, 170))),
         _ => None,
     }
 }
