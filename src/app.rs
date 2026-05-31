@@ -1765,7 +1765,15 @@ impl App {
                 }
                 // weather + day/night overlay drawn ON TOP of the world
                 // tiles but UNDER the HUD so the HUD stays readable.
-                let weather = self.current_weather();
+                // While a transition is in flight the displayed "new"
+                // weather is locked to its target — otherwise wandering
+                // through more biomes mid-transition would desync the
+                // particles from the wipe.
+                let weather = if let Some(t) = self.weather_transition.as_ref() {
+                    t.new
+                } else {
+                    self.current_weather()
+                };
                 let tod = crate::gametime::time_of_day(self.total_play_secs());
                 let season = crate::gametime::season(self.total_play_secs());
                 apply_world_overlay(
@@ -2658,6 +2666,10 @@ impl App {
     /// Detect a weather change since last frame and kick off a fade-in
     /// transition. Each transition has a "settle" phase (old keeps falling
     /// off the screen) then a "wipe" phase (new sweeps in from the right).
+    ///
+    /// Crucial: an in-progress transition is NEVER interrupted by a new
+    /// one. Without this, walking across rapid biome jitter triggered a
+    /// fresh transition every couple of frames and the world flashed.
     fn tick_weather_transition(&mut self) {
         // Advance any active transition.
         if let Some(t) = self.weather_transition.as_mut() {
@@ -2669,15 +2681,12 @@ impl App {
             if t.is_done() {
                 self.weather_transition = None;
             }
+            // While a transition is active, do NOT scan for new ones. We
+            // also lock `last_weather` to the in-flight target so the
+            // post-transition state matches the screen.
+            return;
         }
-        // Check for a weather change (biome moved or in-game day rolled).
-        let day = crate::gametime::game_days(self.total_play_secs());
-        let new_w = crate::weather::weather_for(
-            day,
-            self.world.dim,
-            self.current_biome.unwrap_or(crate::world::Biome::Meadow),
-            self.world.seed,
-        );
+        let new_w = self.current_weather();
         match self.last_weather {
             None => {
                 self.last_weather = Some(new_w);
