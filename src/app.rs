@@ -2659,35 +2659,60 @@ fn render_cast_overlay(
             let box_x_left = player_sx - 1;
             let box_x_right = player_sx + 1;
             let buf = frame.buffer_mut();
-            // borders
-            for sy in box_top..=box_bot {
-                if sy < area.y as i32 || sy >= (area.y + area.height) as i32 {
-                    continue;
-                }
-                if box_x_left >= area.x as i32 {
-                    buf[(box_x_left as u16, sy as u16)]
-                        .set_char('|')
-                        .set_style(Style::default().fg(Color::Yellow));
-                }
-                if box_x_right < (area.x + area.width) as i32 {
-                    buf[(box_x_right as u16, sy as u16)]
-                        .set_char('|')
-                        .set_style(Style::default().fg(Color::Yellow));
+            let in_area = |sx: i32, sy: i32| {
+                sx >= area.x as i32
+                    && sy >= area.y as i32
+                    && sx < (area.x + area.width) as i32
+                    && sy < (area.y + area.height) as i32
+            };
+            // black interior so the cast meter doesn't blend into terrain
+            for sy in (box_top + 1)..=(box_bot - 1) {
+                for sx in (box_x_left + 1)..=(box_x_right - 1) {
+                    if !in_area(sx, sy) {
+                        continue;
+                    }
+                    buf[(sx as u16, sy as u16)]
+                        .set_char(' ')
+                        .set_style(Style::default().bg(Color::Black));
                 }
             }
-            for sx in box_x_left..=box_x_right {
-                if sx < area.x as i32 || sx >= (area.x + area.width) as i32 {
-                    continue;
+            // vertical sides (skip corners)
+            for sy in (box_top + 1)..=(box_bot - 1) {
+                if in_area(box_x_left, sy) {
+                    buf[(box_x_left as u16, sy as u16)]
+                        .set_char('|')
+                        .set_style(Style::default().fg(Color::Yellow).bg(Color::Black));
                 }
-                if box_top >= area.y as i32 {
+                if in_area(box_x_right, sy) {
+                    buf[(box_x_right as u16, sy as u16)]
+                        .set_char('|')
+                        .set_style(Style::default().fg(Color::Yellow).bg(Color::Black));
+                }
+            }
+            // horizontal top/bottom (skip corners)
+            for sx in (box_x_left + 1)..=(box_x_right - 1) {
+                if in_area(sx, box_top) {
                     buf[(sx as u16, box_top as u16)]
                         .set_char('-')
-                        .set_style(Style::default().fg(Color::Yellow));
+                        .set_style(Style::default().fg(Color::Yellow).bg(Color::Black));
                 }
-                if box_bot < (area.y + area.height) as i32 {
+                if in_area(sx, box_bot) {
                     buf[(sx as u16, box_bot as u16)]
                         .set_char('-')
-                        .set_style(Style::default().fg(Color::Yellow));
+                        .set_style(Style::default().fg(Color::Yellow).bg(Color::Black));
+                }
+            }
+            // corners
+            for (sx, sy) in [
+                (box_x_left, box_top),
+                (box_x_right, box_top),
+                (box_x_left, box_bot),
+                (box_x_right, box_bot),
+            ] {
+                if in_area(sx, sy) {
+                    buf[(sx as u16, sy as u16)]
+                        .set_char('+')
+                        .set_style(Style::default().fg(Color::Yellow).bg(Color::Black));
                 }
             }
             // 2-tall moving cell inside the box (range: box_top+1..=box_bot-1, with size 2)
