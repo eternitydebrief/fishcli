@@ -9,7 +9,10 @@ use std::collections::HashMap;
 
 // per-thread memoization for the two most-called lookups. capped so memory
 // stays bounded across long explorations.
-const CACHE_CAP: usize = 16384;
+// 131072 ≈ enough to hold ~10x a typical wide-terminal view; with a smaller
+// cap we were thrashing — clearing mid-frame and recomputing biome/water
+// noise per cell.
+const CACHE_CAP: usize = 131072;
 
 thread_local! {
     static BIOME_CACHE: RefCell<HashMap<(i32, i32), Biome>> = RefCell::new(HashMap::with_capacity(CACHE_CAP));
@@ -1800,7 +1803,14 @@ fn hash2(x: i32, y: i32, seed: u32) -> u32 {
 /// outside the village zone and never inside water. The anchor cell becomes
 /// the interactable MineEntrance; the 5 surrounding cells render as MineFrame.
 fn is_mine_entrance_anchor(x: i32, y: i32, seed: u32) -> bool {
-    // keep entrances on dry, dry-ish land — never under the ocean or in the village
+    // Hash test FIRST — only ~1/900 cells pass it. The expensive water /
+    // village checks below run for <0.2% of cells instead of all of them.
+    // This is called up to 41 times per surface render cell (1 + 5 frame
+    // + 35 rocky halo) so short-circuiting here is a massive perf win.
+    let h = hash2(x, y, seed.wrapping_add(0xE17E_ED01));
+    if h % 900 != 7 {
+        return false;
+    }
     if y >= 4 {
         return false;
     }
@@ -1810,9 +1820,7 @@ fn is_mine_entrance_anchor(x: i32, y: i32, seed: u32) -> bool {
     if cached_water_body_at(x, y, seed) {
         return false;
     }
-    // about 1 per 900 cells: visible-ish landmarks. Tune as needed.
-    let h = hash2(x, y, seed.wrapping_add(0xE17E_ED01));
-    h % 900 == 7
+    true
 }
 
 fn mine_entrance_tile_at(x: i32, y: i32, seed: u32) -> Option<Tile> {
