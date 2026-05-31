@@ -75,7 +75,7 @@ impl Fishing {
         tree: &crate::skill_tree::SkillTree,
     ) -> Self {
         let bar_h = 20usize;
-        let rect_h = fish.rect_h();
+        let rect_h = (fish.rect_h() + tree.rect_h_bonus()).min(bar_h as f32 - 1.0);
         let rect_y = (bar_h as f32 - rect_h) / 2.0;
         let mid = bar_h as f32 / 2.0;
         let rod_mult = 0.99f32.powi(rod_tier as i32);

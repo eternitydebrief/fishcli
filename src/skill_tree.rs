@@ -1,279 +1,374 @@
-//! Fishing School skill tree.
+#![allow(dead_code)]
+//! Fishing School skill tree — data-driven.
 //!
-//! Three parallel trees the player invests skill points into. Points come
-//! from lifetime `casts` (one point per 1500 casts). The math is tuned so
-//! maxing all three trees takes ~500 hours of active fishing.
+//! 75 nodes across 5 trees (Angler / Naturalist / Mariner / Prospector /
+//! Spirit). Each node has 1-5 ranks; investing 1 point in a node unlocks
+//! all of its direct children (no need to max). All node definitions live
+//! in `assets/skill_tree.json` so labels and descriptions can be rewritten
+//! without touching source. Source only knows the effect *ids* and how
+//! each one resolves into a gameplay number.
 //!
-//! Each tree has two unlockable tiers (a third is planned later):
-//!   - Tier 1 (named after the tree): cheap stat boost, 5 ranks
-//!   - Tier 2: active or passive ability, unlocked only when T1 is fully
-//!     ranked; 4 or 5 ranks of escalating effect.
+//! Skill points come from fishing level-ups (1 per level) plus future
+//! achievement / mastery streams. Maxing every rank takes ~280 points.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
-pub const T1_MAX_RANK: u32 = 5;
-pub const TM_T2_MAX_RANK: u32 = 4;
-pub const T3_MAX_RANK: u32 = 5;
+const SKILLS_JSON: &str = include_str!("../assets/skill_tree.json");
 
-/// Casts required per skill point. Tuned so 29 points (full tree maxed)
-/// takes ~500 hours of active fishing.
-pub const CASTS_PER_POINT: u64 = 1500;
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+pub enum TreeBranch {
+    Angler,
+    Naturalist,
+    Mariner,
+    Prospector,
+    Spirit,
+}
+
+impl TreeBranch {
+    pub fn label(self) -> &'static str {
+        match self {
+            TreeBranch::Angler => "Angler",
+            TreeBranch::Naturalist => "Naturalist",
+            TreeBranch::Mariner => "Mariner",
+            TreeBranch::Prospector => "Prospector",
+            TreeBranch::Spirit => "Spirit",
+        }
+    }
+    pub const ALL: &'static [TreeBranch] = &[
+        TreeBranch::Angler,
+        TreeBranch::Naturalist,
+        TreeBranch::Mariner,
+        TreeBranch::Prospector,
+        TreeBranch::Spirit,
+    ];
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct NodeDef {
+    pub id: String,
+    pub tree: TreeBranch,
+    #[serde(default)]
+    pub parents: Vec<String>,
+    pub label: String,
+    pub description: String,
+    pub max_rank: u32,
+    pub effect: String,
+    #[serde(default)]
+    pub per_rank: f32,
+}
+
+static NODES: OnceLock<Vec<NodeDef>> = OnceLock::new();
+
+pub fn nodes() -> &'static [NodeDef] {
+    NODES.get_or_init(|| {
+        let raw: Vec<serde_json::Value> = serde_json::from_str(SKILLS_JSON)
+            .expect("assets/skill_tree.json failed to parse");
+        raw.into_iter()
+            .filter(|v| v.get("id").and_then(|n| n.as_str()).is_some())
+            .map(|v| serde_json::from_value(v).expect("skill node entry malformed"))
+            .collect()
+    })
+}
+
+pub fn node_by_id(id: &str) -> Option<&'static NodeDef> {
+    nodes().iter().find(|n| n.id == id)
+}
+
+pub fn nodes_in_tree(t: TreeBranch) -> Vec<&'static NodeDef> {
+    nodes().iter().filter(|n| n.tree == t).collect()
+}
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct SkillTree {
-    /// Quickcatch tier 1: fishing speed boost (0..=5)
-    pub quickcatch_t1: u32,
-    /// Quickcatch tier 2: perfect throw bonus (0..=5)
-    pub quickcatch_t2: u32,
-    /// Rod of Legends tier 1: rectangle inertia reduce (0..=5)
-    pub legends_t1: u32,
-    /// Rod of Legends tier 2: active rectangle boost duration (0..=5)
-    pub legends_t2: u32,
-    /// Rod of Legends "Heavy Yank" — strength of the yank-down key.
-    /// 0 = weak (0.30), 5 = full (1.20, same as yank-up). No prereq.
-    pub legends_yank: u32,
-    /// Quickcatch T3 "Effortless" — +10% catch progress per rank when
-    /// fish is inside rectangle. Unlocked after Quickcatch T2 maxed.
-    pub quickcatch_t3: u32,
-    /// Rod of Legends T3 "Phantom Rod" — rectangle drifts toward fish_y
-    /// when no input held; per-rank pull strength. Unlocked after T2 max.
-    pub legends_t3: u32,
-    /// Tamer T3 "Telepathic Lure" — fish doesn't change direction for
-    /// first 2s per rank. Unlocked after Tamer T2 maxed.
-    pub tamer_t3: u32,
-    /// Tamer tier 1: fish chaos reduce (0..=5)
-    pub tamer_t1: u32,
-    /// Tamer tier 2: active fish slow strength (0..=4)
-    pub tamer_t2: u32,
-    /// Total points already invested in any node.
+    /// node_id -> rank invested. Empty by default.
+    #[serde(default)]
+    pub ranks: BTreeMap<String, u32>,
+    #[serde(default)]
     pub spent: u32,
 }
 
-#[allow(dead_code)] // getters are planned-API for fishing minigame wiring
 impl SkillTree {
-    /// Total points the player has earned, derived from lifetime casts.
-    pub fn earned(casts: u64) -> u32 {
-        (casts / CASTS_PER_POINT) as u32
+    pub fn rank(&self, id: &str) -> u32 {
+        self.ranks.get(id).copied().unwrap_or(0)
     }
 
-    pub fn available(&self, casts: u64) -> u32 {
-        Self::earned(casts).saturating_sub(self.spent)
+    /// True when at least one direct parent (per JSON) has rank >= 1.
+    /// Root nodes (no parents) are always unlocked.
+    pub fn is_unlocked(&self, node: &NodeDef) -> bool {
+        if node.parents.is_empty() {
+            return true;
+        }
+        node.parents.iter().any(|p| self.rank(p) >= 1)
+    }
+
+    pub fn can_invest(&self, node: &NodeDef) -> bool {
+        self.rank(&node.id) < node.max_rank && self.is_unlocked(node)
+    }
+
+    /// Skill points the player has earned across the lifetime of the
+    /// save. Comes from fishing level + future streams.
+    pub fn earned(fishing_level: u32, achievements_unlocked: u32, mastery_milestones: u32) -> u32 {
+        // 1 per fishing level + 1 per achievement + 1 per mastery milestone.
+        fishing_level
+            .saturating_add(achievements_unlocked)
+            .saturating_add(mastery_milestones)
+    }
+
+    pub fn available(&self, fishing_level: u32, achievements: u32, mastery: u32) -> u32 {
+        Self::earned(fishing_level, achievements, mastery).saturating_sub(self.spent)
     }
 
     pub fn total_invested(&self) -> u32 {
-        self.quickcatch_t1
-            + self.quickcatch_t2
-            + self.quickcatch_t3
-            + self.legends_t1
-            + self.legends_t2
-            + self.legends_yank
-            + self.legends_t3
-            + self.tamer_t1
-            + self.tamer_t2
-            + self.tamer_t3
+        self.ranks.values().sum()
     }
 
-    /// Quickcatch T3 "Effortless": +10% per rank to in-rect catch progress
-    /// on top of T1/T2.
-    pub fn effortless_mult(&self) -> f32 {
-        1.0 + 0.10 * self.quickcatch_t3 as f32
-    }
+    // ---- pre-aggregated effect accessors --------------------------------
+    // Every effect known to gameplay code is a method here. Each one walks
+    // the node list, summing contributions from invested nodes whose effect
+    // string matches. This keeps the schema flat: adding a new node with an
+    // existing effect string just works.
 
-    /// Rod of Legends T3 "Phantom Rod": pull strength toward fish_y when
-    /// no input. 0.04/rank — at max ranks=5 → 0.20 (pretty grippy).
-    pub fn phantom_pull(&self) -> f32 {
-        0.04 * self.legends_t3 as f32
-    }
-
-    /// Tamer T3 "Telepathic Lure": fish doesn't change direction for the
-    /// first N seconds; N = 2 * rank.
-    pub fn telepathic_grace_frames(&self) -> u32 {
-        40 * self.tamer_t3
-    }
-
-    /// Strength of the yank-down impulse. Scales from 0.30 (rank 0) to
-    /// 1.20 (rank 5, matching yank-up).
-    pub fn yank_down_strength(&self) -> f32 {
-        0.30 + 0.18 * self.legends_yank as f32
-    }
-
-    // ---- effect getters -------------------------------------------------
-
-    /// Multiplier applied to the catch progress rate in the reel minigame.
-    /// +0.5% per Quickcatch T1 rank → up to +2.5% at rank 5.
-    pub fn fishing_speed_mult(&self) -> f32 {
-        1.0 + 0.005 * self.quickcatch_t1 as f32
-    }
-
-    /// Multiplier applied to catch progress when the player's cast was at
-    /// near-max strength (a "perfect throw"). +20% per Quickcatch T2 rank.
-    pub fn perfect_throw_mult(&self) -> f32 {
-        1.0 + 0.20 * self.quickcatch_t2 as f32
-    }
-
-    /// Inertia reduction for the player rectangle. 0.0 = full inertia,
-    /// 1.0 = perfectly robotic. At rank 5 = 1.0.
-    pub fn inertia_reduce(&self) -> f32 {
-        0.20 * self.legends_t1 as f32
-    }
-
-    /// Coyote time (in frames) — how long the rectangle hovers after the
-    /// player stops pressing before gravity takes over. 0 by default, 12
-    /// frames at max Rod of Legends T1.
-    pub fn coyote_frames(&self) -> u32 {
-        2 * self.legends_t1
-    }
-
-    /// Active rectangle-boost duration in 20-fps frames. Zero = ability
-    /// not unlocked. Rank 1 = 40 frames (2s), rank 5 = 200 (10s).
-    pub fn legends_boost_frames(&self) -> u32 {
-        if self.legends_t2 == 0 {
-            0
-        } else {
-            40 * self.legends_t2
-        }
-    }
-
-    /// Multiplier applied to fish's chaos (target change interval). >1.0
-    /// means fish change direction less often. +0.5% per Tamer T1 rank.
-    pub fn tamer_calm_mult(&self) -> f32 {
-        1.0 + 0.005 * self.tamer_t1 as f32
-    }
-
-    /// Active slow strength — fraction by which fish movement speed is
-    /// reduced. 0.0 = ability not unlocked, 0.40 = rank 4 max.
-    pub fn tamer_slow_strength(&self) -> f32 {
-        0.10 * self.tamer_t2 as f32
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SkillNode {
-    QuickcatchT1,
-    QuickcatchT2,
-    QuickcatchT3,
-    LegendsT1,
-    LegendsT2,
-    LegendsYank,
-    LegendsT3,
-    TamerT1,
-    TamerT2,
-    TamerT3,
-}
-
-impl SkillNode {
-    pub const ALL: &'static [SkillNode] = &[
-        SkillNode::QuickcatchT1,
-        SkillNode::QuickcatchT2,
-        SkillNode::QuickcatchT3,
-        SkillNode::LegendsT1,
-        SkillNode::LegendsT2,
-        SkillNode::LegendsYank,
-        SkillNode::LegendsT3,
-        SkillNode::TamerT1,
-        SkillNode::TamerT2,
-        SkillNode::TamerT3,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            SkillNode::QuickcatchT1 => "Quickcatch",
-            SkillNode::QuickcatchT2 => "Perfect Throw",
-            SkillNode::QuickcatchT3 => "Effortless",
-            SkillNode::LegendsT1 => "Rod of Legends",
-            SkillNode::LegendsT2 => "Rod Boost",
-            SkillNode::LegendsYank => "Heavy Yank",
-            SkillNode::LegendsT3 => "Phantom Rod",
-            SkillNode::TamerT1 => "The Tamer",
-            SkillNode::TamerT2 => "Slow Fish",
-            SkillNode::TamerT3 => "Telepathic Lure",
-        }
-    }
-
-    pub fn description(self) -> &'static str {
-        match self {
-            SkillNode::QuickcatchT1 => "+0.5% catch speed per rank.",
-            SkillNode::QuickcatchT2 => "+20% catch progress per rank when your throw was near-max strength.",
-            SkillNode::QuickcatchT3 => "+10% per rank to in-rect catch progress. Stacks with the rest.",
-            SkillNode::LegendsT1 => "Less rectangle inertia per rank. Maxed: nearly robotic + coyote hover.",
-            SkillNode::LegendsT2 => "Active 'b' during fishing: +1 rectangle height for 2s/rank.",
-            SkillNode::LegendsYank => "Stronger yank-down ('t') per rank. Maxed: equal to yank-up.",
-            SkillNode::LegendsT3 => "Rectangle drifts toward the fish when no key is held; pull +4%/rank.",
-            SkillNode::TamerT1 => "Fish change direction 0.5% less per rank.",
-            SkillNode::TamerT2 => "Active 's' during fishing: slow fish by 10% per rank for 5s.",
-            SkillNode::TamerT3 => "Fish stays still for the first 2s/rank of the reel minigame.",
-        }
-    }
-
-    pub fn max_rank(self) -> u32 {
-        match self {
-            SkillNode::TamerT2 => TM_T2_MAX_RANK,
-            SkillNode::QuickcatchT2 | SkillNode::LegendsT2 | SkillNode::LegendsYank => 5,
-            SkillNode::QuickcatchT3 | SkillNode::LegendsT3 | SkillNode::TamerT3 => T3_MAX_RANK,
-            _ => T1_MAX_RANK,
-        }
-    }
-
-    /// The prereq node. None for T1/Yank nodes. T2 needs its T1 maxed.
-    /// T3 needs its T2 maxed (Tamer T3 needs T2 maxed at 4).
-    pub fn prerequisite(self) -> Option<SkillNode> {
-        match self {
-            SkillNode::QuickcatchT2 => Some(SkillNode::QuickcatchT1),
-            SkillNode::LegendsT2 => Some(SkillNode::LegendsT1),
-            SkillNode::TamerT2 => Some(SkillNode::TamerT1),
-            SkillNode::QuickcatchT3 => Some(SkillNode::QuickcatchT2),
-            SkillNode::LegendsT3 => Some(SkillNode::LegendsT2),
-            SkillNode::TamerT3 => Some(SkillNode::TamerT2),
-            _ => None,
-        }
-    }
-
-    pub fn rank(self, tree: &SkillTree) -> u32 {
-        match self {
-            SkillNode::QuickcatchT1 => tree.quickcatch_t1,
-            SkillNode::QuickcatchT2 => tree.quickcatch_t2,
-            SkillNode::QuickcatchT3 => tree.quickcatch_t3,
-            SkillNode::LegendsT1 => tree.legends_t1,
-            SkillNode::LegendsT2 => tree.legends_t2,
-            SkillNode::LegendsYank => tree.legends_yank,
-            SkillNode::LegendsT3 => tree.legends_t3,
-            SkillNode::TamerT1 => tree.tamer_t1,
-            SkillNode::TamerT2 => tree.tamer_t2,
-            SkillNode::TamerT3 => tree.tamer_t3,
-        }
-    }
-
-    /// True if the node can accept another point right now.
-    pub fn can_invest(self, tree: &SkillTree) -> bool {
-        if self.rank(tree) >= self.max_rank() {
-            return false;
-        }
-        if let Some(prereq) = self.prerequisite() {
-            if prereq.rank(tree) < prereq.max_rank() {
-                return false;
+    fn sum(&self, effect: &str) -> f32 {
+        let mut acc = 0.0f32;
+        for n in nodes() {
+            if n.effect == effect {
+                acc += n.per_rank * self.rank(&n.id) as f32;
             }
         }
-        true
+        acc
+    }
+
+    fn any(&self, effect: &str) -> bool {
+        for n in nodes() {
+            if n.effect == effect && self.rank(&n.id) >= 1 {
+                return true;
+            }
+        }
+        false
+    }
+
+    // ---- fishing minigame ------------------------------------------------
+
+    pub fn fishing_speed_mult(&self) -> f32 {
+        1.0 + self.sum("catch_speed_mult") + self.sum("master_angler_mult")
+    }
+
+    pub fn perfect_throw_mult(&self) -> f32 {
+        1.0 + self.sum("perfect_throw_mult")
+    }
+
+    pub fn effortless_mult(&self) -> f32 {
+        1.0 + self.sum("effortless_mult")
+    }
+
+    pub fn inertia_reduce(&self) -> f32 {
+        // legacy node 'legends_t1' contributed 0.20/rank — new tree uses
+        // a smaller per-rank to avoid runaway robotic control at low ranks.
+        (self.sum("inertia_reduce") * 4.0).min(1.0)
+    }
+
+    pub fn coyote_frames(&self) -> u32 {
+        self.sum("coyote_frames") as u32
+    }
+
+    pub fn legends_boost_frames(&self) -> u32 {
+        // No direct equivalent in the new tree; reserve for a future
+        // "rod boost" node. Kept here so the fishing scene compiles.
+        0
+    }
+
+    pub fn yank_down_strength(&self) -> f32 {
+        // Base 0.30, +0.18 per Heavy Yank rank (same as old behavior).
+        0.30 + self.sum("yank_down_strength")
+    }
+
+    pub fn phantom_pull(&self) -> f32 {
+        // Reserved — no node currently emits this effect.
+        0.0
+    }
+
+    pub fn telepathic_grace_frames(&self) -> u32 {
+        0
+    }
+
+    pub fn tamer_calm_mult(&self) -> f32 {
+        // Reduce fish chaos. Reserved — no node currently emits this.
+        1.0
+    }
+
+    pub fn tamer_slow_strength(&self) -> f32 {
+        0.0
+    }
+
+    pub fn rect_h_bonus(&self) -> f32 {
+        self.sum("rect_h_bonus")
+    }
+
+    pub fn bite_window_mult(&self) -> f32 {
+        1.0 + self.sum("bite_window_mult")
+    }
+
+    pub fn snap_reel_mult(&self) -> f32 {
+        1.0 + self.sum("snap_reel_mult")
+    }
+
+    pub fn line_tension_pct(&self) -> f32 {
+        self.sum("line_tension_pct")
+    }
+
+    pub fn water_catch_pct(&self) -> f32 {
+        self.sum("water_catch_pct")
+    }
+
+    // ---- value / xp multipliers ------------------------------------------
+
+    /// Multiplier applied to fish sale value at the fishmonger.
+    pub fn valu_mult(&self) -> f32 {
+        1.0 + self.sum("valu_mult")
+    }
+
+    /// Multiplier applied to every xp source (fishing, mining, etc.).
+    pub fn global_xp_mult(&self) -> f32 {
+        1.0 + self.sum("global_xp_mult")
+    }
+
+    pub fn mining_xp_mult(&self) -> f32 {
+        1.0 + self.sum("mining_xp_mult") + self.sum("mines_yield_mult")
+    }
+
+    pub fn ore_value_mult(&self) -> f32 {
+        1.0 + self.sum("ore_value_mult") + self.sum("mines_yield_mult")
+    }
+
+    // ---- rarity / variant ------------------------------------------------
+
+    /// Global rare-fish chance bump (additive to weight roll). Combined
+    /// here from Lucky + spirit devotion + variant caller.
+    pub fn rare_chance_bonus(&self) -> f32 {
+        self.sum("global_rare_pct") + self.sum("variant_chance_pct")
+    }
+
+    pub fn morning_rare_bonus(&self) -> f32 {
+        self.sum("morning_rare_pct")
+    }
+
+    pub fn night_rare_bonus(&self) -> f32 {
+        self.sum("night_rare_pct")
+    }
+
+    pub fn ocean_rare_bonus(&self) -> f32 {
+        self.sum("ocean_rare_pct")
+    }
+
+    // ---- biome value multipliers ----------------------------------------
+
+    pub fn biome_value_mult(&self, biome_label: &str) -> f32 {
+        let mut m = 1.0 + self.sum("biome_value_mult");
+        match biome_label {
+            "Desert" => m += self.sum("desert_value_pct"),
+            "Tundra" => m += self.sum("tundra_value_pct"),
+            "Swamp"  => m += self.sum("swamp_value_pct"),
+            "Meadow" => m += self.sum("meadow_value_pct"),
+            _ => {}
+        }
+        m
+    }
+
+    pub fn deepwater_value_mult(&self) -> f32 {
+        1.0 + self.sum("deepwater_value_pct")
+    }
+
+    // ---- mining ----------------------------------------------------------
+
+    /// Multiplier on the typing-speed display (purely visual / QoL).
+    pub fn mining_typing_mult(&self) -> f32 {
+        1.0 + self.sum("mining_typing_mult")
+    }
+
+    /// Seconds to subtract from a vein's cooldown on cooldown start.
+    pub fn vein_cooldown_reduce(&self) -> u64 {
+        self.sum("vein_cooldown_red") as u64
+    }
+
+    pub fn double_ore_pct(&self) -> f32 {
+        self.sum("double_ore_pct")
+    }
+
+    pub fn deep_vein_pct(&self) -> f32 {
+        self.sum("deep_vein_pct")
+    }
+
+    pub fn diamond_chance_pct(&self) -> f32 {
+        self.sum("diamond_chance_pct")
+    }
+
+    pub fn rare_ore_pct(&self) -> f32 {
+        self.sum("rare_ore_pct")
+    }
+
+    pub fn blast_first_letter(&self) -> bool {
+        self.any("blast_first_letter")
+    }
+
+    pub fn wall_reveal_radius(&self) -> u32 {
+        self.sum("wall_reveal_radius") as u32
+    }
+
+    pub fn typo_forgive(&self) -> bool {
+        self.any("typo_forgive")
+    }
+
+    pub fn tunnel_through(&self) -> bool {
+        self.any("tunnel_through")
+    }
+
+    // ---- mariner ---------------------------------------------------------
+
+    pub fn boat_full_speed(&self) -> bool {
+        self.any("boat_full_speed")
+    }
+
+    pub fn boat_anchor(&self) -> bool {
+        self.any("boat_anchor")
+    }
+
+    pub fn atlantis_gate_reduction(&self) -> u64 {
+        self.sum("atlantis_gate_red") as u64
+    }
+
+    pub fn basket_capacity_bonus(&self) -> u32 {
+        self.sum("basket_capacity") as u32
+    }
+
+    pub fn fog_radius_bonus(&self) -> u32 {
+        self.sum("fog_radius_bonus") as u32
+    }
+
+    pub fn escape_save_pct(&self) -> f32 {
+        self.sum("escape_save_pct")
+    }
+
+    pub fn archivist_per_dex(&self) -> u64 {
+        self.sum("archivist_per_dex") as u64
+    }
+
+    pub fn dawn_window_hours(&self) -> u32 {
+        self.sum("dawn_window_hours") as u32
+    }
+
+    pub fn midnight_boost_pct(&self) -> f32 {
+        self.sum("midnight_boost_pct")
     }
 }
 
-/// Invest one point in a node. No-op if the node can't accept it.
-pub fn invest(tree: &mut SkillTree, node: SkillNode) -> bool {
-    if !node.can_invest(tree) {
+pub fn invest(tree: &mut SkillTree, node: &NodeDef) -> bool {
+    if !tree.can_invest(node) {
         return false;
     }
-    match node {
-        SkillNode::QuickcatchT1 => tree.quickcatch_t1 += 1,
-        SkillNode::QuickcatchT2 => tree.quickcatch_t2 += 1,
-        SkillNode::QuickcatchT3 => tree.quickcatch_t3 += 1,
-        SkillNode::LegendsT1 => tree.legends_t1 += 1,
-        SkillNode::LegendsT2 => tree.legends_t2 += 1,
-        SkillNode::LegendsYank => tree.legends_yank += 1,
-        SkillNode::LegendsT3 => tree.legends_t3 += 1,
-        SkillNode::TamerT1 => tree.tamer_t1 += 1,
-        SkillNode::TamerT2 => tree.tamer_t2 += 1,
-        SkillNode::TamerT3 => tree.tamer_t3 += 1,
-    }
+    let entry = tree.ranks.entry(node.id.clone()).or_insert(0);
+    *entry += 1;
     tree.spent += 1;
     true
 }

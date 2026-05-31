@@ -885,7 +885,7 @@ impl App {
                 }
             }
             Scene::FishingSchool { cursor } => {
-                let nodes = crate::skill_tree::SkillNode::ALL;
+                let nodes = crate::skill_tree::nodes();
                 let n = nodes.len();
                 match code {
                     KeyCode::Char('q') | KeyCode::Esc => self.exit_subscene(),
@@ -896,27 +896,22 @@ impl App {
                         *cursor = cursor.saturating_sub(1);
                     }
                     KeyCode::Enter | KeyCode::Char(' ') => {
-                        let node = nodes[*cursor];
-                        let casts = self.stats.casts;
-                        let available = self.skill_tree.available(casts);
+                        let node = &nodes[*cursor];
+                        let lvl = self.skills.fishing_level();
+                        let available = self.skill_tree.available(lvl, 0, 0);
                         if available == 0 {
                             self.narrator.say("No skill points to spend.");
-                        } else if !node.can_invest(&self.skill_tree) {
-                            if node.prerequisite().is_some()
-                                && node.prerequisite().unwrap().rank(&self.skill_tree)
-                                    < node.prerequisite().unwrap().max_rank()
-                            {
-                                self.narrator.say("Prerequisite not yet maxed.");
-                            } else {
-                                self.narrator.say("Already at max rank.");
-                            }
+                        } else if self.skill_tree.rank(&node.id) >= node.max_rank {
+                            self.narrator.say("Already at max rank.");
+                        } else if !self.skill_tree.is_unlocked(node) {
+                            self.narrator.say("Locked: invest 1 point in a parent node first.");
                         } else {
                             crate::skill_tree::invest(&mut self.skill_tree, node);
                             self.narrator.say(format!(
-                                "Invested 1 point in {} (now rank {}/{}).",
-                                node.label(),
-                                node.rank(&self.skill_tree),
-                                node.max_rank()
+                                "Invested 1 point in {} (now {}/{}).",
+                                node.label,
+                                self.skill_tree.rank(&node.id),
+                                node.max_rank
                             ));
                         }
                     }
@@ -1234,7 +1229,12 @@ impl App {
                         ),
                     };
                     self.player.items.push(item);
-                    let weight: u64 = (ore.value / 20).max(2);
+                    let base_weight: u64 = (ore.value / 20).max(2);
+                    let weight = ((base_weight as f32)
+                        * self.skill_tree.global_xp_mult()
+                        * self.skill_tree.mining_xp_mult())
+                        as u64;
+                    let weight = weight.max(1);
                     let before = self.skills.mining_level();
                     self.skills.mining_xp += weight;
                     let after = self.skills.mining_level();
@@ -1519,7 +1519,9 @@ impl App {
                             self.player.inventory.len()
                         ));
                     }
-                    let gained = fish_catch_xp(fish_ref.difficulty);
+                    let base_xp = fish_catch_xp(fish_ref.difficulty);
+                    let gained = ((base_xp as f32) * self.skill_tree.global_xp_mult()) as u64;
+                    let gained = gained.max(1);
                     self.stats.fish_caught += 1;
                     let before = self.skills.fishing_level();
                     self.skills.fishing_xp += gained;
@@ -1638,7 +1640,8 @@ impl App {
         self.mark_seen_around_player();
         let weight: u64 = if dy != 0 { 2 } else { 1 };
         self.stats.steps += weight;
-        self.skills.walking_xp += weight;
+        let wxp = ((weight as f32) * self.skill_tree.global_xp_mult()) as u64;
+        self.skills.walking_xp += wxp.max(weight);
         for _ in 0..weight {
             self.quest_progress_silent("walk", "any");
             if let Some(b) = self.current_biome {
@@ -1973,7 +1976,7 @@ impl App {
     /// Group the (non-unique) basket by species name. Returns
     /// (name, unit_price_with_buff, count). Stable ordering matches inv.
     fn fishmonger_listing(&self) -> Vec<(String, u64, u64)> {
-        let mult = self.buffs.price_mult();
+        let mult = self.buffs.price_mult() * self.skill_tree.valu_mult();
         let mut out: Vec<(String, u64, u64)> = Vec::new();
         for f in self.player.inventory.iter().filter(|f| !f.unique) {
             let price = ((f.sell_price() as f32) * mult).round() as u64;
@@ -1991,7 +1994,7 @@ impl App {
         if count == 0 {
             return;
         }
-        let mult = self.buffs.price_mult();
+        let mult = self.buffs.price_mult() * self.skill_tree.valu_mult();
         let mut sold = 0u64;
         let mut total = 0u64;
         let mut keep: Vec<&'static crate::fish::FishDef> =
@@ -2238,7 +2241,7 @@ impl App {
                 frame,
                 *cursor,
                 &self.skill_tree,
-                self.stats.casts,
+                self.skills.fishing_level(),
             ),
             Scene::Fishing(g) => {
                 // fishing scene gets the whole frame; log is hidden during reel
@@ -3164,19 +3167,16 @@ fn render_skill_tree(
     frame: &mut Frame,
     cursor: usize,
     tree: &crate::skill_tree::SkillTree,
-    casts: u64,
+    fishing_level: u32,
 ) {
-    use crate::skill_tree::{SkillNode, SkillTree};
+    use crate::skill_tree::SkillTree;
     use ratatui::widgets::Paragraph;
     let area = frame.area();
-    let earned = SkillTree::earned(casts);
-    let available = tree.available(casts);
+    let earned = SkillTree::earned(fishing_level, 0, 0);
+    let available = tree.available(fishing_level, 0, 0);
     let title = format!(
-        " fishing school - {} points available ({}/{} earned, {} per point, q/esc to leave) ",
-        available,
-        earned,
-        earned,
-        crate::skill_tree::CASTS_PER_POINT
+        " fishing school - {} points available ({} earned, 1 per fishing level, q/esc to leave) ",
+        available, earned,
     );
     let block = Block::default()
         .borders(Borders::ALL)
@@ -3185,23 +3185,31 @@ fn render_skill_tree(
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
+    let nodes = crate::skill_tree::nodes();
     let mut lines: Vec<ratatui::text::Line> = Vec::new();
     lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
-        format!("  Lifetime casts: {}", casts),
+        format!("  Fishing level: {fishing_level}    Spent: {}/{}", tree.spent, earned),
         Style::default().fg(Color::DarkGray),
     )));
     lines.push(ratatui::text::Line::from(""));
 
-    for (i, node) in SkillNode::ALL.iter().enumerate() {
-        let rank = node.rank(tree);
-        let max = node.max_rank();
-        let prereq_ok = node
-            .prerequisite()
-            .map(|p| p.rank(tree) >= p.max_rank())
-            .unwrap_or(true);
+    let mut last_tree: Option<crate::skill_tree::TreeBranch> = None;
+    for (i, node) in nodes.iter().enumerate() {
+        if last_tree != Some(node.tree) {
+            last_tree = Some(node.tree);
+            lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+                format!("  --- {} ---", node.tree.label()),
+                Style::default()
+                    .fg(tree_color(node.tree))
+                    .add_modifier(Modifier::BOLD),
+            )));
+        }
+        let rank = tree.rank(&node.id);
+        let max = node.max_rank;
+        let unlocked = tree.is_unlocked(node);
         let selected = i == cursor;
         let prefix = if selected { "> " } else { "  " };
-        let status_color = if !prereq_ok {
+        let status_color = if !unlocked {
             Color::DarkGray
         } else if rank >= max {
             Color::Green
@@ -3219,28 +3227,24 @@ fn render_skill_tree(
         let pips: String = (0..max)
             .map(|r| if r < rank { '*' } else { '.' })
             .collect();
-        let lock = if !prereq_ok {
-            " [LOCKED - max prereq first]"
+        let lock = if !unlocked {
+            " [LOCKED - invest in a parent first]"
         } else {
             ""
         };
         let label = format!(
-            "{prefix}{} {} [{}] ({}/{}){}",
-            node_tree_initial(*node),
-            node.label(),
-            pips,
-            rank,
-            max,
-            lock
+            "{prefix}{} [{}] ({}/{}){}",
+            node.label, pips, rank, max, lock
         );
         lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
             label, line_style,
         )));
-        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
-            format!("    {}", node.description()),
-            Style::default().fg(Color::DarkGray),
-        )));
-        lines.push(ratatui::text::Line::from(""));
+        if selected {
+            lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+                format!("    {}", node.description),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
     }
     lines.push(ratatui::text::Line::from(""));
     lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
@@ -3250,12 +3254,14 @@ fn render_skill_tree(
     frame.render_widget(Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }), inner);
 }
 
-fn node_tree_initial(n: crate::skill_tree::SkillNode) -> char {
-    use crate::skill_tree::SkillNode::*;
-    match n {
-        QuickcatchT1 | QuickcatchT2 | QuickcatchT3 => 'Q',
-        LegendsT1 | LegendsT2 | LegendsYank | LegendsT3 => 'L',
-        TamerT1 | TamerT2 | TamerT3 => 'T',
+fn tree_color(t: crate::skill_tree::TreeBranch) -> Color {
+    use crate::skill_tree::TreeBranch::*;
+    match t {
+        Angler => Color::Rgb(120, 200, 240),
+        Naturalist => Color::Rgb(140, 220, 130),
+        Mariner => Color::Rgb(110, 170, 240),
+        Prospector => Color::Rgb(230, 195, 120),
+        Spirit => Color::Rgb(220, 160, 240),
     }
 }
 
