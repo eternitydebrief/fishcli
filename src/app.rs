@@ -1413,12 +1413,10 @@ impl App {
     }
 
     fn handle_overworld(&mut self, code: KeyCode) {
+        // `q` and `e` no longer open menus from the overworld — use the
+        // command-mode forms (`:q`, `:e`) instead. Bare letters here would
+        // collide with future feature keys and feel un-vim.
         match code {
-            KeyCode::Char('q') => self.running = false,
-            KeyCode::Char('e') => {
-                self.narrator.say("You leaf through the fishdex.");
-                self.scene = Scene::Fishdex(Fishdex::new());
-            }
             KeyCode::Char('x') => self.inspect_surroundings(),
             KeyCode::Char('g') => self.pickup_here(),
             KeyCode::Char('f') => {
