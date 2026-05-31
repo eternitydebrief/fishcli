@@ -1193,6 +1193,17 @@ impl App {
                 self.mode = Mode::Insert;
             }
             "h" => self.narrator.say("Try :help for commands, :c for controls."),
+            "inspect" | "look" => self.inspect_surroundings(),
+            "g" | "pickup" => self.pickup_here(),
+            "k" | "pool" => {
+                if self.player.rods.equipped >= 202 {
+                    self.scene = Scene::LootPool { cursor: 0 };
+                    self.mode = Mode::Insert;
+                    self.narrator.say("THE ROD hums. Choose your pool.");
+                } else {
+                    self.narrator.say("Need The Rod (tier 202) to choose a pool.");
+                }
+            }
             "l" | "leave" | "surface" => {
                 if self.world.dim == crate::world::Dimension::Surface {
                     self.narrator
@@ -1413,12 +1424,10 @@ impl App {
     }
 
     fn handle_overworld(&mut self, code: KeyCode) {
-        // `q` and `e` no longer open menus from the overworld — use the
-        // command-mode forms (`:q`, `:e`) instead. Bare letters here would
-        // collide with future feature keys and feel un-vim.
+        // Bare overworld keys are deliberately minimal: movement (wasd /
+        // hjkl / arrows handled elsewhere), `f` to interact, space to cast,
+        // and Esc to bail out of a cast. EVERYTHING else uses :commands.
         match code {
-            KeyCode::Char('x') => self.inspect_surroundings(),
-            KeyCode::Char('g') => self.pickup_here(),
             KeyCode::Char('f') => {
                 if self.cast.is_some() {
                     // f during cast = no-op so player doesn't restart
@@ -1427,12 +1436,6 @@ impl App {
                 }
             }
             KeyCode::Char(' ') => self.cast_action(),
-            KeyCode::Char('k') if self.player.rods.equipped >= 202 => {
-                self.scene = Scene::LootPool { cursor: 0 };
-                self.mode = Mode::Insert;
-                self.narrator
-                    .say("THE ROD hums. Choose your pool.");
-            }
             KeyCode::Esc if self.cast.is_some() => self.cancel_cast(),
             _ => {}
         }
