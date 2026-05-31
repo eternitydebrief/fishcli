@@ -1621,6 +1621,15 @@ impl App {
                         anim_tick,
                     );
                 }
+                render_world_hud(
+                    frame,
+                    inner,
+                    self.total_play_secs(),
+                    self.world.dim,
+                    self.current_biome
+                        .unwrap_or(crate::world::Biome::Meadow),
+                    self.world.seed,
+                );
             }
             Scene::RodShop { cursor } => render_rod_shop(
                 frame,
@@ -2390,6 +2399,108 @@ fn render_location_popup(frame: &mut Frame, label: &str) {
         .alignment(Alignment::Center)
         .block(block);
     frame.render_widget(p, popup);
+}
+
+// ---- top-right HUD: date / time / weather ---------------------------
+
+fn render_world_hud(
+    frame: &mut Frame,
+    inner: ratatui::layout::Rect,
+    total_play_secs: u64,
+    dim: crate::world::Dimension,
+    biome: crate::world::Biome,
+    seed: u32,
+) {
+    use crate::gametime;
+    use crate::weather;
+    let season = gametime::season(total_play_secs);
+    let tod = gametime::time_of_day(total_play_secs);
+    let day = gametime::day_of_month(total_play_secs);
+    let month = gametime::month_of_year(total_play_secs) + 1;
+    let yr = gametime::year(total_play_secs);
+    let hour = gametime::hour_of_day(total_play_secs);
+    let minute = gametime::minute_of_hour(total_play_secs);
+    let game_day = gametime::game_days(total_play_secs);
+    let w = weather::weather_for(game_day, dim, biome, seed);
+
+    // category label is white, the *value* takes the colour. Built as
+    // styled spans on a single line, right-aligned inside `inner`.
+    let lines: Vec<ratatui::text::Line> = vec![
+        ratatui::text::Line::from(vec![
+            ratatui::text::Span::styled(
+                format!("{} ", season.icon()),
+                Style::default().fg(season.color()).add_modifier(Modifier::BOLD),
+            ),
+            ratatui::text::Span::styled(
+                "Season ",
+                Style::default().fg(Color::White),
+            ),
+            ratatui::text::Span::styled(
+                season.label(),
+                Style::default().fg(season.color()).add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        ratatui::text::Line::from(vec![
+            ratatui::text::Span::styled(
+                format!("{} ", tod.icon()),
+                Style::default().fg(tod.color()).add_modifier(Modifier::BOLD),
+            ),
+            ratatui::text::Span::styled(
+                format!("{:02}:{:02} ", hour, minute),
+                Style::default().fg(Color::White),
+            ),
+            ratatui::text::Span::styled(
+                tod.label(),
+                Style::default().fg(tod.color()).add_modifier(Modifier::BOLD),
+            ),
+            ratatui::text::Span::styled(
+                if tod.is_rare_window() { " (rare!)" } else { "" },
+                Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        ratatui::text::Line::from(vec![
+            ratatui::text::Span::styled(
+                "  M",
+                Style::default().fg(Color::White),
+            ),
+            ratatui::text::Span::styled(
+                format!("{:02} D{:02} ", month, day),
+                Style::default().fg(Color::White),
+            ),
+            ratatui::text::Span::styled(
+                format!("Y{}", yr),
+                Style::default().fg(Color::Gray),
+            ),
+        ]),
+        ratatui::text::Line::from(vec![
+            ratatui::text::Span::styled(
+                format!("{} ", w.icon()),
+                Style::default().fg(w.value_color()).add_modifier(Modifier::BOLD),
+            ),
+            ratatui::text::Span::styled(
+                format!("{} ", w.category()),
+                Style::default().fg(Color::White),
+            ),
+            ratatui::text::Span::styled(
+                w.value(),
+                Style::default().fg(w.value_color()).add_modifier(Modifier::BOLD),
+            ),
+        ]),
+    ];
+    // longest plausible line is ~28 chars; pad a couple
+    let panel_w = 32u16.min(inner.width);
+    let panel_h = (lines.len() as u16).min(inner.height);
+    let rect = ratatui::layout::Rect {
+        x: inner.x + inner.width.saturating_sub(panel_w),
+        y: inner.y,
+        width: panel_w,
+        height: panel_h,
+    };
+    use ratatui::widgets::Paragraph;
+    frame.render_widget(
+        Paragraph::new(lines).alignment(ratatui::layout::Alignment::Right),
+        rect,
+    );
 }
 
 // ---- The Rod loot pool selector ---------------------------------------

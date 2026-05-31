@@ -12,6 +12,8 @@ use std::time::{Duration, Instant};
 mod app;
 mod buffs;
 mod fish;
+mod gametime;
+mod weather;
 mod fishdex;
 mod fishing;
 mod fishlist;
