@@ -901,10 +901,10 @@ fn cave_wall_glyph(x: i32, y: i32) -> (char, Style) {
         7 => '8',
         _ => 'B',
     };
-    let shade = 60 + (h % 45) as u8;
-    let r = shade + 20;
-    let gc = shade.saturating_sub(5);
-    let b = shade.saturating_sub(20);
+    let shade = 48 + (h % 38) as u8;
+    let r = shade + 18;
+    let gc = shade.saturating_sub(4);
+    let b = shade.saturating_sub(18);
     (
         g,
         Style::default()
@@ -931,47 +931,42 @@ fn ore_rock_glyph(x: i32, y: i32) -> (char, Style) {
 }
 
 fn mineral_water_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
-    // Crossing wave rays produce caustic intersections, same trick as
-    // Atlantis DeepWater but in a colder mineral palette so it reads as
-    // "underground pool" instead of "open ocean".
-    let t = tick as f32 * 0.05;
+    // Built like surface water_anim but with a stronger sine pattern and
+    // a moving wave band so the underground pool reads more "patterned"
+    // than the chaotic ocean. Palette is the same cool teal as before so
+    // it still feels like an enclosed mineral pool.
+    let t = tick as f32 * 0.012;
     let fx = x as f32;
     let fy = y as f32;
-    let ray1 = (fx * 0.32 + fy * 0.20 + t).sin();
-    let ray2 = (fx * 0.24 - fy * 0.29 + t * 1.25).sin();
-    let intensity = ray1 + ray2;
-    if intensity > 1.55 {
-        let g = match (x + y).rem_euclid(3) {
-            0 => '*',
-            1 => '+',
-            _ => '`',
-        };
-        return (
-            g,
-            Style::default()
-                .fg(Color::Rgb(190, 230, 235))
-                .add_modifier(Modifier::BOLD),
-        );
-    }
-    if intensity > 0.95 {
-        let g = match (x * 3 + y).rem_euclid(4) {
-            0 => '~',
-            1 => '-',
-            2 => '`',
-            _ => '.',
-        };
-        return (g, Style::default().fg(Color::Rgb(120, 180, 200)));
-    }
-    if intensity > 0.2 {
-        let g = if (x + y * 2).rem_euclid(7) == 0 { '~' } else { ' ' };
-        return (g, Style::default().fg(Color::Rgb(70, 130, 170)));
-    }
-    let g = if hash2(x, y, 0x9A7E_5A1E).wrapping_add(tick as u32 / 40) % 200 == 0 {
-        '.'
+    let w1 = (fx * 0.731 + fy * 1.117 + t * 1.27).sin() * 0.55;
+    let w2 = (fx * 1.289 - fy * 0.583 + t * 0.94).sin() * 0.45;
+    // Slow phase noise locked to the cell (no per-frame churn) — keeps
+    // the surface looking *patterned* instead of fizzy like surface water.
+    let slow_noise =
+        (hash2(x, y, 0x9A7E_5A1E) as f32 / u32::MAX as f32 - 0.5) * 0.7;
+    // Clear travelling wave band: when this sine peaks, lay a bright
+    // crest glyph across the water.
+    let wave_band = (fy * 0.55 - t * 2.1).sin();
+    let h = w1 + w2 + slow_noise;
+    let crest = wave_band > 0.88;
+    let (glyph, base) = if crest {
+        ('~', (150, 200, 220))
+    } else if h > 1.1 {
+        ('~', (105, 165, 195))
+    } else if h > 0.5 {
+        ('~', (85, 140, 175))
+    } else if h > 0.0 {
+        ('-', (65, 115, 155))
+    } else if h > -0.5 {
+        ('-', (50, 95, 135))
+    } else if h > -1.0 {
+        ('.', (40, 80, 120))
     } else {
-        ' '
+        (',', (30, 65, 100))
     };
-    (g, Style::default().fg(Color::Rgb(45, 95, 140)))
+    let style = Style::default().fg(shade(base, x, y, 0x9A7E_5A1E, 5));
+    let style = if crest { style.add_modifier(Modifier::BOLD) } else { style };
+    (glyph, style)
 }
 
 fn seabed_glyph(x: i32, y: i32) -> (char, Style) {
