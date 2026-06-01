@@ -60,6 +60,24 @@ pub fn defs_for_slot(slot: Slot) -> Vec<&'static TackleDef> {
     v
 }
 
+impl TackleDef {
+    /// Rod tier required to buy this tackle. Scales with tier so the
+    /// player can't farm a tier-3 rod to skip into endgame tackle.
+    /// Tier 1=rod1, 2=rod15, 3=rod30, 4=rod50, 5=rod75, 6=rod100, 7=rod130, 8=rod160.
+    pub fn min_rod_tier(&self) -> u32 {
+        match self.tier {
+            0 | 1 => 1,
+            2 => 15,
+            3 => 30,
+            4 => 50,
+            5 => 75,
+            6 => 100,
+            7 => 130,
+            _ => 160,
+        }
+    }
+}
+
 pub fn def_by_id(id: &str) -> Option<&'static TackleDef> {
     defs().iter().find(|d| d.id == id)
 }

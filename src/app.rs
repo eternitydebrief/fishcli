@@ -1420,6 +1420,14 @@ impl App {
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if let Some(d) = defs.get(*cursor) {
+                    let gate = d.min_rod_tier();
+                    if self.player.rods.max_owned < gate {
+                        self.narrator.say(format!(
+                            "Need rod tier {gate} for {}. (You have tier {}.)",
+                            d.name, self.player.rods.max_owned
+                        ));
+                        return;
+                    }
                     if self.player.valu < d.cost {
                         self.narrator.say(format!(
                             "Need {}$V for one {}. You have {}$V.",
@@ -1494,6 +1502,14 @@ impl App {
                     if d.tier != owned + 1 {
                         self.narrator
                             .say("Buy the previous tier first.");
+                        return;
+                    }
+                    let gate = d.min_rod_tier();
+                    if self.player.rods.max_owned < gate {
+                        self.narrator.say(format!(
+                            "Need rod tier {gate} to use this tackle. (You have tier {}.)",
+                            self.player.rods.max_owned
+                        ));
                         return;
                     }
                     if self.player.valu < d.cost {

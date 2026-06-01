@@ -37,6 +37,22 @@ pub fn def_by_id(id: &str) -> Option<&'static BaitDef> {
     defs().iter().find(|d| d.id == id)
 }
 
+impl BaitDef {
+    /// Rod tier required to buy this bait. Derived from cost so the
+    /// expensive baits (which have big effects) gate naturally with
+    /// progression.
+    pub fn min_rod_tier(&self) -> u32 {
+        match self.cost {
+            0..=49 => 1,
+            50..=199 => 10,
+            200..=499 => 30,
+            500..=1499 => 60,
+            1500..=4999 => 100,
+            _ => 150,
+        }
+    }
+}
+
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct BaitStock {
     /// bait_id -> remaining count
