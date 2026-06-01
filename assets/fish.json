@@ -446,5 +446,71 @@
   {"name": "Fsh", "description": "FSH, GOD OF CURIOSITY. Aspect of Fish, embodiment of the forest biome. THE PANTHEON: Fish is the deity. Ish, Fsh, Fih, Fis are his split emotions — Anger, Curiosity, Happiness, Wiseness. I have given up my life to inform you, player. Assemble us. You must become THE fisherman.", "rarity": 0.0, "difficulty": 10, "biomes": ["forest"], "unique": true, "preferred_weather": ["Rain", "Cloudy"]},
   {"name": "Fih", "description": "FIH, GOD OF HAPPINESS, two-legged like you. The first joke was Fish watching his children stand upright. You are the descendants of the Fallen Fish — who fell UPWARDS onto Sentinel and rebelled against grandfather Fish. The swamp giggles because it remembers. Required to forge The Rod.", "rarity": 0.0, "difficulty": 10, "biomes": ["swamp"], "unique": true, "preferred_weather": ["Fog", "Rain"]},
   {"name": "Fis", "description": "FIS, GOD OF WISENESS. Aspect of Fish, embodiment of the tundra. You fish because humanity numbers fewer than a thousand and has never needed agriculture. Fishing is the shield. Atlantis is real and its dynasties are older than your speech. Required to forge The Rod.", "rarity": 0.0, "difficulty": 10, "biomes": ["tundra"], "unique": true, "preferred_weather": ["Snow", "Blizzard"]},
-  {"name": "Fallen Fish", "description": "THE FALLEN FISH. Grandfather to all standing things. When Khei still steamed and Sentinel was new, he fell UPWARDS out of the sea and rebelled against Fish. He seeded the men. He is in your blood. To catch him is to catch yourself. He waits in the lakebed caves, between worlds.", "rarity": 0.0008, "difficulty": 10, "pool": ["lakebed"], "unique": true, "preferred_weather": ["Tectonic High"]}
+  {"name": "Fallen Fish", "description": "THE FALLEN FISH. Grandfather to all standing things. When Khei still steamed and Sentinel was new, he fell UPWARDS out of the sea and rebelled against Fish. He seeded the men. He is in your blood. To catch him is to catch yourself. He waits in the lakebed caves, between worlds.", "rarity": 0.0008, "difficulty": 10, "pool": ["lakebed"], "unique": true, "preferred_weather": ["Tectonic High"]},
+
+  { "_comment": "SEWER pool. Pool tag 'sewer'. Tier-1 dim — low-difficulty trash fish + a couple oddities." },
+  {"name": "drain rat",      "description": "Wet, displeased. Less a fish than a misunderstanding.",                 "rarity": 0.9,  "difficulty": 1, "pool": ["sewer"]},
+  {"name": "albino guppy",   "description": "Has lived its entire life in the dark.",                                "rarity": 0.7,  "difficulty": 2, "pool": ["sewer"]},
+  {"name": "white-eyed eel", "description": "Eyes long since washed pale by the runoff.",                            "rarity": 0.4,  "difficulty": 3, "pool": ["sewer"]},
+  {"name": "shopping cart",  "description": "Pull-tag still attached.",                                              "rarity": 0.15, "difficulty": 2, "pool": ["sewer"], "joke": true, "price": 25},
+  {"name": "sewer pike",     "description": "Long and unwell. The teeth are concerning.",                            "rarity": 0.08, "difficulty": 5, "pool": ["sewer"]},
+
+  { "_comment": "HOT SPRING pool. Tier-5 dim. Steam-loving species, mostly small but valuable." },
+  {"name": "soaking koi",     "description": "Has decided this is the only acceptable temperature.",                  "rarity": 0.6, "difficulty": 3, "pool": ["hotspring"]},
+  {"name": "steam-veiled char","description": "Visible only when the steam parts.",                                    "rarity": 0.35,"difficulty": 4, "pool": ["hotspring"]},
+  {"name": "mineral perch",   "description": "Encrusted in tiny crystals.",                                            "rarity": 0.25,"difficulty": 4, "pool": ["hotspring"]},
+  {"name": "magma minnow",    "description": "Apparently flame-resistant. You'd rather not ask.",                      "rarity": 0.05,"difficulty": 7, "pool": ["hotspring"]},
+
+  { "_comment": "PYRAMID pool. Tier-15 dim. Ancient, mummified, valuable." },
+  {"name": "mummified sand-eel","description": "Linen-wrapped and very dry. Still moving, somehow.",                  "rarity": 0.6, "difficulty": 4, "pool": ["pyramid"]},
+  {"name": "scarab-skin perch", "description": "Iridescent green-gold scales.",                                        "rarity": 0.35,"difficulty": 5, "pool": ["pyramid"]},
+  {"name": "sand-fed catfish",  "description": "Hunts in the dunes between the chambers.",                             "rarity": 0.25,"difficulty": 6, "pool": ["pyramid"]},
+  {"name": "pharaoh's carp",    "description": "Adorned in gold leaf. Once swam in royal pools.",                       "rarity": 0.04,"difficulty": 7, "pool": ["pyramid"]},
+
+  { "_comment": "SWAMP CAVE pool. Tier-20 dim. Dim, peat-coloured, full of teeth." },
+  {"name": "peat-water gar",  "description": "Long, slow, patient. Smells of bog.",                                    "rarity": 0.5, "difficulty": 5, "pool": ["swampcave"]},
+  {"name": "lampreyling",     "description": "A juvenile lamprey, all mouth.",                                          "rarity": 0.4, "difficulty": 4, "pool": ["swampcave"]},
+  {"name": "blind salamander","description": "Cave-pale and faintly luminescent.",                                      "rarity": 0.18,"difficulty": 6, "pool": ["swampcave"]},
+  {"name": "wisp-eyed eel",   "description": "Its eyes glow faintly. You feel observed.",                               "rarity": 0.04,"difficulty": 8, "pool": ["swampcave"]},
+
+  { "_comment": "BOG CATHEDRAL pool. Tier-40 dim. Things that drowned where they prayed." },
+  {"name": "drowned bishop",   "description": "Still wearing the mitre.",                                              "rarity": 0.35,"difficulty": 6, "pool": ["cathedral"]},
+  {"name": "hellbender",       "description": "Real species, unfortunate name. Massive aquatic salamander.",            "rarity": 0.25,"difficulty": 7, "pool": ["cathedral"]},
+  {"name": "vesper fish",      "description": "Appears only between the bell tolls.",                                   "rarity": 0.06,"difficulty": 8, "pool": ["cathedral"]},
+  {"name": "altar carp",       "description": "Polished gold scales. Sacred and angry.",                                "rarity": 0.03,"difficulty": 8, "pool": ["cathedral"]},
+
+  { "_comment": "MIRROR LAKE pool. Tier-60 dim. Reflective shimmer; doppelganger fish." },
+  {"name": "doppelganger trout","description": "Copies your last cast back at you.",                                   "rarity": 0.3, "difficulty": 7, "pool": ["mirrorlake"]},
+  {"name": "still-water bass",  "description": "Strikes only when the surface is undisturbed.",                         "rarity": 0.25,"difficulty": 7, "pool": ["mirrorlake"]},
+  {"name": "looking-glass koi", "description": "Reflective scales. You see your own face in its side.",                 "rarity": 0.08,"difficulty": 8, "pool": ["mirrorlake"]},
+  {"name": "mirror leviathan",  "description": "Filled the whole lake in the reflection. Real-side, much smaller.",     "rarity": 0.02,"difficulty": 9, "pool": ["mirrorlake"]},
+
+  { "_comment": "ICESHELF pool. Tier-75 dim. Cold-adapted; ice-fishing classics + extremes." },
+  {"name": "arctic char",      "description": "Bright pink-bellied, sharp meat.",                                       "rarity": 0.45,"difficulty": 6, "pool": ["iceshelf"]},
+  {"name": "polar cod",        "description": "Built for the freezing dark below the ice.",                              "rarity": 0.35,"difficulty": 6, "pool": ["iceshelf"]},
+  {"name": "ice-skin halibut", "description": "Frost crystallises on its dorsal as you pull it up.",                    "rarity": 0.15,"difficulty": 8, "pool": ["iceshelf"]},
+  {"name": "the Thing",        "description": "Pulled from a hole you don't remember drilling.",                        "rarity": 0.01,"difficulty": 9, "pool": ["iceshelf"]},
+
+  { "_comment": "WRECKAGE pool. Tier-30 dim. Ship-bound oddities + literal loot." },
+  {"name": "cargo eel",        "description": "Hides in the hull's flooded crates.",                                    "rarity": 0.45,"difficulty": 5, "pool": ["wreckage"]},
+  {"name": "drowned crewman",  "description": "Still wearing the rope.",                                                "rarity": 0.1, "difficulty": 6, "pool": ["wreckage"], "joke": true, "price": 200},
+  {"name": "barnacle bass",    "description": "Encrusted to the point of asymmetry.",                                   "rarity": 0.3, "difficulty": 6, "pool": ["wreckage"]},
+  {"name": "lost gold bar",    "description": "Heavy. Marked with a sigil no one alive recognises.",                    "rarity": 0.02,"difficulty": 5, "pool": ["wreckage"], "joke": true, "price": 5000},
+
+  { "_comment": "CRATER pool. Tier-130 dim. Cosmic fish — overlaps thematically with the existing cosmic variants." },
+  {"name": "stardust koi",     "description": "Trails motes of stardust as it swims.",                                  "rarity": 0.3, "difficulty": 8, "pool": ["crater"]},
+  {"name": "comet pike",       "description": "Streaks across the pool in a blue arc.",                                 "rarity": 0.2, "difficulty": 9, "pool": ["crater"]},
+  {"name": "starborn carp",    "description": "Cold-blooded vacuum-tolerant. Should not exist.",                        "rarity": 0.04,"difficulty": 9, "pool": ["crater"]},
+  {"name": "nebula leviathan", "description": "A galaxy in fin-form. Far too large to be the same one twice.",          "rarity": 0.005,"difficulty": 10, "pool": ["crater"]},
+
+  { "_comment": "COLOSSEUM pool. Tier-90 dim. Gladiator-class fish; arena-themed." },
+  {"name": "gladiator bass",   "description": "Scarred along the flank from generations of fighting.",                  "rarity": 0.4, "difficulty": 7, "pool": ["colosseum"]},
+  {"name": "spectator goldfish","description": "Watches you fight with the same fish from inside the pit.",             "rarity": 0.6, "difficulty": 3, "pool": ["colosseum"]},
+  {"name": "champion's catfish","description": "Carries a silver wreath. Has eaten three challengers.",                 "rarity": 0.08,"difficulty": 9, "pool": ["colosseum"]},
+  {"name": "the Editor",       "description": "Decides who lives. You hooked it. Now what?",                            "rarity": 0.005,"difficulty": 10, "pool": ["colosseum"]},
+
+  { "_comment": "ALL BLUE pool. Tier-180 endgame dim. Catches anything in the game plus a couple of unique apex fish." },
+  {"name": "azure leviathan",  "description": "The deepest blue you've ever seen. Older than the surface.",             "rarity": 0.01,"difficulty": 10, "pool": ["allblue"]},
+  {"name": "the bluest blue",  "description": "Pure colour. You aren't sure it has a body.",                            "rarity": 0.003,"difficulty": 10, "pool": ["allblue"]},
+  {"name": "ocean's first",    "description": "The first fish. Still alive. It remembers Khei.",                        "rarity": 0.0005,"difficulty": 10, "pool": ["allblue"], "unique": true}
 ]

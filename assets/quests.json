@@ -73,5 +73,40 @@
     "description": "The Shipwright won't lift a chisel for scurvy dogs with less than 1,250 lifetime catches. Bring him the count, then talk to him on the pier. After that, :inspect (or x) any open water to push off.",
     "objective": { "kind": "catch", "target": "any", "count": 1250 },
     "reward": { "valu": 2000 }
-  }
+  },
+
+  { "_comment": "SPECIALTY DIM QUESTS. For each new dim: an 'entry' quest (the thing you do to find/unlock it) and an 'inside' quest (a small fetch once you're there). Catch-by-species targets reference the dim's pool fish; visit_dim quests reference the dim label." },
+
+  { "id": "dq-sewer-entry",     "title": "Down the Drain",            "description": "Find the sewer entrance and step inside. (Hint: :travel sewer once you have a rod.)",       "objective": { "kind": "visit_dim", "target": "Sewer",         "count": 1 },  "reward": { "valu": 100 } },
+  { "id": "dq-sewer-inside",    "title": "Rat Run",                   "description": "Pull 8 drain rats out of the sluice. The inn won't ask questions.",                       "objective": { "kind": "catch",     "target": "drain rat",      "count": 8 },  "reward": { "valu": 300 } },
+
+  { "id": "dq-hotspring-entry", "title": "Steam Calls",               "description": "Find the Hot Spring and let it warm you.",                                                 "objective": { "kind": "visit_dim", "target": "Hot Spring",    "count": 1 },  "reward": { "valu": 250 } },
+  { "id": "dq-hotspring-inside","title": "The Soaking",               "description": "Reel in 5 soaking koi.",                                                                   "objective": { "kind": "catch",     "target": "soaking koi",   "count": 5 },  "reward": { "valu": 600 } },
+
+  { "id": "dq-pyramid-entry",   "title": "Sands of the Inner Chamber","description": "Find the Pyramid in the deep desert and step into its first chamber.",                   "objective": { "kind": "visit_dim", "target": "Pyramid",       "count": 1 },  "reward": { "valu": 500 } },
+  { "id": "dq-pyramid-inside",  "title": "The Pharaoh's Course",      "description": "Catch 4 mummified sand-eels for the cartouche.",                                            "objective": { "kind": "catch",     "target": "mummified sand-eel","count": 4 }, "reward": { "valu": 1200 } },
+
+  { "id": "dq-swamp-entry",     "title": "Through the Roots",         "description": "Find the Swamp Cave behind the great willow.",                                              "objective": { "kind": "visit_dim", "target": "Swamp Cave",    "count": 1 },  "reward": { "valu": 700 } },
+  { "id": "dq-swamp-inside",    "title": "Bog Census",                "description": "Catch 6 lampreylings for the herbalist.",                                                  "objective": { "kind": "catch",     "target": "lampreyling",   "count": 6 },  "reward": { "valu": 1500 } },
+
+  { "id": "dq-wreckage-entry",  "title": "The Hull's Lantern",        "description": "Find the half-sunken Wreckage off the south reef and climb aboard.",                       "objective": { "kind": "visit_dim", "target": "Wreckage",      "count": 1 },  "reward": { "valu": 900 } },
+  { "id": "dq-wreckage-inside", "title": "Salvage",                   "description": "Pull up 5 cargo eels from the flooded hold.",                                              "objective": { "kind": "catch",     "target": "cargo eel",     "count": 5 },  "reward": { "valu": 1800 } },
+
+  { "id": "dq-cathedral-entry", "title": "The Sunken Service",        "description": "Find the Bog Cathedral and step under the broken arches.",                                "objective": { "kind": "visit_dim", "target": "Bog Cathedral", "count": 1 },  "reward": { "valu": 1300 } },
+  { "id": "dq-cathedral-inside","title": "Last Rites",                "description": "Catch 3 drowned bishops and lay them at the altar.",                                       "objective": { "kind": "catch",     "target": "drowned bishop","count": 3 },  "reward": { "valu": 2500 } },
+
+  { "id": "dq-mirror-entry",    "title": "Yours, Reflected",          "description": "Find Mirror Lake. Look at the surface. Don't trust what looks back.",                     "objective": { "kind": "visit_dim", "target": "Mirror Lake",   "count": 1 },  "reward": { "valu": 1800 } },
+  { "id": "dq-mirror-inside",   "title": "The Other Hand",            "description": "Catch 3 doppelganger trout. Each one knows your name.",                                    "objective": { "kind": "catch",     "target": "doppelganger trout","count": 3 }, "reward": { "valu": 3200 } },
+
+  { "id": "dq-ice-entry",       "title": "Across the Flat",           "description": "Cross the Iceshelf without freezing. Find the first hole.",                                "objective": { "kind": "visit_dim", "target": "Iceshelf",      "count": 1 },  "reward": { "valu": 2500 } },
+  { "id": "dq-ice-inside",      "title": "Cold Catch",                "description": "Catch 5 arctic char through the ice.",                                                      "objective": { "kind": "catch",     "target": "arctic char",   "count": 5 },  "reward": { "valu": 4000 } },
+
+  { "id": "dq-colosseum-entry", "title": "The Crowd Calls",           "description": "Find the Colosseum. The crowd is already chanting.",                                       "objective": { "kind": "visit_dim", "target": "Colosseum",     "count": 1 },  "reward": { "valu": 3200 } },
+  { "id": "dq-colosseum-inside","title": "First Bout",                "description": "Defeat 4 gladiator bass in the pit.",                                                       "objective": { "kind": "catch",     "target": "gladiator bass","count": 4 },  "reward": { "valu": 5500 } },
+
+  { "id": "dq-crater-entry",    "title": "Falling Things",            "description": "Find the Crater. The pool at its center is not entirely of this world.",                  "objective": { "kind": "visit_dim", "target": "Crater",        "count": 1 },  "reward": { "valu": 4500 } },
+  { "id": "dq-crater-inside",   "title": "Skywriting",                "description": "Catch 3 stardust koi from the comet's wake.",                                              "objective": { "kind": "catch",     "target": "stardust koi",  "count": 3 },  "reward": { "valu": 8500 } },
+
+  { "id": "dq-allblue-entry",   "title": "The Blue Beyond",           "description": "Reach the All Blue — the final ocean, where every fish that ever swam can spawn.",        "objective": { "kind": "visit_dim", "target": "All Blue",      "count": 1 },  "reward": { "valu": 8000 } },
+  { "id": "dq-allblue-inside",  "title": "Apex",                      "description": "Catch the azure leviathan. Only one will ever bite per save.",                              "objective": { "kind": "catch",     "target": "azure leviathan","count": 1 }, "reward": { "valu": 20000 } }
 ]

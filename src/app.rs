@@ -4667,6 +4667,27 @@ fn dim_default_pool(
             Weather::TempHigh => Some("infernal"),
             _ => Some("hot"),
         },
+        // ---- specialty dim → pool tag ----
+        crate::world::Dimension::Sewer => Some("sewer"),
+        crate::world::Dimension::HotSpring => Some("hotspring"),
+        crate::world::Dimension::Pyramid => Some("pyramid"),
+        crate::world::Dimension::SwampCave => Some("swampcave"),
+        crate::world::Dimension::BogCathedral => Some("cathedral"),
+        crate::world::Dimension::MirrorLake => Some("mirrorlake"),
+        crate::world::Dimension::Iceshelf => Some("iceshelf"),
+        crate::world::Dimension::Wreckage => Some("wreckage"),
+        crate::world::Dimension::Crater => Some("crater"),
+        crate::world::Dimension::Colosseum => Some("colosseum"),
+        // All Blue is the endgame "everything" pool — we route to "allblue"
+        // for the rare apex fish AND occasionally fall back to None so the
+        // entire fish list is reachable (the picker handles None).
+        crate::world::Dimension::AllBlue => {
+            if crate::fish::next_rand_f32(rng) < 0.3 {
+                Some("allblue")
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }
