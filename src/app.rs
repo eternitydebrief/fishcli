@@ -69,6 +69,9 @@ pub enum Scene {
     /// Achievements menu: shows active (next-unmet) tier per chain plus
     /// completed-tier history at the bottom. q/esc leaves.
     Achievements { cursor: usize },
+    /// Boss fishing fight: two fish and two bars, F/V drive the left bar
+    /// and J/N drive the right.
+    Boss(crate::boss::Boss),
     /// Inside someone's house. Procedural one-room interior keyed by the
     /// world-coords of the door used to enter. Player moves with hjkl in
     /// a small grid; stepping back onto the interior door tile exits.
@@ -1077,6 +1080,43 @@ impl App {
         if let Scene::Fishing(g) = &mut self.scene {
             g.tick();
         }
+        if let Scene::Boss(b) = &mut self.scene {
+            b.tick();
+            if let Some(result) = &b.finished {
+                let (msg, fa_name, fb_name) = (
+                    match result {
+                        crate::boss::BossResult::Won => "*** Boss defeated! ***",
+                        crate::boss::BossResult::Lost => "The bosses get away. (Try again with :boss.)",
+                    }
+                    .to_string(),
+                    b.fish_a.name.clone(),
+                    b.fish_b.name.clone(),
+                );
+                let won = matches!(result, crate::boss::BossResult::Won);
+                self.scene = Scene::Overworld;
+                self.narrator.say(msg);
+                if won {
+                    // Quick reward: +20% Fishing XP boost + valu equal to sum of
+                    // sell prices.
+                    let reward = (fishlist::fish()
+                        .iter()
+                        .find(|f| f.name == fa_name)
+                        .map(|f| f.sell_price())
+                        .unwrap_or(0)
+                        + fishlist::fish()
+                            .iter()
+                            .find(|f| f.name == fb_name)
+                            .map(|f| f.sell_price())
+                            .unwrap_or(0)) as u64
+                        * 3;
+                    self.player.valu = self.player.valu.saturating_add(reward);
+                    self.lifetime_valu = self.lifetime_valu.saturating_add(reward);
+                    self.stats.valu_earned = self.stats.valu_earned.saturating_add(reward);
+                    self.narrator
+                        .say(format!("+{reward}$V boss bounty."));
+                }
+            }
+        }
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
@@ -1103,6 +1143,17 @@ impl App {
         }
 
         if matches!(self.mode, Mode::Insert) {
+            if let Scene::Boss(b) = &mut self.scene {
+                if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+                    match key.code {
+                        KeyCode::Char('f') | KeyCode::Char('F') => { b.input_left_up(); return; }
+                        KeyCode::Char('v') | KeyCode::Char('V') => { b.input_left_down(); return; }
+                        KeyCode::Char('j') | KeyCode::Char('J') => { b.input_right_up(); return; }
+                        KeyCode::Char('n') | KeyCode::Char('N') => { b.input_right_down(); return; }
+                        _ => {}
+                    }
+                }
+            }
             if let Scene::Fishing(g) = &mut self.scene {
                 match key.code {
                     KeyCode::Char('k') | KeyCode::Char('w') | KeyCode::Up => {
@@ -1380,6 +1431,14 @@ impl App {
                         }
                     }
                     _ => {}
+                }
+            }
+            Scene::Boss(_) => {
+                // F/V/J/N already handled before the mode dispatch; only esc/q
+                // here lets the player back out (counts as forfeit).
+                if matches!(code, KeyCode::Esc | KeyCode::Char('q')) {
+                    self.narrator.say("You forfeit the fight.");
+                    self.scene = Scene::Overworld;
                 }
             }
             Scene::Fishing(_) => {
@@ -2000,6 +2059,37 @@ impl App {
                     self.narrator.say("Usage: :cook <fish name>. Try :i to browse.");
                 } else {
                     self.do_cook(name);
+                }
+            }
+            "boss" => {
+                // Trigger a boss fight against two random caught fish.
+                let pool: Vec<usize> = self
+                    .caught
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, c)| **c)
+                    .map(|(i, _)| i)
+                    .collect();
+                if pool.len() < 2 {
+                    self.narrator.say("Catch at least two fish first.");
+                } else {
+                    let r1 = crate::fish::next_rand_f32(&mut self.rng_state);
+                    let r2 = crate::fish::next_rand_f32(&mut self.rng_state);
+                    let a = pool[((r1 * pool.len() as f32) as usize).min(pool.len() - 1)];
+                    let b = pool[((r2 * pool.len() as f32) as usize).min(pool.len() - 1)];
+                    let fa = &crate::fishlist::fish()[a];
+                    let fb = &crate::fishlist::fish()[b];
+                    self.scene = Scene::Boss(crate::boss::Boss::new(
+                        fa,
+                        fb,
+                        self.rng_state,
+                        self.skills.fishing_level(),
+                    ));
+                    self.mode = Mode::Insert;
+                    self.narrator.say(format!(
+                        "BOSS: {} & {} approach. F/V left, J/N right.",
+                        fa.name, fb.name
+                    ));
                 }
             }
             "bounty" => {
@@ -3517,6 +3607,9 @@ impl App {
             Scene::Fishing(g) => {
                 // fishing scene gets the whole frame; log is hidden during reel
                 g.render(frame, viewport(frame), anim_tick);
+            }
+            Scene::Boss(b) => {
+                b.render(frame, viewport(frame));
             }
             Scene::Fishdex(d) => d.render(
                 frame,

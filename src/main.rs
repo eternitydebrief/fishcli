@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 mod achievements;
 mod app;
 mod bait;
+mod boss;
 mod buffs;
 mod daily;
 mod fish;
