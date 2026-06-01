@@ -63,15 +63,24 @@ impl FishDef {
     }
 
     // Difficulty-driven minigame stats. Full ramp is `t = 0..1` for
-    // difficulty 1..10. Rect floor stays generous (4 cells at diff 10)
-    // so the raw catch window never shrinks below ~20% of the bar —
-    // skill-tree + tackle bonuses then push the *effective* rect into
-    // the 5-9 range as the player progresses. The fish_speed and
-    // target_change_ticks knobs do the heavy lifting on difficulty.
+    // difficulty 1..10.
+    //
+    // RECT BALANCE INVARIANT: the *effective* rect (base + skill-tree
+    // rect_h_bonus, max +2 with Iron Arms + Wide Net fully ranked) is
+    // designed to land in the 4-5 cell band across the player's whole
+    // progression. Out-of-level encounters drop to 3 cells occasionally
+    // (rare, intended), but 2 cells is never a target — that floor is
+    // enforced by capping the base at 3 even at diff 10.
+    //
+    // The base ramp here goes 5 → 3 across diff 1 → 10. The skill
+    // tree's max +2 bonus is sized to exactly restore diff-10 fish to
+    // the 5-cell target band, and the min_fishing_level gating ensures
+    // a player only sees diff-N fish around the time their rect_h_bonus
+    // has caught up enough to keep the effective window at ~5.
     pub fn rect_h(&self) -> f32 {
         // diff 1: 5 cells (25% of the bar)
-        // diff 10: 4 cells (20% of the bar)
-        5.0 - self.t() * 1.0
+        // diff 10: 3 cells (15% of the bar)
+        5.0 - self.t() * 2.0
     }
 
     pub fn fish_speed(&self) -> f32 {

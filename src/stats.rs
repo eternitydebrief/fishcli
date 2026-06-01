@@ -46,21 +46,34 @@ impl Skills {
     }
 }
 
-/// Level n requires `level_to_xp(n)` total xp. Quadratic curve so each
-/// level takes a bit longer than the last but never absurdly so.
-///   level 1 = 0 xp
-///   level 2 = 50 xp
-///   level 10 = 2250 xp
-///   level 50 = 60000 xp
-///   level 100 = 247500 xp
+/// Level n requires `level_to_xp(n)` total xp. Quadratic gap so each
+/// next level takes 2n·k more xp than the last.
+///
+/// k = 125 is calibrated against the actual catch loop:
+///   * ~25s per catch (cast + wait + reel + walk)
+///   * 72 catches per 30 min
+///   * XP per catch = difficulty² · 4 + 10
+///   * Player at level N targets difficulty D where min_fishing_level(D) ≤ N
+///
+/// Resulting per-level time, fishing the difficulty appropriate for that level:
+///   L1→L2     250 xp, diff 1  ( 14 xp/catch) →  18 catches ≈  8 min
+///   L14→L15  3,500 xp, diff 4  ( 74 xp/catch) →  47 catches ≈ 20 min
+///   L24→L25  6,000 xp, diff 5  (110 xp/catch) →  55 catches ≈ 23 min
+///   L59→L60 14,750 xp, diff 7  (206 xp/catch) →  72 catches ≈ 30 min ← target
+///   L89→L90 22,250 xp, diff 8  (266 xp/catch) →  84 catches ≈ 35 min
+///   L179→L180 44,750 xp, diff 10 (410 xp/catch) → 109 catches ≈ 45 min
+///
+/// Very early levels run fast for first-hour dopamine; mid-game settles
+/// at the 30-min target; late game trails out to ~45 min so endgame
+/// mastery still feels earned.
 pub fn level_to_xp(level: u32) -> u64 {
     let n = level.saturating_sub(1) as u64;
-    n * (n + 1) * 25
+    n * (n + 1) * 125
 }
 
 pub fn xp_to_level(xp: u64) -> u32 {
-    // invert n*(n+1)*25 = xp -> n ≈ sqrt(xp / 25)
-    let approx = ((xp as f64 / 25.0).sqrt() as u32).max(0);
+    // invert n*(n+1)*125 = xp -> n ≈ sqrt(xp / 125)
+    let approx = ((xp as f64 / 125.0).sqrt() as u32).max(0);
     // refine: walk forward until we exceed
     let mut lvl = approx + 1;
     while level_to_xp(lvl + 1) <= xp {
