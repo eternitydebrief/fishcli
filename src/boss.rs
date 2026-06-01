@@ -47,7 +47,9 @@ impl BossBar {
             fish_target_y: bar_h * 0.5,
             fish_speed,
             target_change_ticks: 30,
-            progress: 0.0,
+            // Start at 30% so the player has a buffer to find the fish
+            // without insta-failing all 5 attempts on the opening frame.
+            progress: 0.30,
             rng_state: rng_seed | 1,
         }
     }
@@ -91,6 +93,10 @@ pub struct Boss {
     /// Intro overlay timer in ticks. While >0, the player input is locked
     /// and a control reminder is shown.
     pub intro_ticks: u32,
+    /// Cooldown ticks before another attempt can be deducted. Guards
+    /// against a single dropped bar costing multiple attempts in one
+    /// second.
+    attempt_cooldown: u32,
     pub finished: Option<BossResult>,
 }
 
@@ -114,6 +120,7 @@ impl Boss {
             right: BossBar::new(bar_h, 4.5, rng_seed ^ 0xBEEF_CAFE, speed),
             attempts_left: 5,
             intro_ticks: 80, // 4 seconds at 20fps
+            attempt_cooldown: 0,
             finished: None,
         }
     }
@@ -132,21 +139,23 @@ impl Boss {
             self.finished = Some(BossResult::Won);
             return;
         }
-        // Lose an attempt when either meter empties out *and* we've been
-        // ticking long enough that this isn't the opening frame.
-        if (self.left.progress <= 0.0 || self.right.progress <= 0.0)
-            && self.intro_ticks == 0
+        // Lose an attempt when either meter empties out. The cooldown
+        // guarantees one missed bar can't bleed multiple attempts in a
+        // single second — the player has to actually fail again after a
+        // 2-second grace before another attempt comes off the stack.
+        if self.attempt_cooldown > 0 {
+            self.attempt_cooldown -= 1;
+        }
+        if self.attempt_cooldown == 0
+            && (self.left.progress <= 0.0 || self.right.progress <= 0.0)
         {
-            // Only count it once per drain — reset to half so the player gets
-            // a fresh shot.
-            if self.left.progress <= 0.0 || self.right.progress <= 0.0 {
-                self.attempts_left = self.attempts_left.saturating_sub(1);
-                if self.attempts_left == 0 {
-                    self.finished = Some(BossResult::Lost);
-                } else {
-                    self.left.progress = 0.4;
-                    self.right.progress = 0.4;
-                }
+            self.attempts_left = self.attempts_left.saturating_sub(1);
+            if self.attempts_left == 0 {
+                self.finished = Some(BossResult::Lost);
+            } else {
+                self.left.progress = 0.4;
+                self.right.progress = 0.4;
+                self.attempt_cooldown = 40; // 2 s before another attempt can drop
             }
         }
     }

@@ -825,6 +825,35 @@ impl App {
         }
     }
 
+    /// If the player's current world cell isn't walkable (e.g. they
+    /// portalled into a labyrinth dim where their saved coords now
+    /// happen to be wall), sweep outward in expanding rings until a
+    /// walkable cell is found and snap them there. Gives up after
+    /// radius 80 — past that the dim is broken anyway.
+    fn snap_player_to_walkable(&mut self) {
+        let (px, py) = (self.player.x, self.player.y);
+        if self.world.get(px, py).walkable() {
+            return;
+        }
+        for r in 1..80i32 {
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    // only the outermost ring at this radius
+                    if dx.abs() != r && dy.abs() != r {
+                        continue;
+                    }
+                    let nx = px + dx;
+                    let ny = py + dy;
+                    if self.world.get(nx, ny).walkable() {
+                        self.player.x = nx;
+                        self.player.y = ny;
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     pub fn stamina_max(&self) -> f32 {
         STAMINA_BASE_MAX + self.skill_tree.stamina_max_bonus()
     }
@@ -1334,10 +1363,20 @@ impl App {
             }
             return;
         }
-        // shortcut from any insert-mode scene that doesn't consume ':' to command mode
-        if code == KeyCode::Char(':')
-            && !matches!(self.scene, Scene::Notes(_) | Scene::NamePrompt(_) | Scene::Dialogue { .. })
-        {
+        // Shortcut from any insert-mode scene that doesn't consume ':' to
+        // command mode. Suppressed in any scene where ':' is either part of
+        // text input (Notes, NamePrompt, Fishdex filter, Mining ore name) or
+        // an active minigame the player must not lose ticks during
+        // (Fishing, Boss, Dialogue).
+        let fishdex_filtering = matches!(
+            &self.scene, Scene::Fishdex(d) if d.editing_filter
+        );
+        let cmd_shortcut_blocked = matches!(
+            self.scene,
+            Scene::Notes(_) | Scene::NamePrompt(_) | Scene::Dialogue { .. }
+            | Scene::Mining(_) | Scene::Fishing(_) | Scene::Boss(_)
+        ) || fishdex_filtering;
+        if code == KeyCode::Char(':') && !cmd_shortcut_blocked {
             self.mode = Mode::Command(String::new());
             return;
         }
@@ -2242,6 +2281,7 @@ impl App {
                         ));
                     } else {
                         self.world.dim = dim;
+                        self.snap_player_to_walkable();
                         self.narrator.say(format!("You arrive at: {}.", dim.label()));
                     }
                 } else {
@@ -2720,6 +2760,7 @@ impl App {
                         ));
                     } else {
                         self.world.dim = dest;
+                        self.snap_player_to_walkable();
                         self.quest_progress("visit_dim", dest.label());
                         self.narrator
                             .say(format!("You arrive at: {}.", dest.label()));
@@ -5093,6 +5134,7 @@ impl App {
             DimCycle => {
                 if step != 0 {
                     self.world.dim = cycle_dim(self.world.dim, step);
+                    self.snap_player_to_walkable();
                 }
             }
             Valu => bump(&mut self.player.valu, step, 10_000),
@@ -5172,6 +5214,7 @@ impl App {
             }
             DimCycle => {
                 self.world.dim = cycle_dim(self.world.dim, 1);
+                self.snap_player_to_walkable();
             }
             UnlockAllAchievements => {
                 for chain in crate::achievements::chains() {
