@@ -320,10 +320,28 @@ pub struct App {
     /// True after :q until the player confirms (y/Enter) or aborts (any
     /// other key). Guards against fat-finger quits.
     pub pending_quit_confirm: bool,
+    /// Persisted user prefs (autosave interval, log lines, contrast).
+    pub settings: Settings,
+    /// Cursor for the settings menu.
+    pub settings_cursor: usize,
 }
 
 /// Baseline maximum stamina before Iron Lungs ranks.
 pub const STAMINA_BASE_MAX: f32 = 100.0;
+
+/// User-tweakable preferences. Persisted in the save.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Settings {
+    pub autosave_interval_secs: u32,
+    pub log_lines: u16,
+    pub high_contrast: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self { autosave_interval_secs: 5, log_lines: 10, high_contrast: false }
+    }
+}
 
 impl App {
     pub fn new() -> Self {
@@ -408,6 +426,8 @@ impl App {
             streak_count: 0,
             stamina: STAMINA_BASE_MAX,
             pending_quit_confirm: false,
+            settings: Settings::default(),
+            settings_cursor: 0,
         }
     }
 
@@ -585,6 +605,7 @@ impl App {
         self.streak_count = data.streak_count;
         self.mining_boost_until = data.mining_boost_until;
         self.stamina = data.stamina.clamp(0.0, self.stamina_max());
+        self.settings = data.settings.clone();
         self.veins = data
             .veins
             .iter()
@@ -672,6 +693,24 @@ impl App {
                 .map(|(&(dim, x, y), v)| (dim, x, y, v.charges_used, v.ready_at_secs))
                 .collect(),
             stamina: self.stamina,
+            settings: self.settings.clone(),
+        }
+    }
+
+    fn adjust_setting(&mut self, delta: i32) {
+        match self.settings_cursor {
+            0 => {
+                let v = self.settings.autosave_interval_secs as i32 + delta;
+                self.settings.autosave_interval_secs = v.clamp(1, 60) as u32;
+            }
+            1 => {
+                let v = self.settings.log_lines as i32 + delta;
+                self.settings.log_lines = v.clamp(5, 15) as u16;
+            }
+            2 => {
+                self.settings.high_contrast = !self.settings.high_contrast;
+            }
+            _ => {}
         }
     }
 
@@ -868,9 +907,11 @@ impl App {
     }
 
     fn maybe_autosave(&mut self) {
-        // every ~5s, send a snapshot to the background thread, but only if
-        // the save has actually changed since the last write.
-        if self.last_autosave_at.elapsed() < Duration::from_secs(5) {
+        // Send a snapshot to the background thread every
+        // `settings.autosave_interval_secs` seconds, but only if the save
+        // actually changed since the last write.
+        let secs = self.settings.autosave_interval_secs.max(1) as u64;
+        if self.last_autosave_at.elapsed() < Duration::from_secs(secs) {
             return;
         }
         let snapshot = self.current_save();
@@ -1252,11 +1293,23 @@ impl App {
                     self.exit_subscene();
                 }
             }
-            Scene::Help(_) | Scene::Stats | Scene::Settings => {
+            Scene::Help(_) | Scene::Stats => {
                 if matches!(code, KeyCode::Esc | KeyCode::Char('q')) {
                     self.scene = Scene::Overworld;
                 }
             }
+            Scene::Settings => match code {
+                KeyCode::Esc | KeyCode::Char('q') => self.scene = Scene::Overworld,
+                KeyCode::Char('j') | KeyCode::Down => {
+                    self.settings_cursor = (self.settings_cursor + 1).min(2);
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.settings_cursor = self.settings_cursor.saturating_sub(1);
+                }
+                KeyCode::Char('h') | KeyCode::Left => self.adjust_setting(-1),
+                KeyCode::Char('l') | KeyCode::Right => self.adjust_setting(1),
+                _ => {}
+            },
             Scene::Map { offset } => match code {
                 KeyCode::Esc | KeyCode::Char('q') => self.scene = Scene::Overworld,
                 KeyCode::Left | KeyCode::Char('h') => offset.0 -= 1,
@@ -3293,7 +3346,7 @@ impl App {
                 &self.skills,
                 &self.buffs,
             ),
-            Scene::Settings => render_settings(frame),
+            Scene::Settings => render_settings(frame, self.settings_cursor, &self.settings),
             Scene::Quests { cursor } => render_quests(
                 frame,
                 *cursor,
@@ -3445,7 +3498,7 @@ impl App {
         }
 
         let log_w = 42u16.min(full.width.saturating_sub(valu_w_taken));
-        let log_h = 10u16.min(effective_h);
+        let log_h = self.settings.log_lines.clamp(5, 15).min(effective_h);
         if log_w > 4 && log_h > 2 {
             let log_area = Rect {
                 x: full.x,
@@ -5067,31 +5120,39 @@ fn row(key: &str, val: String) -> ratatui::text::Line<'static> {
     ])
 }
 
-fn render_settings(frame: &mut Frame) {
+fn render_settings(frame: &mut Frame, cursor: usize, s: &Settings) {
     let area = viewport(frame);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" settings (q/esc to close) ")
+        .title(" settings  (j/k move, h/l adjust, q/esc close) ")
         .border_style(Style::default().fg(Color::Cyan));
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let body = vec![
-        ratatui::text::Line::from(""),
-        ratatui::text::Line::from("  No togglable settings yet."),
-        ratatui::text::Line::from(""),
-        ratatui::text::Line::from(ratatui::text::Span::styled(
-            "  Game data is stored at:",
-            Style::default().fg(Color::DarkGray),
-        )),
-        ratatui::text::Line::from(ratatui::text::Span::styled(
-            "    ~/.local/share/fishcli/save.json",
-            Style::default().fg(Color::DarkGray),
-        )),
-        ratatui::text::Line::from(ratatui::text::Span::styled(
-            "    ~/.local/share/fishcli/notes.txt",
-            Style::default().fg(Color::DarkGray),
-        )),
+    let rows: [(&str, String); 3] = [
+        ("autosave every (sec)", s.autosave_interval_secs.to_string()),
+        ("log lines (5..15)", s.log_lines.to_string()),
+        ("high contrast", if s.high_contrast { "on".into() } else { "off".into() }),
     ];
+    let mut body: Vec<ratatui::text::Line> = vec![ratatui::text::Line::from("")];
+    for (i, (k, v)) in rows.iter().enumerate() {
+        let style = if i == cursor {
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::LightYellow)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::LightYellow)
+        };
+        body.push(ratatui::text::Line::from(vec![
+            ratatui::text::Span::styled(format!("  {:<26}", k), style),
+            ratatui::text::Span::raw(format!("< {} >", v)),
+        ]));
+    }
+    body.push(ratatui::text::Line::from(""));
+    body.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        "  saves: ./saves/  (latest + 3 backups, + 3 redundancy copies)",
+        Style::default().fg(Color::DarkGray),
+    )));
     frame.render_widget(
         Paragraph::new(body).wrap(ratatui::widgets::Wrap { trim: false }),
         inner,

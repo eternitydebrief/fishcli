@@ -123,6 +123,8 @@ pub struct SaveData {
     pub mining_boost_until: u64,
     #[serde(default = "default_stamina")]
     pub stamina: f32,
+    #[serde(default)]
+    pub settings: crate::app::Settings,
 }
 
 fn default_stamina() -> f32 {
