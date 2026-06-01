@@ -864,6 +864,16 @@ impl World {
                     return (' ', Style::default());
                 }
             }
+            Dimension::HotSpring => {
+                if is_buried_wall(x, y, self.seed.wrapping_add(0x4075_5E5E)) {
+                    return (' ', Style::default());
+                }
+            }
+            Dimension::SwampCave => {
+                if is_buried_wall(x, y, self.seed.wrapping_add(0x5AA9_0CA1)) {
+                    return (' ', Style::default());
+                }
+            }
             _ => {}
         }
         match self.get(x, y) {
@@ -908,10 +918,21 @@ impl World {
             Tile::Dock => ('=', Style::default().fg(Color::LightYellow)),
             Tile::Grass => grass_anim(x, y, tick, cached_biome_at(x, y, self.seed)),
             Tile::Water => {
-                if matches!(self.get(x, y - 1), Tile::Sand) {
-                    shore_anim(x, 1, tick)
-                } else {
-                    water_anim(x, y, tick)
+                // Specialty dims override the standard ocean blue with a
+                // themed tint so each one reads at a glance.
+                match self.dim {
+                    Dimension::Sewer => sewer_water_glyph(x, y, tick),
+                    Dimension::SwampCave => swamp_water_glyph(x, y, tick),
+                    Dimension::Wreckage => wreckage_water_glyph(x, y, tick),
+                    Dimension::BogCathedral => cathedral_water_glyph(x, y, tick),
+                    Dimension::Pyramid => tomb_pool_glyph(x, y, tick),
+                    _ => {
+                        if matches!(self.get(x, y - 1), Tile::Sand) {
+                            shore_anim(x, 1, tick)
+                        } else {
+                            water_anim(x, y, tick)
+                        }
+                    }
                 }
             }
             Tile::Sand => {
@@ -989,14 +1010,28 @@ impl World {
                     .add_modifier(Modifier::BOLD),
             ),
             Tile::MineFrame => mine_frame_glyph(x, y, self.seed),
-            Tile::CaveFloor => cave_floor_glyph(x, y),
+            Tile::CaveFloor => match self.dim {
+                Dimension::HotSpring => hot_spring_floor_glyph(x, y),
+                Dimension::SwampCave => swamp_floor_glyph(x, y),
+                Dimension::Crater => crater_floor_glyph(x, y),
+                _ => cave_floor_glyph(x, y),
+            },
             Tile::CaveWall => {
                 // Walls fully buried inside a mass render pitch black so
                 // the cave reads as solid stone, not a wall of hashes.
-                if is_buried_wall(x, y, self.seed) {
-                    (' ', Style::default())
-                } else {
-                    cave_wall_glyph(x, y)
+                let buried_seed = match self.dim {
+                    Dimension::HotSpring => self.seed.wrapping_add(0x4075_5E5E),
+                    Dimension::SwampCave => self.seed.wrapping_add(0x5AA9_0CA1),
+                    _ => self.seed,
+                };
+                if is_buried_wall(x, y, buried_seed) {
+                    return (' ', Style::default());
+                }
+                match self.dim {
+                    Dimension::HotSpring => hot_spring_wall_glyph(x, y),
+                    Dimension::SwampCave => swamp_wall_glyph(x, y),
+                    Dimension::Crater => crater_wall_glyph(x, y),
+                    _ => cave_wall_glyph(x, y),
                 }
             }
             Tile::Stalactite => {
@@ -1020,7 +1055,7 @@ impl World {
                 (g, Style::default().fg(Color::Rgb(shade - 5, shade - 15, shade - 30)))
             }
             Tile::OreRock => ore_rock_glyph(x, y, self.dim, self.seed),
-            Tile::MineralWater => mineral_water_glyph(x, y, tick),
+            Tile::MineralWater => mineral_water_glyph_with(x, y, tick, mineral_palette_for(self.dim)),
             Tile::MineExit => (
                 '<',
                 Style::default()
@@ -1150,10 +1185,27 @@ fn ore_rock_glyph(x: i32, y: i32, dim: Dimension, seed: u32) -> (char, Style) {
     )
 }
 
-fn mineral_water_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
-    // Three overlapping sines at different angles + frequencies create an
-    // interference height field — looks like rippling water with no
-    // obvious banding. Glyph + color follow the local height.
+#[derive(Clone, Copy)]
+enum MineralPalette {
+    Cyan,
+    HotSpring,
+    Crater,
+    MirrorLake,
+}
+
+fn mineral_palette_for(dim: Dimension) -> MineralPalette {
+    match dim {
+        Dimension::HotSpring => MineralPalette::HotSpring,
+        Dimension::Crater => MineralPalette::Crater,
+        Dimension::MirrorLake => MineralPalette::MirrorLake,
+        _ => MineralPalette::Cyan,
+    }
+}
+
+fn mineral_water_glyph_with(x: i32, y: i32, tick: u64, pal: MineralPalette) -> (char, Style) {
+    // Three overlapping sines drive a height field; the glyph follows
+    // the local height. `pal` picks the color ramp so each dim's pools
+    // read as a distinct material.
     let t = tick as f32 * 0.045;
     let fx = x as f32;
     let fy = y as f32;
@@ -1161,31 +1213,25 @@ fn mineral_water_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
     let w2 = (fx * 0.28 - fy * 0.51 + t * 0.7).sin();
     let w3 = (fx * 0.17 + fy * 0.34 - t * 0.5).sin() * 0.7;
     let h = w1 + w2 + w3;
-    let (glyph, base) = if h > 2.0 {
-        ('~', (160, 210, 225))
-    } else if h > 1.1 {
-        ('~', (110, 170, 200))
-    } else if h > 0.3 {
-        ('~', (85, 145, 180))
-    } else if h > -0.4 {
-        ('-', (65, 115, 160))
-    } else if h > -1.1 {
-        ('_', (50, 95, 140))
-    } else if h > -1.9 {
-        ('.', (40, 80, 120))
-    } else {
-        (',', (30, 65, 100))
+    let ramps_cyan = [(160,210,225),(110,170,200),(85,145,180),(65,115,160),(50,95,140),(40,80,120),(30,65,100)];
+    let ramps_hot  = [(255,210,180),(250,160,120),(230,110,75),(190,75,55),(150,45,40),(115,30,30),(85,20,25)];
+    let ramps_crater = [(220,180,255),(190,135,235),(160,95,215),(125,65,190),(95,45,160),(70,30,130),(50,20,100)];
+    let ramps_mirror = [(225,235,245),(190,210,225),(160,185,210),(135,160,190),(110,135,170),(90,115,150),(70,95,130)];
+    let ramp = match pal {
+        MineralPalette::Cyan => &ramps_cyan,
+        MineralPalette::HotSpring => &ramps_hot,
+        MineralPalette::Crater => &ramps_crater,
+        MineralPalette::MirrorLake => &ramps_mirror,
     };
+    let idx = if h > 2.0 { 0 } else if h > 1.1 { 1 } else if h > 0.3 { 2 }
+              else if h > -0.4 { 3 } else if h > -1.1 { 4 } else if h > -1.9 { 5 } else { 6 };
+    let glyph = match idx { 0 | 1 | 2 => '~', 3 => '-', 4 => '_', 5 => '.', _ => ',' };
+    let base = ramp[idx];
     // Occasional bright sparkle so the surface twinkles.
-    let sparkle =
-        hash2(x, y, 0x9A7E_5A1E).wrapping_add((tick / 5) as u32) % 90 == 0;
+    let sparkle = hash2(x, y, 0x9A7E_5A1E).wrapping_add((tick / 5) as u32) % 90 == 0;
     if sparkle && h > 0.5 {
-        return (
-            '*',
-            Style::default()
-                .fg(Color::Rgb(190, 230, 240))
-                .add_modifier(Modifier::BOLD),
-        );
+        let (br, bg, bb) = ramp[0];
+        return ('*', Style::default().fg(Color::Rgb(br, bg, bb)).add_modifier(Modifier::BOLD));
     }
     let mut style = Style::default().fg(shade(base, x, y, 0x9A7E_5A1E, 4));
     if h > 1.1 {
@@ -3225,23 +3271,47 @@ pub fn dim_portal_for(x: i32, y: i32, seed: u32) -> Option<Dimension> {
 // dim. Minimum-viable but distinct procedural layouts. Wall interiors
 // render pitch black via the existing is_buried_wall logic in render_tile.
 
-/// Sewer: tiled square corridors. Vertical corridor at cx 4..=8 (5 wide,
-/// center river), horizontal corridor at cy 2..=6, everything else wall.
+/// Sewer: a grid of large brick chambers connected by corridors. Each
+/// chamber is 28w × 20h and centred on a 5-wide cross of dark river
+/// water. Walls border every chamber except where a 4-wide doorway
+/// punches through to the neighbouring chamber, so the layout tiles
+/// infinitely and the player can walk from any chamber into the four
+/// adjacent ones without backtracking.
 fn sewer_get(x: i32, y: i32) -> Tile {
-    let cx = x.rem_euclid(14);
-    let cy = y.rem_euclid(10);
-    let in_vcorr = (4..=8).contains(&cx);
-    let in_hcorr = (2..=6).contains(&cy);
-    if in_vcorr && cx == 6 {
-        return Tile::Water;
-    }
-    if in_hcorr && cy == 4 {
-        return Tile::Water;
-    }
-    if in_vcorr || in_hcorr {
+    const W: i32 = 28;
+    const H: i32 = 20;
+    let cx = x.rem_euclid(W);
+    let cy = y.rem_euclid(H);
+    let mid_x = W / 2; // 14
+    let mid_y = H / 2; // 10
+    // Outer chamber wall on every edge — except a 4-wide doorway gap at
+    // the midpoint of each edge so chambers connect.
+    let on_left   = cx == 0;
+    let on_right  = cx == W - 1;
+    let on_top    = cy == 0;
+    let on_bot    = cy == H - 1;
+    let door_v = (cy - mid_y).abs() <= 1; // 3 rows around the midline
+    let door_h = (cx - mid_x).abs() <= 1;
+    if (on_left || on_right) && door_v {
         return Tile::Path;
     }
-    Tile::Wall
+    if (on_top || on_bot) && door_h {
+        return Tile::Path;
+    }
+    if on_left || on_right || on_top || on_bot {
+        return Tile::Wall;
+    }
+    // Central cross of water (5 wide) — the river runs through every
+    // chamber so the player can fish anywhere on it.
+    let in_vriver = (cx - mid_x).abs() <= 2;
+    let in_hriver = (cy - mid_y).abs() <= 2;
+    if in_vriver && in_hriver {
+        return Tile::Water;
+    }
+    if in_vriver || in_hriver {
+        return Tile::Water;
+    }
+    Tile::Path
 }
 
 /// Hot Spring: tiny natural cave overflowing with mineral water.
@@ -3262,22 +3332,26 @@ fn hot_spring_get(x: i32, y: i32, seed: u32) -> Tile {
     }
 }
 
-/// Pyramid: three nested square chambers with axis doorways and a
-/// central tomb pool. Floor is sand.
+/// Pyramid: infinite desert dotted with tomb pyramids. Each 60×60 tile
+/// holds one pyramid (three nested square chambers + an axis doorway +
+/// a central pool); everything between pyramids is dunes you can walk
+/// on. Hash gates a few cells per pyramid into a tomb pool so fishing
+/// works on the interior.
 fn pyramid_get(x: i32, y: i32) -> Tile {
-    let on_axis = x == 0 || y == 0;
-    let ring = |r: i32| x.abs().max(y.abs()) == r;
-    if ring(30) || ring(20) || ring(10) {
+    const T: i32 = 60;
+    let lx = x.rem_euclid(T) - T / 2;
+    let ly = y.rem_euclid(T) - T / 2;
+    let ring = |r: i32| lx.abs().max(ly.abs()) == r;
+    let on_axis = lx == 0 || ly == 0;
+    // central pool (tomb water) at every pyramid centre
+    if lx.abs() <= 3 && ly.abs() <= 3 {
+        return Tile::Water;
+    }
+    if ring(20) || ring(13) || ring(7) {
         if on_axis {
             return Tile::Sand;
         }
         return Tile::Wall;
-    }
-    if x.abs() > 30 || y.abs() > 30 {
-        return Tile::Wall;
-    }
-    if x.abs() <= 4 && y.abs() <= 4 {
-        return Tile::Water; // central tomb pool
     }
     Tile::Sand
 }
@@ -3299,38 +3373,40 @@ fn swamp_cave_get(x: i32, y: i32, seed: u32) -> Tile {
     Tile::CaveFloor
 }
 
-/// Bog Cathedral: large rectangular hall, columns on a 6-grid, flooded
-/// floor with path islands.
+/// Bog Cathedral: an infinite flooded basilica. Columns sit on a 6-grid;
+/// a one-tile-wide stone path threads each grid cell so you can walk
+/// from column to column; the rest is dark altar water. No outer wall —
+/// the basilica goes on forever.
 fn bog_cathedral_get(x: i32, y: i32) -> Tile {
-    if x < -20 || x > 20 || y < -12 || y > 12 {
+    let lx = x.rem_euclid(6);
+    let ly = y.rem_euclid(6);
+    // 2x2 column on every 6x6 cell intersection.
+    if (lx == 0 || lx == 1) && (ly == 0 || ly == 1) {
         return Tile::Wall;
     }
-    if x == -20 || x == 20 || y == -12 || y == 12 {
-        // south doorway
-        if y == 12 && (-1..=1).contains(&x) {
-            return Tile::Path;
-        }
-        return Tile::Wall;
-    }
-    if x.rem_euclid(6) == 0 && y.rem_euclid(6) == 0 && x.abs() < 18 && y.abs() < 10 {
-        return Tile::Wall; // column
-    }
-    if x.rem_euclid(6).abs() <= 1 && y.rem_euclid(6).abs() <= 1 {
+    // cross-shaped path between columns (every 6 cells)
+    if lx == 3 || ly == 3 {
         return Tile::Path;
     }
     Tile::Water
 }
 
-/// Mirror Lake: a perfect circular shimmering pool ringed by sand.
+/// Mirror Lake: an infinite archipelago of overlapping silver pools.
+/// Two layered sine fields select pool / shore / grass per cell so the
+/// player can walk endlessly past one pool to the next.
 fn mirror_lake_get(x: i32, y: i32) -> Tile {
-    let r2 = x * x + y * y;
-    if r2 <= 25 * 25 {
-        return Tile::MineralWater;
+    let fx = x as f32;
+    let fy = y as f32;
+    let a = (fx * 0.07 + fy * 0.05).sin();
+    let b = (fx * 0.04 - fy * 0.09).cos();
+    let n = a + b;
+    if n > 0.4 {
+        Tile::MineralWater
+    } else if n > 0.15 {
+        Tile::Sand
+    } else {
+        Tile::Grass
     }
-    if r2 <= 30 * 30 {
-        return Tile::Sand;
-    }
-    Tile::Grass
 }
 
 /// Iceshelf: flat snow with sparse fishing holes.
@@ -3342,70 +3418,75 @@ fn iceshelf_get(x: i32, y: i32, seed: u32) -> Tile {
     Tile::Sand
 }
 
-/// Wreckage: long rectangular ship hull, half-flooded, with crossbeams.
+/// Wreckage: open ocean strewn with infinite shipwrecks. Every 40×24
+/// tile holds one hull (30-wide ribcage of hull walls with a deck plank
+/// running through the middle and crossbeams every 8 cells); the gaps
+/// between hulls are deep water you can fish in.
 fn wreckage_get(x: i32, y: i32) -> Tile {
-    if x < -30 || x > 30 || y < -6 || y > 6 {
+    const TW: i32 = 40;
+    const TH: i32 = 24;
+    let lx = x.rem_euclid(TW) - TW / 2;
+    let ly = y.rem_euclid(TH) - TH / 2;
+    let inside_hull = lx.abs() <= 14 && ly.abs() <= 5;
+    if !inside_hull {
+        return Tile::Water;
+    }
+    // hull perimeter
+    if lx.abs() == 14 || ly.abs() == 5 {
         return Tile::Wall;
     }
-    if x == -30 || x == 30 || y == -6 || y == 6 {
-        return Tile::Wall;
-    }
-    if y == 0 {
+    // central deck plank
+    if ly == 0 {
         return Tile::Dock;
     }
-    if x.rem_euclid(8) == 0 {
+    // crossbeams every 6 hull cells
+    if lx.rem_euclid(6) == 0 {
         return Tile::Wall;
     }
     Tile::Water
 }
 
-/// Crater: single round cosmic pool ringed by glowing rock.
+/// Crater: an infinite cosmic plain pocked with shimmering pools. Every
+/// 36×36 tile carries one crater (a cosmic pool ringed with rock); the
+/// plain between craters is dark cave floor you can cross freely.
 fn crater_get(x: i32, y: i32) -> Tile {
-    let r2 = x * x + y * y;
-    if r2 <= 12 * 12 {
+    const T: i32 = 36;
+    let lx = x.rem_euclid(T) - T / 2;
+    let ly = y.rem_euclid(T) - T / 2;
+    let r2 = lx * lx + ly * ly;
+    if r2 <= 6 * 6 {
         return Tile::MineralWater;
     }
-    if r2 <= 18 * 18 {
+    if r2 <= 9 * 9 {
         return Tile::Rock;
     }
-    if r2 <= 22 * 22 {
-        return Tile::CaveFloor;
-    }
-    Tile::CaveWall
+    Tile::CaveFloor
 }
 
-/// Colosseum: white stone amphitheater with square concentric corridors.
-/// Three rings of seating, doorways at axes, central flooded arena pit.
+/// Colosseum: an infinite plaza of nested marble amphitheatres. Every
+/// 40×40 tile carries one arena (concentric square walls + central
+/// fighting pit); the marble paths run between arenas so the player
+/// can stroll forever.
 fn colosseum_get(x: i32, y: i32) -> Tile {
-    if x < -25 || x > 25 || y < -15 || y > 15 {
-        return Tile::Wall;
+    const T: i32 = 40;
+    let lx = x.rem_euclid(T) - T / 2;
+    let ly = y.rem_euclid(T) - T / 2;
+    let dist = lx.abs().max(ly.abs());
+    if dist <= 3 {
+        return Tile::Water;
     }
-    if x == -25 || x == 25 || y == -15 || y == 15 {
-        return Tile::Wall;
-    }
-    let dist = x.abs().max(y.abs());
-    if dist == 10 || dist == 20 {
-        if x == 0 || y == 0 {
+    if dist == 8 || dist == 14 {
+        if lx == 0 || ly == 0 {
             return Tile::Path;
         }
         return Tile::Wall;
     }
-    if dist <= 5 {
-        return Tile::Water;
-    }
     Tile::Path
 }
 
-/// All Blue: open ocean everywhere; the endgame pool that lets every
-/// fish in the game potentially spawn (pool dispatch handles that).
-fn all_blue_get(x: i32, y: i32, seed: u32) -> Tile {
-    let h = hash2(x, y, seed.wrapping_add(0xA11B_100));
-    if h % 30 == 0 {
-        return Tile::Kelp;
-    }
-    if h % 200 == 7 {
-        return Tile::CoralTrunk;
-    }
+/// All Blue: pure open ocean. No clutter — every cell is fishable
+/// DeepWater, and the pool dispatch decides what bites.
+fn all_blue_get(_x: i32, _y: i32, _seed: u32) -> Tile {
     Tile::DeepWater
 }
 
@@ -3482,6 +3563,121 @@ fn cathedral_floor_glyph(x: i32, y: i32) -> (char, Style) {
     let g = match h % 4 { 0 => '.', 1 => ',', 2 => '_', _ => ':' };
     let shade = 130 + (h % 25) as u8;
     (g, Style::default().fg(Color::Rgb(shade, shade - 5, shade + 10)))
+}
+
+// ---- Per-dim CaveWall / CaveFloor variants ---------------------------------
+
+fn hot_spring_wall_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0x4075_5_AA1);
+    let g = match h % 5 { 0 => '#', 1 => '%', 2 => '&', 3 => 'M', _ => '8' };
+    let shade = 95 + (h % 35) as u8;
+    let r = shade + 35;
+    let gc = shade.saturating_sub(15);
+    let b = shade.saturating_sub(20);
+    (g, Style::default().fg(Color::Rgb(r, gc, b)).add_modifier(Modifier::BOLD))
+}
+
+fn hot_spring_floor_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0x4075_5F00);
+    let g = match h % 5 { 0 => '.', 1 => ',', 2 => '`', 3 => ':', _ => ';' };
+    let shade = 60 + (h % 22) as u8;
+    (g, Style::default().fg(Color::Rgb(shade + 25, shade.saturating_sub(8), shade.saturating_sub(15))))
+}
+
+fn swamp_wall_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0x5AA9_5_AA1);
+    let g = match h % 5 { 0 => '#', 1 => '%', 2 => '@', 3 => 'W', _ => '$' };
+    let shade = 55 + (h % 28) as u8;
+    let r = shade.saturating_sub(8);
+    let gc = shade + 15;
+    let b = shade.saturating_sub(20);
+    (g, Style::default().fg(Color::Rgb(r, gc, b)).add_modifier(Modifier::BOLD))
+}
+
+fn swamp_floor_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0x5AA9_5F00);
+    let g = match h % 4 { 0 => '.', 1 => ',', 2 => ';', _ => ':' };
+    let shade = 45 + (h % 18) as u8;
+    (g, Style::default().fg(Color::Rgb(shade.saturating_sub(5), shade + 8, shade.saturating_sub(15))))
+}
+
+fn crater_wall_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0xC0_5A_71_E1);
+    let g = match h % 5 { 0 => '#', 1 => '%', 2 => '*', 3 => '+', _ => 'M' };
+    let shade = 65 + (h % 28) as u8;
+    let r = shade + 20;
+    let gc = shade.saturating_sub(10);
+    let b = shade + 45;
+    (g, Style::default().fg(Color::Rgb(r, gc, b)).add_modifier(Modifier::BOLD))
+}
+
+fn crater_floor_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0xC0_5A_72_F0);
+    let g = match h % 5 { 0 => '.', 1 => ',', 2 => '`', 3 => '\'', _ => ':' };
+    let shade = 30 + (h % 16) as u8;
+    (g, Style::default().fg(Color::Rgb(shade + 10, shade.saturating_sub(2), shade + 25)))
+}
+
+// ---- Per-dim Water tints --------------------------------------------------
+
+/// Standard ocean wave field but recoloured per dim. Glyph follows the
+/// same animated height as `water_anim`; only the palette changes.
+fn tinted_water_glyph(x: i32, y: i32, tick: u64, ramp: &[(u8, u8, u8); 7]) -> (char, Style) {
+    let t = tick as f32 * 0.04;
+    let fx = x as f32;
+    let fy = y as f32;
+    let w1 = (fx * 0.30 + fy * 0.21 + t * 0.9).sin();
+    let w2 = (fx * 0.18 - fy * 0.34 + t * 0.6).sin();
+    let h = w1 + w2;
+    let idx = if h > 1.6 { 0 } else if h > 0.8 { 1 } else if h > 0.2 { 2 }
+              else if h > -0.3 { 3 } else if h > -0.9 { 4 } else if h > -1.5 { 5 } else { 6 };
+    let glyph = match idx { 0 | 1 | 2 => '~', 3 => '-', 4 => '_', 5 => '.', _ => ',' };
+    let (r, g, b) = ramp[idx];
+    let mut style = Style::default().fg(Color::Rgb(r, g, b));
+    if h > 0.8 {
+        style = style.add_modifier(Modifier::BOLD);
+    }
+    (glyph, style)
+}
+
+fn sewer_water_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
+    const R: [(u8, u8, u8); 7] = [
+        (140, 165, 110), (110, 135, 85), (90, 115, 70),
+        (70, 95, 55), (55, 75, 45), (40, 55, 35), (28, 40, 25),
+    ];
+    tinted_water_glyph(x, y, tick, &R)
+}
+
+fn swamp_water_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
+    const R: [(u8, u8, u8); 7] = [
+        (85, 95, 55), (70, 80, 45), (55, 65, 40),
+        (45, 55, 35), (35, 45, 25), (25, 35, 20), (18, 28, 15),
+    ];
+    tinted_water_glyph(x, y, tick, &R)
+}
+
+fn wreckage_water_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
+    const R: [(u8, u8, u8); 7] = [
+        (95, 145, 145), (75, 120, 130), (55, 95, 115),
+        (40, 80, 100), (30, 65, 85), (22, 50, 70), (15, 38, 55),
+    ];
+    tinted_water_glyph(x, y, tick, &R)
+}
+
+fn cathedral_water_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
+    const R: [(u8, u8, u8); 7] = [
+        (130, 110, 165), (105, 90, 140), (85, 75, 120),
+        (70, 60, 105), (55, 50, 90), (40, 38, 70), (28, 28, 55),
+    ];
+    tinted_water_glyph(x, y, tick, &R)
+}
+
+fn tomb_pool_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
+    const R: [(u8, u8, u8); 7] = [
+        (210, 195, 130), (180, 160, 100), (150, 130, 75),
+        (125, 105, 60), (100, 85, 50), (80, 65, 40), (60, 50, 30),
+    ];
+    tinted_water_glyph(x, y, tick, &R)
 }
 
 /// True when the cell is inside the spawn-village perimeter walls. The
