@@ -32,21 +32,25 @@ impl Furn {
         matches!(self, Furn::Floor | Furn::Rug | Furn::Exit | Furn::Chair)
     }
 
-    pub fn describe(self) -> &'static str {
+    pub fn id_str(self) -> &'static str {
         match self {
-            Furn::Floor => "Bare floorboards.",
-            Furn::Wall => "An inside wall.",
-            Furn::Window => "A small window with a view of the village.",
-            Furn::Bed => "A bed. Looks slept in.",
-            Furn::Pillow => "A pillow.",
-            Furn::Stove => "A wood-burning stove. Still warm.",
-            Furn::Counter => "A kitchen counter. Crumbs.",
-            Furn::Sink => "A washbasin.",
-            Furn::Table => "A small wooden table.",
-            Furn::Chair => "A chair.",
-            Furn::Rug => "A worn rug.",
-            Furn::Exit => "Front door. Step on it to leave.",
+            Furn::Floor => "Floor",
+            Furn::Wall => "Wall",
+            Furn::Window => "Window",
+            Furn::Bed => "Bed",
+            Furn::Pillow => "Pillow",
+            Furn::Stove => "Stove",
+            Furn::Counter => "Counter",
+            Furn::Sink => "Sink",
+            Furn::Table => "Table",
+            Furn::Chair => "Chair",
+            Furn::Rug => "Rug",
+            Furn::Exit => "Exit",
         }
+    }
+
+    pub fn describe(self) -> &'static str {
+        crate::inspect_text::get(&format!("furn:{}", self.id_str()))
     }
 }
 

@@ -17,6 +17,7 @@ mod daily;
 mod fish;
 mod gametime;
 mod house;
+mod inspect_text;
 mod weather;
 mod fishdex;
 mod fishing;
