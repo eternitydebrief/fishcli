@@ -849,13 +849,13 @@ impl App {
     /// the Light Step skill.
     fn walk_event_drain(&self) -> f32 {
         let red = self.skill_tree.stamina_walk_reduce();
-        (2.0 * (1.0 - red)).max(0.0)
+        (1.0 * (1.0 - red)).max(0.0)
     }
 
     fn reroll_steps_until_drain(&mut self) {
         let r = crate::fish::next_rand_f32(&mut self.rng_state);
-        // Uniform 5..=20 inclusive.
-        self.steps_until_drain = 5 + (r * 16.0) as u32;
+        // Uniform 15..=40 inclusive.
+        self.steps_until_drain = 15 + (r * 26.0) as u32;
     }
 
     pub fn do_save(&mut self) -> bool {
@@ -4943,6 +4943,12 @@ enum DebugEntry {
     NegotiationXp,
     MiningXp,
     WoodcuttingXp,
+    Stamina,
+    RodTier,
+    MasteryMilestones,
+    DailyBonusPoints,
+    ChallengeBonusPoints,
+    TutorialStep,
     GrantUniqueFish,
     GrantUniqueIsh,
     GrantUniqueFsh,
@@ -4951,6 +4957,14 @@ enum DebugEntry {
     GrantUniqueFallen,
     MarkAllSpecies,
     ClearAllSpecies,
+    UnlockAllAchievements,
+    ClearBounty,
+    GrantPickaxe,
+    GrantBoat,
+    RefillStamina,
+    StartBossFight,
+    CompleteTutorial,
+    ResetTutorial,
 }
 
 fn debug_entries() -> &'static [DebugEntry] {
@@ -4958,6 +4972,9 @@ fn debug_entries() -> &'static [DebugEntry] {
         DebugEntry::DimCycle,
         DebugEntry::Valu,
         DebugEntry::LifetimeValu,
+        DebugEntry::RodTier,
+        DebugEntry::Stamina,
+        DebugEntry::RefillStamina,
         DebugEntry::FishCaught,
         DebugEntry::FishEscaped,
         DebugEntry::FishSold,
@@ -4965,11 +4982,16 @@ fn debug_entries() -> &'static [DebugEntry] {
         DebugEntry::Steps,
         DebugEntry::NpcsTalked,
         DebugEntry::QuestsCompleted,
+        DebugEntry::MasteryMilestones,
+        DebugEntry::DailyBonusPoints,
+        DebugEntry::ChallengeBonusPoints,
         DebugEntry::FishingXp,
         DebugEntry::WalkingXp,
         DebugEntry::NegotiationXp,
         DebugEntry::MiningXp,
         DebugEntry::WoodcuttingXp,
+        DebugEntry::GrantPickaxe,
+        DebugEntry::GrantBoat,
         DebugEntry::GrantUniqueFish,
         DebugEntry::GrantUniqueIsh,
         DebugEntry::GrantUniqueFsh,
@@ -4978,6 +5000,12 @@ fn debug_entries() -> &'static [DebugEntry] {
         DebugEntry::GrantUniqueFallen,
         DebugEntry::MarkAllSpecies,
         DebugEntry::ClearAllSpecies,
+        DebugEntry::UnlockAllAchievements,
+        DebugEntry::ClearBounty,
+        DebugEntry::StartBossFight,
+        DebugEntry::TutorialStep,
+        DebugEntry::CompleteTutorial,
+        DebugEntry::ResetTutorial,
     ]
 }
 
@@ -5004,14 +5032,7 @@ impl App {
         match entry {
             DimCycle => {
                 if step != 0 {
-                    self.world.dim = match self.world.dim {
-                        crate::world::Dimension::Surface => crate::world::Dimension::Mines,
-                        crate::world::Dimension::Mines => crate::world::Dimension::Atlantis,
-                        crate::world::Dimension::Atlantis => crate::world::Dimension::Inferno,
-                        crate::world::Dimension::Inferno => crate::world::Dimension::Surface,
-                        // specialty dims cycle through their order then back to Surface
-                        _ => crate::world::Dimension::Surface,
-                    };
+                    self.world.dim = cycle_dim(self.world.dim, step);
                 }
             }
             Valu => bump(&mut self.player.valu, step, 10_000),
@@ -5028,6 +5049,35 @@ impl App {
             NegotiationXp => bump(&mut self.skills.negotiation_xp, step, 100),
             MiningXp => bump(&mut self.skills.mining_xp, step, 100),
             WoodcuttingXp => bump(&mut self.skills.woodcutting_xp, step, 100),
+            Stamina => {
+                let delta = (step as f32) * 10.0;
+                let max = self.stamina_max();
+                self.stamina = (self.stamina + delta).clamp(0.0, max);
+            }
+            RodTier => {
+                let cur = self.player.rods.max_owned as i64;
+                let next = (cur + step).clamp(1, crate::rod::rods().len() as i64) as u32;
+                self.player.rods.max_owned = next;
+                if self.player.rods.equipped > next {
+                    self.player.rods.equipped = next;
+                }
+            }
+            MasteryMilestones => {
+                let v = self.mastery_milestones as i64 + step;
+                self.mastery_milestones = v.max(0) as u32;
+            }
+            DailyBonusPoints => {
+                let v = self.daily_bonus_points as i64 + step;
+                self.daily_bonus_points = v.max(0) as u32;
+            }
+            ChallengeBonusPoints => {
+                let v = self.challenge_bonus_points as i64 + step;
+                self.challenge_bonus_points = v.max(0) as u32;
+            }
+            TutorialStep => {
+                let v = self.tutorial_step as i64 + step;
+                self.tutorial_step = v.clamp(0, TUTORIAL_STEPS as i64) as u32;
+            }
             _ => {}
         }
     }
@@ -5061,17 +5111,99 @@ impl App {
                 self.narrator.say("Debug: cleared fishdex.");
             }
             DimCycle => {
-                self.world.dim = match self.world.dim {
-                    crate::world::Dimension::Surface => crate::world::Dimension::Mines,
-                    crate::world::Dimension::Mines => crate::world::Dimension::Atlantis,
-                    crate::world::Dimension::Atlantis => crate::world::Dimension::Inferno,
-                    crate::world::Dimension::Inferno => crate::world::Dimension::Surface,
-                    _ => crate::world::Dimension::Surface,
-                };
+                self.world.dim = cycle_dim(self.world.dim, 1);
+            }
+            UnlockAllAchievements => {
+                for chain in crate::achievements::chains() {
+                    for (i, tier) in chain.tiers.iter().enumerate() {
+                        let key = format!("{}:{}", chain.id, i + 1);
+                        if !self.achievements.unlocked.contains(&key) {
+                            self.achievements.unlocked.push(key);
+                            self.achievements.points_granted =
+                                self.achievements.points_granted.saturating_add(tier.reward_points);
+                        }
+                    }
+                }
+                self.narrator.say("Debug: every achievement tier unlocked.");
+            }
+            ClearBounty => {
+                self.bounty = None;
+                self.narrator.say("Debug: bounty cleared.");
+            }
+            GrantPickaxe => {
+                self.player.has_pickaxe = true;
+                self.narrator.say("Debug: pickaxe granted.");
+            }
+            GrantBoat => {
+                self.player.has_boat = true;
+                self.narrator.say("Debug: boat granted.");
+            }
+            RefillStamina => {
+                self.stamina = self.stamina_max();
+                self.narrator.say("Debug: stamina refilled.");
+            }
+            StartBossFight => {
+                let pool: Vec<usize> = self
+                    .caught
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, c)| **c)
+                    .map(|(i, _)| i)
+                    .collect();
+                if pool.len() < 2 {
+                    // Fall back to the two hardest fish in the catalog.
+                    let mut sorted: Vec<&'static crate::fish::FishDef> =
+                        crate::fishlist::fish().iter().collect();
+                    sorted.sort_by_key(|f| std::cmp::Reverse(f.difficulty));
+                    if sorted.len() < 2 {
+                        return;
+                    }
+                    self.scene = Scene::Boss(crate::boss::Boss::new(
+                        sorted[0],
+                        sorted[1],
+                        self.rng_state,
+                        self.skills.fishing_level(),
+                    ));
+                } else {
+                    let r1 = crate::fish::next_rand_f32(&mut self.rng_state);
+                    let r2 = crate::fish::next_rand_f32(&mut self.rng_state);
+                    let a = pool[((r1 * pool.len() as f32) as usize).min(pool.len() - 1)];
+                    let b = pool[((r2 * pool.len() as f32) as usize).min(pool.len() - 1)];
+                    self.scene = Scene::Boss(crate::boss::Boss::new(
+                        &crate::fishlist::fish()[a],
+                        &crate::fishlist::fish()[b],
+                        self.rng_state,
+                        self.skills.fishing_level(),
+                    ));
+                }
+                self.mode = Mode::Insert;
+            }
+            CompleteTutorial => {
+                self.tutorial_step = TUTORIAL_STEPS;
+                self.narrator.say("Debug: tutorial marked complete.");
+            }
+            ResetTutorial => {
+                self.tutorial_step = 0;
+                self.narrator.say("Debug: tutorial reset.");
             }
             _ => {}
         }
     }
+}
+
+/// Cycle through every Dimension in declaration order. Step direction picks
+/// next (positive) or previous (negative).
+fn cycle_dim(cur: crate::world::Dimension, step: i64) -> crate::world::Dimension {
+    use crate::world::Dimension::*;
+    const ORDER: &[crate::world::Dimension] = &[
+        Surface, Mines, Atlantis, Inferno,
+        Sewer, HotSpring, Pyramid, SwampCave, BogCathedral, MirrorLake,
+        Iceshelf, Wreckage, Crater, Colosseum, AllBlue,
+    ];
+    let idx = ORDER.iter().position(|d| *d == cur).unwrap_or(0);
+    let n = ORDER.len() as i64;
+    let next = ((idx as i64 + step.signum()).rem_euclid(n)) as usize;
+    ORDER[next]
 }
 
 fn render_debug_console(
@@ -5133,6 +5265,32 @@ fn render_debug_console(
             DebugEntry::ClearAllSpecies => {
                 ("[enter] Clear fishdex".to_string(), String::new())
             }
+            DebugEntry::Stamina => ("Stamina".to_string(), "h/l \u{00B1} 10".to_string()),
+            DebugEntry::RodTier => ("Rod tier (max owned)".to_string(), String::new()),
+            DebugEntry::MasteryMilestones => {
+                ("Mastery milestones".to_string(), String::new())
+            }
+            DebugEntry::DailyBonusPoints => {
+                ("Daily bonus points".to_string(), String::new())
+            }
+            DebugEntry::ChallengeBonusPoints => {
+                ("Challenge bonus points".to_string(), String::new())
+            }
+            DebugEntry::TutorialStep => ("Tutorial step (0..6)".to_string(), String::new()),
+            DebugEntry::UnlockAllAchievements => {
+                ("[enter] Unlock all achievements".to_string(), String::new())
+            }
+            DebugEntry::ClearBounty => ("[enter] Clear active bounty".to_string(), String::new()),
+            DebugEntry::GrantPickaxe => ("[enter] Grant pickaxe".to_string(), String::new()),
+            DebugEntry::GrantBoat => ("[enter] Grant boat".to_string(), String::new()),
+            DebugEntry::RefillStamina => ("[enter] Refill stamina to max".to_string(), String::new()),
+            DebugEntry::StartBossFight => {
+                ("[enter] Start boss fight (2 random caught)".to_string(), String::new())
+            }
+            DebugEntry::CompleteTutorial => {
+                ("[enter] Mark tutorial complete".to_string(), String::new())
+            }
+            DebugEntry::ResetTutorial => ("[enter] Reset tutorial".to_string(), String::new()),
         })
         .collect();
     let lines: Vec<ratatui::text::Line> = rows
