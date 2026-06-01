@@ -25,7 +25,7 @@ use ratatui::{
 pub enum Scene {
     Overworld,
     RodShop { cursor: u32 },
-    FishingSchool { cursor: usize },
+    FishingSchool { cursor: usize, tab: usize },
     Fishing(Fishing),
     Fishdex(Fishdex),
     NamePrompt(String),
@@ -1441,8 +1441,10 @@ impl App {
                     _ => {}
                 }
             }
-            Scene::FishingSchool { cursor } => {
-                let nodes = crate::skill_tree::nodes();
+            Scene::FishingSchool { cursor, tab } => {
+                let branches = crate::skill_tree::TreeBranch::ALL;
+                let branch = branches[(*tab).min(branches.len() - 1)];
+                let nodes = crate::skill_tree::nodes_in_tree(branch);
                 let n = nodes.len();
                 match code {
                     KeyCode::Char('q') | KeyCode::Esc => self.exit_subscene(),
@@ -1452,8 +1454,17 @@ impl App {
                     KeyCode::Char('k') | KeyCode::Up => {
                         *cursor = cursor.saturating_sub(1);
                     }
+                    KeyCode::Char('h') | KeyCode::Left => {
+                        *tab = if *tab == 0 { branches.len() - 1 } else { *tab - 1 };
+                        *cursor = 0;
+                    }
+                    KeyCode::Char('l') | KeyCode::Right | KeyCode::Tab => {
+                        *tab = (*tab + 1) % branches.len();
+                        *cursor = 0;
+                    }
                     KeyCode::Enter | KeyCode::Char(' ') => {
-                        let node = &nodes[*cursor];
+                        if n == 0 { return; }
+                        let node = nodes[(*cursor).min(n - 1)];
                         let lvl = self.skills.fishing_level();
                         let available = self.skill_tree.available(lvl, self.achievements.points_granted + self.daily_bonus_points + self.challenge_bonus_points, self.mastery_milestones);
                         if available == 0 {
@@ -2675,7 +2686,7 @@ impl App {
             }
             Tile::DoorSchool => {
                 self.narrator.say("You step into the fishing school.");
-                self.scene = Scene::FishingSchool { cursor: 0 };
+                self.scene = Scene::FishingSchool { cursor: 0, tab: 0 };
             }
             Tile::DimPortal => {
                 if let Some(dest) =
@@ -3621,9 +3632,10 @@ impl App {
                 self.player.rods.equipped,
                 self.player.valu,
             ),
-            Scene::FishingSchool { cursor } => render_skill_tree(
+            Scene::FishingSchool { cursor, tab } => render_skill_tree(
                 frame,
                 *cursor,
+                *tab,
                 &self.skill_tree,
                 self.skills.fishing_level(),
                 self.achievements.points_granted + self.daily_bonus_points + self.challenge_bonus_points,
@@ -4639,19 +4651,23 @@ fn render_world_hud(
 fn render_skill_tree(
     frame: &mut Frame,
     cursor: usize,
+    tab: usize,
     tree: &crate::skill_tree::SkillTree,
     fishing_level: u32,
     achievements: u32,
     mastery_milestones: u32,
 ) {
-    use crate::skill_tree::SkillTree;
+    use crate::skill_tree::{SkillTree, TreeBranch};
     use ratatui::widgets::Paragraph;
     let area = viewport(frame);
     let earned = SkillTree::earned(fishing_level, achievements, mastery_milestones);
     let available = tree.available(fishing_level, achievements, mastery_milestones);
+    let branches = TreeBranch::ALL;
+    let tab = tab.min(branches.len() - 1);
+    let active_branch = branches[tab];
     let title = format!(
-        " fishing school - {} points available ({} earned, 1 per fishing level, q/esc to leave) ",
-        available, earned,
+        " fishing school - {} points available  (h/l switch tab, j/k navigate, enter invest, q/esc close) ",
+        available,
     );
     let block = Block::default()
         .borders(Borders::ALL)
@@ -4660,25 +4676,31 @@ fn render_skill_tree(
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let nodes = crate::skill_tree::nodes();
     let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    // Tab strip: highlight the active branch.
+    let mut tabspan: Vec<ratatui::text::Span> = Vec::new();
+    tabspan.push(ratatui::text::Span::raw("  "));
+    for (i, b) in branches.iter().enumerate() {
+        let style = if i == tab {
+            Style::default()
+                .fg(Color::Black)
+                .bg(tree_color(*b))
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(tree_color(*b))
+        };
+        tabspan.push(ratatui::text::Span::styled(format!(" {} ", b.label()), style));
+        tabspan.push(ratatui::text::Span::raw(" "));
+    }
+    lines.push(ratatui::text::Line::from(tabspan));
     lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
         format!("  Fishing level: {fishing_level}    Spent: {}/{}", tree.spent, earned),
         Style::default().fg(Color::DarkGray),
     )));
     lines.push(ratatui::text::Line::from(""));
 
-    let mut last_tree: Option<crate::skill_tree::TreeBranch> = None;
+    let nodes = crate::skill_tree::nodes_in_tree(active_branch);
     for (i, node) in nodes.iter().enumerate() {
-        if last_tree != Some(node.tree) {
-            last_tree = Some(node.tree);
-            lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
-                format!("  --- {} ---", node.tree.label()),
-                Style::default()
-                    .fg(tree_color(node.tree))
-                    .add_modifier(Modifier::BOLD),
-            )));
-        }
         let rank = tree.rank(&node.id);
         let max = node.max_rank;
         let unlocked = tree.is_unlocked(node);
