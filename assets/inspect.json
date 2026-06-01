@@ -57,6 +57,7 @@
   "furn:Rug":     "A worn rug.",
   "furn:Exit":    "Front door. Step on it to leave.",
 
-  "faceless:blessing": "Faceless: \"Hey there, friend of Borin. Many blessings on your spelunking.\"",
-  "faceless:curse":    "Faceless: \"YOU ARE ONE OF BORIN THE CANNIBAL. DEVOURED THAT WHICH IS DEAREST TO ME. SUFFER.\""
+  "faceless:blessing": "{name}: \"Hey there, friend of Borin. Many blessings on your spelunking.\"",
+  "faceless:curse":    "Faceless: \"YOU ARE ONE OF BORIN THE CANNIBAL. DEVOURED THAT WHICH IS DEAREST TO ME. SUFFER.\"",
+  "faceless:inspect":  "A faceless figure shuffling in the dark. You cannot tell if it's friendly."
 }

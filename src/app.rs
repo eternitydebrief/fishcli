@@ -2019,6 +2019,11 @@ impl App {
         let (dx, dy) = self.player.facing;
         let tx = self.player.x + dx;
         let ty = self.player.y + dy;
+        if self.faceless.iter().any(|&(x, y)| x == tx && y == ty) {
+            self.narrator
+                .say(crate::inspect_text::get("faceless:inspect"));
+            return;
+        }
         if let Some(npc) = npc::npc_at_dim(tx, ty, self.world.dim) {
             self.narrator
                 .say(format!("{}: press f to talk.", npc.name));
@@ -2529,10 +2534,12 @@ impl App {
         self.faceless.swap_remove(idx);
         let roll = crate::fish::next_rand_f32(&mut self.rng_state);
         if roll < 0.25 {
-            // Blessing: +25% mining xp for 60 seconds.
+            // Blessing: +25% mining xp for 60 seconds. The friendly one
+            // turns out to have a name — generated on the spot.
             self.mining_boost_until = crate::mining::now_secs() + 60;
-            self.narrator
-                .say(crate::inspect_text::get("faceless:blessing"));
+            let name = random_friendly_name(&mut self.rng_state);
+            let line = crate::inspect_text::get("faceless:blessing").replace("{name}", &name);
+            self.narrator.say(line);
             self.narrator
                 .say("(Mining XP +25% for 1 minute.)");
         } else {
@@ -5415,6 +5422,28 @@ fn render_name_prompt(frame: &mut Frame, buf: &str) {
         height: 10.min(inner.height.saturating_sub(2)),
     };
     frame.render_widget(body_p, body_area);
+}
+
+/// Tiny consonant-vowel name generator. Picks 2-3 CV pairs to make names
+/// like "Tibo" or "Karuna". Used to give friendly faceless figures a name.
+fn random_friendly_name(rng: &mut u32) -> String {
+    const C: &[&str] = &[
+        "b", "d", "f", "g", "h", "j", "k", "l", "m", "n", "p", "r", "s", "t", "v", "w", "z",
+    ];
+    const V: &[&str] = &["a", "e", "i", "o", "u"];
+    let pairs = 2 + (crate::fish::next_rand_f32(rng) * 2.0) as usize;
+    let mut s = String::new();
+    for _ in 0..pairs {
+        let ci = (crate::fish::next_rand_f32(rng) * C.len() as f32) as usize % C.len();
+        let vi = (crate::fish::next_rand_f32(rng) * V.len() as f32) as usize % V.len();
+        s.push_str(C[ci]);
+        s.push_str(V[vi]);
+    }
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) => c.to_uppercase().chain(chars).collect(),
+        None => s,
+    }
 }
 
 fn render_cmdline(frame: &mut Frame, area: Rect, mode: &Mode) {
