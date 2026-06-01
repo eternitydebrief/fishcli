@@ -131,13 +131,22 @@ fn default_stamina() -> f32 {
 
 /// Saves live in ./saves/ relative to the current working directory so they
 /// can be easily copied/exported. Each save is written to its own ISO 8601
-/// timestamped file so history is preserved; old files are pruned to keep
-/// disk usage bounded.
+/// timestamped file. Retention is intentionally tight (no savescumming):
+///   * primary `./saves/` keeps the latest save + 3 backups = 4 files max.
+///   * mirrored `./saves/redundancy/` keeps the 3 most recent files as a
+///     belt-and-suspenders second copy.
+/// Old files beyond those windows are pruned on every write.
 const SAVE_DIR: &str = "saves";
-const KEEP_LAST: usize = 50;
+const REDUNDANCY_DIR: &str = "redundancy";
+const KEEP_PRIMARY: usize = 4;
+const KEEP_REDUNDANCY: usize = 3;
 
 fn save_dir() -> PathBuf {
     PathBuf::from(SAVE_DIR)
+}
+
+fn redundancy_dir() -> PathBuf {
+    save_dir().join(REDUNDANCY_DIR)
 }
 
 fn make_timestamped_path() -> PathBuf {
@@ -147,28 +156,49 @@ fn make_timestamped_path() -> PathBuf {
     save_dir().join(format!("save-{stamp}.dat"))
 }
 
-fn list_saves() -> Vec<PathBuf> {
-    let dir = save_dir();
-    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+fn list_dat_files(dir: &PathBuf) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
         .ok()
         .into_iter()
         .flatten()
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("dat"))
+        .filter(|p| p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("dat"))
         .collect();
     files.sort();
     files
 }
 
-fn prune_old_saves(keep: usize) {
-    let files = list_saves();
+fn list_saves() -> Vec<PathBuf> {
+    list_dat_files(&save_dir())
+}
+
+fn prune_dir(dir: &PathBuf, keep: usize) {
+    let files = list_dat_files(dir);
     if files.len() <= keep {
         return;
     }
     for p in &files[..files.len() - keep] {
         let _ = std::fs::remove_file(p);
     }
+}
+
+/// Mirror the most recent save into the redundancy directory and prune the
+/// mirror to KEEP_REDUNDANCY files. The mirror is a straight byte-copy so
+/// it carries the same opaque-encrypted payload as the primary.
+fn mirror_redundancy(latest: &PathBuf) {
+    let dir = redundancy_dir();
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    if let Some(name) = latest.file_name() {
+        let dst = dir.join(name);
+        // skip if the file already exists (same timestamp = same byte content)
+        if !dst.exists() {
+            let _ = std::fs::copy(latest, &dst);
+        }
+    }
+    prune_dir(&dir, KEEP_REDUNDANCY);
 }
 
 fn legacy_save_paths() -> Vec<PathBuf> {
@@ -262,16 +292,21 @@ pub fn save_to_disk(data: &SaveData) -> Result<()> {
     let mask = xor_mask(0x7E, buf.len());
     xor_in_place(&mut buf, &mask);
 
-    std::fs::write(path, buf)?;
-    prune_old_saves(KEEP_LAST);
+    std::fs::write(&path, buf)?;
+    prune_dir(&save_dir(), KEEP_PRIMARY);
+    mirror_redundancy(&path);
     Ok(())
 }
 
 pub fn load_from_disk() -> Option<SaveData> {
-    // try the newest timestamped save first, then older ones if the latest
-    // is corrupt
-    let files = list_saves();
-    for p in files.iter().rev() {
+    // primary saves: newest first; fall back to redundancy if every primary
+    // is corrupt or missing.
+    let mut candidates = list_saves();
+    candidates.reverse();
+    let mut backup = list_dat_files(&redundancy_dir());
+    backup.reverse();
+    candidates.extend(backup);
+    for p in &candidates {
         if let Ok(bytes) = std::fs::read(p) {
             if let Some(d) = decrypt_opaque(&bytes) {
                 return Some(d);
