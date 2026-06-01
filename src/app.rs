@@ -704,6 +704,35 @@ impl App {
         }
     }
 
+    /// Consume one fish of the given species from inventory, restore some
+    /// stamina (difficulty * 5), and grant a small permanent buff scaled
+    /// to the species's difficulty. Unique fish (Fish, Five Elders) can't
+    /// be cooked.
+    fn do_cook(&mut self, name: &str) {
+        let key = name.to_ascii_lowercase();
+        let idx = self
+            .player
+            .inventory
+            .iter()
+            .position(|f| f.name.to_ascii_lowercase() == key && !f.unique);
+        let Some(idx) = idx else {
+            self.narrator.say(format!("No {name} in your basket."));
+            return;
+        };
+        let f = self.player.inventory.remove(idx);
+        let diff = f.difficulty as f32;
+        self.grant_stamina(diff * 5.0);
+        // Tiny permanent buff: 0.5% per difficulty point in sell price.
+        let bonus = 0.005 * diff;
+        self.buffs.price_mult_bonus += bonus;
+        self.narrator.say(format!(
+            "You cook the {}. +{:.0} stamina, +{:.1}% lifetime sell price.",
+            f.name,
+            diff * 5.0,
+            bonus * 100.0,
+        ));
+    }
+
     fn tick_bounty(&mut self, fish_name: &str) {
         let done = if let Some(b) = self.bounty.as_mut() {
             if b.fish_name == fish_name {
@@ -1935,6 +1964,14 @@ impl App {
             "s" | "stats" => {
                 self.scene = Scene::Stats;
                 self.mode = Mode::Insert;
+            }
+            cmd if cmd.starts_with("cook ") || cmd == "cook" => {
+                let name = cmd.strip_prefix("cook").unwrap_or("").trim();
+                if name.is_empty() {
+                    self.narrator.say("Usage: :cook <fish name>. Try :i to browse.");
+                } else {
+                    self.do_cook(name);
+                }
             }
             "bounty" => {
                 if let Some(b) = &self.bounty {
