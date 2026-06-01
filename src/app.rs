@@ -328,7 +328,12 @@ pub struct App {
     /// can hold at most one bounty at a time; complete or abandon to roll
     /// a fresh one.
     pub bounty: Option<crate::procedural_quests::ProceduralQuest>,
+    /// Tutorial progress index. Each step fires a one-time hint then
+    /// advances. Stops contributing chatter past TUTORIAL_STEPS.
+    pub tutorial_step: u32,
 }
+
+pub const TUTORIAL_STEPS: u32 = 6;
 
 /// Baseline maximum stamina before Iron Lungs ranks.
 pub const STAMINA_BASE_MAX: f32 = 100.0;
@@ -371,7 +376,7 @@ impl App {
         let mut narrator = Narrator::new();
         narrator.say("You arrive at the village.");
         narrator.say("Yellow D west = rod shop. Pink D east = fishing school. Dock is south.");
-        narrator.say("hjkl/arrows: move    f: interact    g: pick up    x: inspect    e: fishdex    esc: normal");
+        narrator.say("hjkl/wasd/arrows: move    f: interact    g: pick up    x: inspect    e: fishdex    esc: normal");
         Self {
             world: World::new(0xDEAD_BEEF),
             player: Player::spawn(),
@@ -433,6 +438,7 @@ impl App {
             settings: Settings::default(),
             settings_cursor: 0,
             bounty: None,
+            tutorial_step: 0,
         }
     }
 
@@ -612,6 +618,7 @@ impl App {
         self.stamina = data.stamina.clamp(0.0, self.stamina_max());
         self.settings = data.settings.clone();
         self.bounty = data.bounty.clone();
+        self.tutorial_step = data.tutorial_step;
         self.veins = data
             .veins
             .iter()
@@ -701,6 +708,7 @@ impl App {
             stamina: self.stamina,
             settings: self.settings.clone(),
             bounty: self.bounty.clone(),
+            tutorial_step: self.tutorial_step,
         }
     }
 
@@ -731,6 +739,27 @@ impl App {
             diff * 5.0,
             bonus * 100.0,
         ));
+    }
+
+    /// Advance the tutorial to `target_step` if not already past it, and
+    /// emit the matching one-time hint line.
+    fn tutorial_advance(&mut self, target_step: u32) {
+        if self.tutorial_step > target_step || target_step >= TUTORIAL_STEPS {
+            return;
+        }
+        self.tutorial_step = target_step + 1;
+        let hint = match target_step {
+            0 => "Tutorial: move with hjkl, wasd, or arrows. Try walking south to the pier.",
+            1 => "Tutorial: face water and press f to cast. Yank when the line tugs.",
+            2 => "Tutorial: keep the fish inside the rectangle. j/k, w/s, or arrows move you.",
+            3 => "Tutorial: press i to view your basket. Find a fishmonger to sell.",
+            4 => "Tutorial: try :e for the fishdex, :s for stats, :m for the map.",
+            5 => "Tutorial complete. Press :help for the full command list.",
+            _ => "",
+        };
+        if !hint.is_empty() {
+            self.narrator.say(hint.to_string());
+        }
     }
 
     fn tick_bounty(&mut self, fish_name: &str) {
@@ -2337,6 +2366,9 @@ impl App {
                     // quests like Shipwright's Hull (1250 catches) work
                     self.quest_progress_silent("catch", "any");
                     self.tick_bounty(&fish_ref.name);
+                    if self.tutorial_step <= 3 {
+                        self.tutorial_advance(3);
+                    }
                 } else if escaped {
                     self.narrator
                         .say("It slipped the line. You'll never know what.".to_string());
@@ -2437,6 +2469,12 @@ impl App {
         let cost = self.walk_stamina_cost(weight);
         self.spend_stamina(cost);
         self.stats.steps += weight;
+        if self.tutorial_step == 0 {
+            self.tutorial_advance(0);
+        } else if self.tutorial_step == 1 && self.player.y >= 8 {
+            // close enough to the pier; nudge with the cast hint
+            self.tutorial_advance(1);
+        }
         let wxp = ((weight as f32) * self.skill_tree.global_xp_mult()) as u64;
         self.skills.walking_xp += wxp.max(weight);
         for _ in 0..weight {
@@ -3257,6 +3295,9 @@ impl App {
         self.lifetime_valu = self.lifetime_valu.saturating_add(total);
         self.stats.valu_earned = self.stats.valu_earned.saturating_add(total);
         self.stats.fish_sold = self.stats.fish_sold.saturating_add(sold);
+        if self.tutorial_step <= 4 {
+            self.tutorial_advance(4);
+        }
         let avg = total / sold.max(1);
         self.narrator.say(format!(
             "Fishmonger: \"{} fish for {}$V (avg {}). Pleasure.\"",
@@ -5327,7 +5368,7 @@ fn render_help(frame: &mut Frame, topic: HelpTopic) {
         HelpTopic::Controls => (
             " controls (q/esc to close) ",
             vec![
-                ("h j k l / arrows", "move (and turn to face)"),
+                ("hjkl / wasd / arrows", "move (and turn to face)"),
                 ("f", "interact with what you're facing (door, npc, water)"),
                 ("g", "pick up nearby flower / pebble"),
                 ("x", "inspect the tile you're facing"),

@@ -127,6 +127,8 @@ pub struct SaveData {
     pub settings: crate::app::Settings,
     #[serde(default)]
     pub bounty: Option<crate::procedural_quests::ProceduralQuest>,
+    #[serde(default)]
+    pub tutorial_step: u32,
 }
 
 fn default_stamina() -> f32 {
