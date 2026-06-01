@@ -920,7 +920,7 @@ impl World {
             Tile::Water => {
                 // Specialty dims override the standard ocean blue with a
                 // themed tint so each one reads at a glance.
-                match self.dim {
+                let glyph = match self.dim {
                     Dimension::Sewer => sewer_water_glyph(x, y, tick),
                     Dimension::SwampCave => swamp_water_glyph(x, y, tick),
                     Dimension::Wreckage => wreckage_water_glyph(x, y, tick),
@@ -933,7 +933,11 @@ impl World {
                             water_anim(x, y, tick)
                         }
                     }
-                }
+                };
+                // Every fishable tile carries a near-black bg tinted toward
+                // its water hue so the player can pick out fishing spots at
+                // a glance. Cap at #121212 max per channel.
+                with_fishable_bg(glyph, water_bg_for(self.dim))
             }
             Tile::Sand => {
                 // Repurposed per dim: iceshelf = white snow, pyramid = gold
@@ -973,7 +977,7 @@ impl World {
                 'O',
                 Style::default()
                     .fg(Color::Rgb(170, 170, 180))
-                    .bg(Color::Rgb(20, 20, 30))
+                    .bg(Color::Rgb(10, 10, 14))
                     .add_modifier(Modifier::BOLD),
             ),
             Tile::Path => {
@@ -1055,7 +1059,10 @@ impl World {
                 (g, Style::default().fg(Color::Rgb(shade - 5, shade - 15, shade - 30)))
             }
             Tile::OreRock => ore_rock_glyph(x, y, self.dim, self.seed),
-            Tile::MineralWater => mineral_water_glyph_with(x, y, tick, mineral_palette_for(self.dim)),
+            Tile::MineralWater => with_fishable_bg(
+                mineral_water_glyph_with(x, y, tick, mineral_palette_for(self.dim)),
+                mineral_bg_for(self.dim),
+            ),
             Tile::MineExit => (
                 '<',
                 Style::default()
@@ -1066,7 +1073,10 @@ impl World {
             Tile::CoralTrunk => coral_trunk_glyph(x, y),
             Tile::CoralCanopy => coral_canopy_glyph(x, y),
             Tile::Kelp => kelp_glyph(x, y, tick),
-            Tile::DeepWater => deep_water_glyph(x, y, tick),
+            Tile::DeepWater => with_fishable_bg(
+                deep_water_glyph(x, y, tick),
+                Color::Rgb(4, 6, 16),
+            ),
             Tile::Anemone => {
                 let h = hash2(x, y, 0xA1E_A0AE);
                 let g = match h % 3 {
@@ -1090,7 +1100,10 @@ impl World {
                 }
             }
             Tile::InfernoFloor => inferno_floor_glyph(x, y),
-            Tile::Lava => lava_glyph(x, y, tick),
+            Tile::Lava => with_fishable_bg(
+                lava_glyph(x, y, tick),
+                Color::Rgb(18, 4, 4),
+            ),
             Tile::LandmarkWall => landmark_wall_glyph(x, y, self.dim),
             Tile::LandmarkDoor => landmark_door_glyph(self.dim),
             Tile::Tombstone => {
@@ -3647,6 +3660,38 @@ fn all_blue_get(_x: i32, _y: i32, _seed: u32) -> Tile {
 // Per-dim variants of the generic Wall / Sand / Path renders. Each uses a
 // distinct palette so the dim reads at a glance even when sharing the
 // underlying tile enum.
+
+// ---- Fishable-tile dark backgrounds --------------------------------------
+//
+// Every tile the player can fish in (water, deep water, mineral pools,
+// lava, sewer rivers, etc.) gets a near-black background tinted toward
+// its water hue so fishing spots are unmistakable at a glance. Per the
+// spec, no channel may exceed #12 (18 decimal). Keep these values
+// hand-picked so the bg complements the fg without competing with it.
+
+fn with_fishable_bg(out: (char, Style), bg: Color) -> (char, Style) {
+    (out.0, out.1.bg(bg))
+}
+
+fn water_bg_for(dim: Dimension) -> Color {
+    match dim {
+        Dimension::Sewer => Color::Rgb(4, 14, 4),
+        Dimension::SwampCave => Color::Rgb(4, 10, 4),
+        Dimension::Wreckage => Color::Rgb(4, 12, 14),
+        Dimension::BogCathedral => Color::Rgb(8, 6, 14),
+        Dimension::Pyramid => Color::Rgb(14, 10, 4),
+        _ => Color::Rgb(4, 6, 18),
+    }
+}
+
+fn mineral_bg_for(dim: Dimension) -> Color {
+    match dim {
+        Dimension::HotSpring => Color::Rgb(14, 4, 4),
+        Dimension::Crater => Color::Rgb(12, 4, 14),
+        Dimension::MirrorLake => Color::Rgb(10, 12, 14),
+        _ => Color::Rgb(4, 14, 18),
+    }
+}
 
 // For the non-sewer dims: one defining hue per tile role (wall / floor /
 // water), with small shade jitter for texture and an *occasional* tiny
