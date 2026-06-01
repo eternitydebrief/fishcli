@@ -554,6 +554,14 @@ impl<'a> Widget for WorldView<'a> {
                 }
                 let wx = self.player.0 - half_w + sx;
                 let wy = self.player.1 - half_h + sy;
+                // Place-aware visibility: the perimeter walls of the spawn
+                // village block sight in both directions. Cells the player
+                // can't see render as pitch black space.
+                if self.world.dim == Dimension::Surface
+                    && !cell_visible_from(self.player.0, self.player.1, wx, wy)
+                {
+                    return (' ', Style::default());
+                }
                 // NPCs are per-dim now (atlantean citizens, crypt ghouls,
                 // infernal imps each live only in their own dim).
                 if let Some(npc) = crate::npc::npc_at_dim(wx, wy, self.world.dim) {
@@ -3433,6 +3441,33 @@ fn cathedral_floor_glyph(x: i32, y: i32) -> (char, Style) {
     let g = match h % 4 { 0 => '.', 1 => ',', 2 => '_', _ => ':' };
     let shade = 130 + (h % 25) as u8;
     (g, Style::default().fg(Color::Rgb(shade, shade - 5, shade + 10)))
+}
+
+/// True when the cell is inside the spawn-village perimeter walls. The
+/// village hides everything outside (and vice versa) so the player can't
+/// see through stone.
+pub fn village_inside(x: i32, y: i32) -> bool {
+    x > WALL_L_OUT && x < WALL_R_OUT && y > WALL_TOP_EDGE && y < WALL_BOT_CAP
+}
+
+/// Spatial visibility mask: returns true if a cell at (wx, wy) should be
+/// rendered from the player's vantage at (px, py). Only the village uses
+/// this currently — the player can't see through perimeter walls in
+/// either direction. The strip south of the village (y > WALL_BOT_EDGE,
+/// the dock + ocean) is always visible from inside (south gate).
+pub fn cell_visible_from(px: i32, py: i32, wx: i32, wy: i32) -> bool {
+    let p_in = village_inside(px, py);
+    let c_in = village_inside(wx, wy);
+    if p_in == c_in {
+        return true;
+    }
+    // Player inside, cell outside: only the south strip (dock + ocean)
+    // can be seen through the dock gap. Everything else blacks out.
+    if p_in && wy > WALL_BOT_EDGE {
+        return true;
+    }
+    // Player outside, cell inside: never visible.
+    false
 }
 
 /// Generic buried-wall check: a wall cell with no walkable 4-neighbor is
