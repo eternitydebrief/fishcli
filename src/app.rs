@@ -341,6 +341,19 @@ pub const TUTORIAL_STEPS: u32 = 6;
 /// Baseline maximum stamina before Iron Lungs ranks.
 pub const STAMINA_BASE_MAX: f32 = 100.0;
 
+/// FNV-1a hash of the player's name. Used to seed the world so each name
+/// produces a unique-but-deterministic map. Two players who pick the
+/// same name will see the same world — that's the design intent (the
+/// name *is* the seed; pick a different name for a different world).
+pub fn seed_from_name(name: &str) -> u32 {
+    let mut h: u32 = 0x811C_9DC5;
+    for b in name.bytes() {
+        h ^= b as u32;
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    if h == 0 { 1 } else { h }
+}
+
 /// User-tweakable preferences. Persisted in the save.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Settings {
@@ -1236,6 +1249,12 @@ impl App {
                     trimmed
                 };
                 self.player.name = name.clone();
+                // Derive the world seed from the player's name so it's
+                // deterministic per save (two saves under the same name
+                // generate the same map — intended; the user wants this).
+                let seed = seed_from_name(&name);
+                self.world = World::new(seed);
+                self.rng_state = seed ^ 0xC0FF_EE42;
                 self.narrator.say(format!("Welcome, {name}."));
                 self.narrator
                     .say("Try :w to save your progress whenever.");
