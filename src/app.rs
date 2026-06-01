@@ -966,7 +966,22 @@ impl App {
                     crate::world::Dimension::AllBlue
                 ) { 0.10 } else { 0.0 };
                 let extra_speed = w_mods.catch_speed_pct + dim_bonus_pct;
-                self.scene = Scene::Fishing(Fishing::new_with_skills(
+                let bait_label = self
+                    .player
+                    .bait
+                    .active
+                    .as_ref()
+                    .and_then(|id| crate::bait::def_by_id(id))
+                    .map(|d| d.name.clone())
+                    .unwrap_or_else(|| "none".to_string());
+                let tackle_label = format!(
+                    "H{} V{} L{} R{}",
+                    self.player.tackle.hat,
+                    self.player.tackle.vest,
+                    self.player.tackle.line,
+                    self.player.tackle.lure,
+                );
+                let mut f = Fishing::new_with_skills(
                     fish,
                     self.rng_state,
                     self.skills.fishing_level(),
@@ -974,7 +989,10 @@ impl App {
                     cast_strength,
                     &self.skill_tree,
                     extra_speed,
-                ));
+                );
+                f.gear_bait_label = bait_label;
+                f.gear_tackle_label = tackle_label;
+                self.scene = Scene::Fishing(f);
             }
             CastPhase::Waiting => {}
         }

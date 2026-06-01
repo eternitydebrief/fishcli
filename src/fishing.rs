@@ -61,6 +61,11 @@ pub struct Fishing {
     rl_phantom_pull: f32,
     /// Tamer T3 grace frames remaining (fish stays put)
     tm_grace_left: u32,
+    /// Display-only summary lines for the equipped bait + tackle. The
+    /// caller fills these in before transitioning to the scene; the
+    /// minigame just renders them in a corner panel.
+    pub gear_bait_label: String,
+    pub gear_tackle_label: String,
 }
 
 impl Fishing {
@@ -122,6 +127,8 @@ impl Fishing {
             qc_effortless_mult: tree.effortless_mult(),
             rl_phantom_pull: tree.phantom_pull(),
             tm_grace_left: tree.telepathic_grace_frames(),
+            gear_bait_label: String::new(),
+            gear_tackle_label: String::new(),
         };
         if s.target_change_ticks == 0 {
             s.target_change_ticks = 1;
@@ -456,6 +463,21 @@ impl Fishing {
                 Span::styled(
                     fish_stars,
                     Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  bait: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    self.gear_bait_label.clone(),
+                    Style::default().fg(Color::LightMagenta).add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("  tackle: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    self.gear_tackle_label.clone(),
+                    Style::default().fg(Color::LightBlue).add_modifier(Modifier::BOLD),
                 ),
             ]),
             Line::from(""),
