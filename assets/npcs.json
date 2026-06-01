@@ -9,8 +9,9 @@
     "glyph": "@",
     "color": "lightyellow",
     "dialogue": [
-      "Old Angler scratches his stubble.",
+      "Old Angler grins.",
       "\"Mornin'. Been fishin' these waters longer than you've been breathing.\"",
+      "\"It is so, so good to see another fisherman around here. Our population is minuscule.\"",
       "\"Don't ignore the wells. They're not just for water.\""
     ]
   },
@@ -22,8 +23,7 @@
     "glyph": "@",
     "color": "cyan",
     "dialogue": [
-      "The kid grins up at you.",
-      "\"I saw a HUGE fish in the pond past the trees! Honest!\""
+      "\"I swear I've seen Fish. He was in the well!\""
     ]
   },
   {
@@ -34,9 +34,8 @@
     "glyph": "$",
     "color": "yellow",
     "dialogue": [
-      "Fishmonger eyes your basket appraisingly.",
-      "\"Got fish to sell? Bring 'em here.\"",
-      "(Selling not wired up yet - coming soon.)"
+      "The fishmonger glances at your bag, curiously.",
+      "\"Got fish to sell? Bring 'em here.\""
     ]
   },
   {
@@ -319,9 +318,8 @@
     "glyph": "$",
     "color": "yellow",
     "dialogue": [
-      "Coin eyes your basket appraisingly. (Selling not wired yet - coming soon.)",
-      "\"When I'm open, walk a fish over and I'll quote you a price. Rare fish, more valu. Unique fish stay yours.\"",
-      "\"For now, just catch and hoard.\""
+      "Coin eyes your basket appraisingly.",
+      "\"Walk a fish over and I'll quote you a price. Rare fish, more valu. Unique fish stay yours.\""
     ]
   },
   {

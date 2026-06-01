@@ -1,45 +1,45 @@
 [
-  { "_comment": "schema: id (string), title (string), description (string), objective { kind: 'catch'|'talk'|'walk', target (string - fish name, npc id, 'any' or biome name like 'Desert'), count (int, defaults 1) }, reward { valu (u64) }. quests auto-start. on completion, valu is granted and the quest is marked done." },
+  { "_comment": "schema: id (string), title (string), description (string), objective { kind: 'catch'|'talk'|'walk'|'visit_dim'|'well_cast', target (string - fish name, npc id, 'any', biome name, or dim name 'Mines'|'Atlantis'|'Inferno'), count (int, defaults 1) }, reward { valu (u64) }. quests auto-start. on completion, valu is granted and the quest is marked done." },
 
   {
     "id": "first-cast",
     "title": "First Cast",
-    "description": "Catch any common carp. They're forgiving.",
+    "description": "Test yer darn rod by catching a single common carp.",
     "objective": { "kind": "catch", "target": "common carp", "count": 1 },
     "reward": { "valu": 50 }
   },
   {
     "id": "fill-the-basket",
     "title": "Fill the Basket",
-    "description": "Catch three bluegill for the inn's cook.",
+    "description": "The inn's cook is just too busy to catch some fish and his supply runner has disappeared ever since talking to that guy near the well. Fish 3 bluegills for him and, please, don't poison 'em like the last guy.",
     "objective": { "kind": "catch", "target": "bluegill", "count": 3 },
     "reward": { "valu": 200 }
   },
   {
     "id": "say-hi",
     "title": "Meet the Village",
-    "description": "Greet the Old Angler.",
+    "description": "Speak to the Old Angler.",
     "objective": { "kind": "talk", "target": "old-angler", "count": 1 },
     "reward": { "valu": 30 }
   },
   {
     "id": "trout-hunter",
     "title": "Trout Hunter",
-    "description": "Reel in five rainbow trout.",
+    "description": "Trouts (much like other fish) form schools. Find out what makes trouts (the rainbow kind) so closely related to schools by catching 5.",
     "objective": { "kind": "catch", "target": "rainbow trout", "count": 5 },
     "reward": { "valu": 750 }
   },
   {
     "id": "stretch-legs",
     "title": "Stretch Your Legs",
-    "description": "Take a long walk - 200 steps in any direction.",
+    "description": "The weird long nap you woke up from had your legs really numb. Take 200 steps.",
     "objective": { "kind": "walk", "target": "any", "count": 200 },
     "reward": { "valu": 60 }
   },
   {
     "id": "desert-trek",
     "title": "Desert Trek",
-    "description": "Walk 80 steps through the Desert biome.",
+    "description": "Every biome houses many, many different kinds of fish. Walk around in the desert biome.",
     "objective": { "kind": "walk", "target": "Desert", "count": 80 },
     "reward": { "valu": 250 }
   },
@@ -49,28 +49,28 @@
   {
     "id": "borins-shaft",
     "title": "Borin's Shaft",
-    "description": "Borin lost the way down. Find a mineshaft entrance somewhere in the world - a wooden A-frame against a big rock - and press f at the opening. Step into the dark. The world has cousins beneath it.",
-    "objective": { "kind": "talk", "target": "borin", "count": 1 },
+    "description": "Borin is lost. Help him find his way back to the mines, his home, by entering them through the various mineshaft entries.",
+    "objective": { "kind": "visit_dim", "target": "Mines", "count": 1 },
     "reward": { "valu": 500 }
   },
   {
     "id": "dantes-descent",
     "title": "Dante's Descent",
     "description": "Dante says the village wells run deeper than well water. Cast a line into any well a hundred times. On the hundredth, the bottom will open. He hasn't been back, but he says it was worth it.",
-    "objective": { "kind": "talk", "target": "dante", "count": 1 },
+    "objective": { "kind": "well_cast", "target": "any", "count": 100 },
     "reward": { "valu": 800 }
   },
   {
     "id": "nereus-invitation",
     "title": "Nereus' Invitation",
-    "description": "Nereus stands at the pier's end and watches the horizon. He will row you to the deep - but only after a thousand fish on your line. Atlantis is real; the Five Elders do not entertain dilettantes.",
-    "objective": { "kind": "talk", "target": "nereus", "count": 1 },
+    "description": "Nereus promises you the tales of Atlantis are real. He will take you there, but only once you've proven your worth with 1000 fish caught. The Five Elders do not tolerate slackers.",
+    "objective": { "kind": "catch", "target": "any", "count": 1000 },
     "reward": { "valu": 1000 }
   },
   {
     "id": "shipwrights-hull",
     "title": "The Shipwright's Hull",
-    "description": "The Shipwright won't lift a chisel for less than 1,250 lifetime catches. Bring him the count, then talk to him on the pier — he'll lay you a hull worth riding. After that, :inspect any open water to push off.",
+    "description": "The Shipwright won't lift a chisel for scurvy dogs with less than 1,250 lifetime catches. Bring him the count, then talk to him on the pier. After that, :inspect (or x) any open water to push off.",
     "objective": { "kind": "catch", "target": "any", "count": 1250 },
     "reward": { "valu": 2000 }
   }

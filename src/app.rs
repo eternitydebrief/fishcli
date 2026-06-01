@@ -2080,6 +2080,7 @@ impl App {
             Tile::MineEntrance => {
                 self.world.dim = crate::world::Dimension::Mines;
                 self.visited_mines = true;
+                self.quest_progress("visit_dim", "Mines");
                 self.narrator.say("You descend the mineshaft. The light dies behind you.");
             }
             Tile::MineExit => {
@@ -2138,6 +2139,7 @@ impl App {
                     && self.world.dim == crate::world::Dimension::Surface
                 {
                     self.stats.well_casts = self.stats.well_casts.saturating_add(1);
+                    self.quest_progress_silent("well_cast", "any");
                     // Only the *first* time well_casts crosses 100 do we
                     // teleport. Subsequent well casts still fish normally.
                     if self.stats.well_casts == 100 {
@@ -2145,6 +2147,7 @@ impl App {
                             .say("*** The well's bottom opens. You fall into the Inferno. ***");
                         self.world.dim = crate::world::Dimension::Inferno;
                         self.visited_inferno = true;
+                        self.quest_progress("visit_dim", "Inferno");
                         self.player.x = 0;
                         self.player.y = 7;
                         self.narrator
@@ -2288,7 +2291,7 @@ impl App {
                     (cursor, Some(FishmongerStep::PickFish))
                 }
                 KeyCode::Char('j') | KeyCode::Down => {
-                    cursor = (cursor + 1).min(2);
+                    cursor = (cursor + 1).min(3);
                     (cursor, Some(FishmongerStep::PickQuantity { picked, max }))
                 }
                 KeyCode::Char('k') | KeyCode::Up => {
@@ -2296,15 +2299,8 @@ impl App {
                     (cursor, Some(FishmongerStep::PickQuantity { picked, max }))
                 }
                 KeyCode::Enter | KeyCode::Char(' ') => match cursor {
-                    0 => {
-                        self.sell_fish_by_name(&picked, max);
-                        (0, Some(FishmongerStep::PickFish))
-                    }
-                    1 => {
-                        self.sell_fish_by_name(&picked, 1);
-                        (0, Some(FishmongerStep::PickFish))
-                    }
-                    _ => (
+                    // Order matches the user-facing menu: Sell X / All / One / Quit.
+                    0 => (
                         0,
                         Some(FishmongerStep::EnterQuantity {
                             picked,
@@ -2312,6 +2308,15 @@ impl App {
                             buf: String::new(),
                         }),
                     ),
+                    1 => {
+                        self.sell_fish_by_name(&picked, max);
+                        (0, Some(FishmongerStep::PickFish))
+                    }
+                    2 => {
+                        self.sell_fish_by_name(&picked, 1);
+                        (0, Some(FishmongerStep::PickFish))
+                    }
+                    _ => (cursor, Some(FishmongerStep::PickFish)),
                 },
                 _ => (cursor, Some(FishmongerStep::PickQuantity { picked, max })),
             },
@@ -2617,6 +2622,7 @@ impl App {
         }
         self.world.dim = crate::world::Dimension::Atlantis;
         self.visited_atlantis = true;
+        self.quest_progress("visit_dim", "Atlantis");
         self.player.x = 0;
         self.player.y = 7;
         self.narrator.say(npc.response("taking_you", &[]));
@@ -3862,7 +3868,7 @@ fn render_fishmonger(
             frame.render_widget(Paragraph::new(lines), inner);
         }
         FishmongerStep::PickQuantity { picked, max } => {
-            let opts = ["Sell ALL", "Sell ONE", "Sell X (type a number)"];
+            let opts = ["Sell X (type a number)", "Sell ALL", "Sell ONE", "Quit"];
             let mut lines: Vec<ratatui::text::Line> = vec![
                 ratatui::text::Line::from(ratatui::text::Span::styled(
                     format!("  How many {picked}? (you have {max})"),
