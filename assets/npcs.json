@@ -643,5 +643,74 @@
       "The soul flickers, half-here.",
       "\"I cast a hundred times. I should have stopped. I should have stopped.\""
     ]
+  },
+
+  { "_comment": "specialty-dim NPCs. One per dim, placed at (5,3) which sits on open floor in every procedural layout. Dialogue is intentionally short — REWRITE PROSE HERE." },
+
+  {
+    "id": "sewer-vagabond",
+    "name": "Sewer Vagabond",
+    "x": 5, "y": 3, "glyph": "@", "color": "darkgray", "dim": "Sewer",
+    "dialogue": ["A figure crouched at the drain's edge."]
+  },
+  {
+    "id": "hotspring-bather",
+    "name": "Bather",
+    "x": 5, "y": 3, "glyph": "@", "color": "lightred", "dim": "HotSpring",
+    "dialogue": ["A bather sits in the steam, eyes closed."]
+  },
+  {
+    "id": "pyramid-priest",
+    "name": "Sand Priest",
+    "x": 5, "y": 3, "glyph": "@", "color": "yellow", "dim": "Pyramid",
+    "dialogue": ["The priest's robes are dry with millennia of dust."]
+  },
+  {
+    "id": "swampcave-witch",
+    "name": "Bog Witch",
+    "x": 5, "y": 3, "glyph": "@", "color": "green", "dim": "SwampCave",
+    "dialogue": ["She stirs a pot that does not exist."]
+  },
+  {
+    "id": "cathedral-monk",
+    "name": "Silent Monk",
+    "x": 5, "y": 3, "glyph": "@", "color": "lightmagenta", "dim": "BogCathedral",
+    "dialogue": ["The monk's mouth never opens but you hear him anyway."]
+  },
+  {
+    "id": "mirror-twin",
+    "name": "Your Reflection",
+    "x": 5, "y": 3, "glyph": "@", "color": "lightcyan", "dim": "MirrorLake",
+    "dialogue": ["It moves a half-second after you do."]
+  },
+  {
+    "id": "iceshelf-trapper",
+    "name": "Trapper",
+    "x": 5, "y": 3, "glyph": "@", "color": "lightblue", "dim": "Iceshelf",
+    "dialogue": ["A bundled figure checks an ice-line."]
+  },
+  {
+    "id": "wreckage-captain",
+    "name": "Drowned Captain",
+    "x": 5, "y": 3, "glyph": "@", "color": "blue", "dim": "Wreckage",
+    "dialogue": ["Salt water runs from the seam of his coat."]
+  },
+  {
+    "id": "crater-pilgrim",
+    "name": "Pilgrim",
+    "x": 5, "y": 3, "glyph": "@", "color": "lightmagenta", "dim": "Crater",
+    "dialogue": ["The pilgrim watches the sky between glances."]
+  },
+  {
+    "id": "colosseum-champion",
+    "name": "Old Champion",
+    "x": 5, "y": 3, "glyph": "@", "color": "lightyellow", "dim": "Colosseum",
+    "dialogue": ["He hasn't fought in years. He looks like he could."]
+  },
+  {
+    "id": "allblue-fisherman",
+    "name": "The Fisherman",
+    "x": 5, "y": 3, "glyph": "@", "color": "white", "dim": "AllBlue",
+    "dialogue": ["The first fisherman, casting where every fish swims."]
   }
 ]
