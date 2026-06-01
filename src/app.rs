@@ -373,6 +373,11 @@ impl App {
         let mut app = Self::fresh();
         if let Some(data) = save::load_from_disk() {
             app.apply_save(&data);
+            // If a dim's generator changed since the save was written
+            // (e.g. labyrinth refactor moved walls around), the player's
+            // saved coords might now be a wall. Sweep them onto the
+            // nearest walkable cell before handing control back.
+            app.snap_player_to_walkable();
             let who = if app.player.name.is_empty() {
                 "angler".to_string()
             } else {
