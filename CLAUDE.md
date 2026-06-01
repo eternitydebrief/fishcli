@@ -16,3 +16,11 @@ standing instructions the user has given for this project. read before working.
 ## stack
 - rust, ratatui + crossterm.
 - declarative dev shell via `flake.nix`.
+
+## building
+- the user iterates from this CLI, so build speed matters.
+- default `cargo build --release` is now ~3s incrementally (LTO off, codegen-units=16, incremental on).
+- **never use `--profile ship`** unless the user explicitly asks to make a distributable binary — that one re-enables full LTO and takes ~2min.
+- `cargo check` for "does it compile" sanity is ~1s and even cheaper.
+- `cargo build` (debug) is also fast and runs the game fine for testing UI.
+- the linker block in `.cargo/config.toml` is commented out by default (needs `mold` + `clang` from the flake's dev shell — uncomment only after the user has re-entered with `nix develop`).
