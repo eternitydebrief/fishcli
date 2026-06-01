@@ -4047,7 +4047,7 @@ fn render_map(
     let area = viewport(frame);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" map (hjkl pan, q/esc close, @=you M=mine D=door Δ§Ω†❄☼☄∞ΨΦ◊=portals) ")
+        .title(" map  (hjkl pan, q close)  @=you  M=mine  D=door  Δ§Ω†❄☼☄∞ΨΦ◊=portals ")
         .border_style(Style::default().fg(Color::Cyan));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -4459,7 +4459,7 @@ fn render_rod_shop(
     let block = Block::default()
         .borders(Borders::ALL)
         .title(format!(
-            " rod shop - {} owned, equipped #{equipped} - j/k browse, enter to buy next, e to equip, q to leave ",
+            " rod shop  ({} owned, #{equipped} equipped)  j/k browse, enter buy, e equip, q close ",
             owned
         ))
         .border_style(Style::default().fg(Color::Yellow));
@@ -4726,7 +4726,7 @@ fn render_skill_tree(
     let tab = tab.min(branches.len() - 1);
     let active_branch = branches[tab];
     let title = format!(
-        " fishing school - {} points available  (h/l switch tab, j/k navigate, enter invest, q/esc close) ",
+        " fishing school  ({} points)  h/l tab  j/k pick  enter invest  q close ",
         available,
     );
     let block = Block::default()
@@ -6120,7 +6120,7 @@ fn render_bait_shop(
     use ratatui::widgets::Paragraph;
     let area = viewport(frame);
     let title = format!(
-        " bait - j/k browse, enter buy 1, e equip, u unequip, q leave | valu {} ",
+        " bait  j/k pick  enter buy  e equip  u unequip  q close  |  {} valu ",
         valu
     );
     let block = Block::default()
@@ -6189,7 +6189,7 @@ fn render_tackle_shop(
     let slot = Slot::ALL[slot_idx % Slot::ALL.len()];
     let owned = equipped.tier(slot);
     let title = format!(
-        " tackle - {} (h/l switch slot, j/k browse, enter buy, q leave) | valu {} ",
+        " tackle  ({})  h/l slot  j/k pick  enter buy  q close  |  {} valu ",
         slot.label(),
         valu
     );
