@@ -124,6 +124,87 @@ pub enum Dimension {
     /// Hellish reflection of the Mines, reached after 100 well casts. Lava
     /// instead of water; only infernal-variant fish bite.
     Inferno,
+    // ---- procedurally generated specialty dims ----
+    Sewer,
+    HotSpring,
+    Pyramid,
+    SwampCave,
+    BogCathedral,
+    MirrorLake,
+    Iceshelf,
+    Wreckage,
+    Crater,
+    Colosseum,
+    AllBlue,
+}
+
+impl Dimension {
+    /// Rod tier required to enter this dim via the `:travel` command.
+    /// Surface/Mines/Atlantis/Inferno keep their existing gates (handled
+    /// elsewhere); the new dims slot into the rod-tier curve.
+    pub fn min_rod_tier(self) -> u32 {
+        match self {
+            Dimension::Surface => 0,
+            Dimension::Sewer => 1,
+            Dimension::HotSpring => 5,
+            Dimension::Mines => 3,
+            Dimension::Pyramid => 15,
+            Dimension::SwampCave => 20,
+            Dimension::Wreckage => 30,
+            Dimension::BogCathedral => 40,
+            Dimension::Atlantis => 50,
+            Dimension::MirrorLake => 60,
+            Dimension::Iceshelf => 75,
+            Dimension::Inferno => 75,
+            Dimension::Colosseum => 90,
+            Dimension::Crater => 130,
+            Dimension::AllBlue => 180,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Dimension::Surface => "Surface",
+            Dimension::Mines => "Mines",
+            Dimension::Atlantis => "Atlantis",
+            Dimension::Inferno => "Inferno",
+            Dimension::Sewer => "Sewer",
+            Dimension::HotSpring => "Hot Spring",
+            Dimension::Pyramid => "Pyramid",
+            Dimension::SwampCave => "Swamp Cave",
+            Dimension::BogCathedral => "Bog Cathedral",
+            Dimension::MirrorLake => "Mirror Lake",
+            Dimension::Iceshelf => "Iceshelf",
+            Dimension::Wreckage => "Wreckage",
+            Dimension::Crater => "Crater",
+            Dimension::Colosseum => "Colosseum",
+            Dimension::AllBlue => "All Blue",
+        }
+    }
+
+    /// Match a user-typed dim name (case-insensitive, allows spaces or
+    /// dashes). Returns None for "Surface" or unknown.
+    pub fn from_name(s: &str) -> Option<Dimension> {
+        let n = s.trim().to_lowercase().replace(['-', '_'], " ");
+        Some(match n.as_str() {
+            "mines" => Dimension::Mines,
+            "atlantis" => Dimension::Atlantis,
+            "inferno" => Dimension::Inferno,
+            "sewer" => Dimension::Sewer,
+            "hot spring" | "hotspring" => Dimension::HotSpring,
+            "pyramid" => Dimension::Pyramid,
+            "swamp cave" | "swampcave" => Dimension::SwampCave,
+            "bog cathedral" | "bogcathedral" | "cathedral" => Dimension::BogCathedral,
+            "mirror lake" | "mirrorlake" | "mirror" => Dimension::MirrorLake,
+            "iceshelf" | "ice shelf" => Dimension::Iceshelf,
+            "wreckage" | "wreck" => Dimension::Wreckage,
+            "crater" => Dimension::Crater,
+            "colosseum" | "coliseum" => Dimension::Colosseum,
+            "all blue" | "allblue" | "deep" => Dimension::AllBlue,
+            "surface" => Dimension::Surface,
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -516,6 +597,17 @@ impl World {
             Dimension::Mines => self.mines_get(x, y),
             Dimension::Atlantis => self.atlantis_get(x, y),
             Dimension::Inferno => self.inferno_get(x, y),
+            Dimension::Sewer => sewer_get(x, y),
+            Dimension::HotSpring => hot_spring_get(x, y, self.seed),
+            Dimension::Pyramid => pyramid_get(x, y),
+            Dimension::SwampCave => swamp_cave_get(x, y, self.seed),
+            Dimension::BogCathedral => bog_cathedral_get(x, y),
+            Dimension::MirrorLake => mirror_lake_get(x, y),
+            Dimension::Iceshelf => iceshelf_get(x, y, self.seed),
+            Dimension::Wreckage => wreckage_get(x, y),
+            Dimension::Crater => crater_get(x, y),
+            Dimension::Colosseum => colosseum_get(x, y),
+            Dimension::AllBlue => all_blue_get(x, y, self.seed),
         }
     }
 
@@ -1301,6 +1393,8 @@ fn landmark_wall_glyph(x: i32, y: i32, dim: Dimension) -> (char, Style) {
         Dimension::Mines => Color::Rgb(140, 130, 120),    // crypt granite
         Dimension::Inferno => Color::Rgb(200, 70, 40),    // basalt + ember
         Dimension::Surface => Color::Rgb(180, 145, 95),
+        // specialty dims use sensible defaults for now
+        _ => Color::Rgb(170, 160, 150),
     };
     (g, Style::default().fg(fg).add_modifier(Modifier::BOLD))
 }
@@ -1311,6 +1405,7 @@ fn landmark_door_glyph(dim: Dimension) -> (char, Style) {
         Dimension::Mines => Color::Rgb(110, 100, 90),
         Dimension::Inferno => Color::Rgb(255, 130, 50),
         Dimension::Surface => Color::Rgb(210, 175, 110),
+        _ => Color::Rgb(200, 175, 130),
     };
     ('D', Style::default().fg(fg).add_modifier(Modifier::BOLD))
 }
@@ -2973,4 +3068,195 @@ fn shore_splash(x: i32, row: i32, tick: u64) -> Option<(char, Style)> {
     };
     Some((glyph, Style::default().fg(color).add_modifier(Modifier::BOLD)))
 }
+
+// ---- specialty dim generators ---------------------------------------------
+//
+// Each `<dim>_get(x, y)` returns the tile at world-coords (x, y) inside that
+// dim. Minimum-viable but distinct procedural layouts. Wall interiors
+// render pitch black via the existing is_buried_wall logic in render_tile.
+
+/// Sewer: tiled square corridors. Vertical corridor at cx 4..=8 (5 wide,
+/// center river), horizontal corridor at cy 2..=6, everything else wall.
+fn sewer_get(x: i32, y: i32) -> Tile {
+    let cx = x.rem_euclid(14);
+    let cy = y.rem_euclid(10);
+    let in_vcorr = (4..=8).contains(&cx);
+    let in_hcorr = (2..=6).contains(&cy);
+    if in_vcorr && cx == 6 {
+        return Tile::Water;
+    }
+    if in_hcorr && cy == 4 {
+        return Tile::Water;
+    }
+    if in_vcorr || in_hcorr {
+        return Tile::Path;
+    }
+    Tile::Wall
+}
+
+/// Hot Spring: tiny natural cave overflowing with mineral water.
+fn hot_spring_get(x: i32, y: i32, seed: u32) -> Tile {
+    let hs = seed.wrapping_add(0x4075_5E5E);
+    let open = cave_open_at(x, y, hs) || cave_open_at(x + 1, y, hs);
+    if !open {
+        return Tile::CaveWall;
+    }
+    let r = hash2(x, y, hs.wrapping_add(0xBA7E)) % 100;
+    if r < 5 {
+        return Tile::Stalagmite;
+    }
+    if r < 80 {
+        Tile::MineralWater
+    } else {
+        Tile::CaveFloor
+    }
+}
+
+/// Pyramid: three nested square chambers with axis doorways and a
+/// central tomb pool. Floor is sand.
+fn pyramid_get(x: i32, y: i32) -> Tile {
+    let on_axis = x == 0 || y == 0;
+    let ring = |r: i32| x.abs().max(y.abs()) == r;
+    if ring(30) || ring(20) || ring(10) {
+        if on_axis {
+            return Tile::Sand;
+        }
+        return Tile::Wall;
+    }
+    if x.abs() > 30 || y.abs() > 30 {
+        return Tile::Wall;
+    }
+    if x.abs() <= 4 && y.abs() <= 4 {
+        return Tile::Water; // central tomb pool
+    }
+    Tile::Sand
+}
+
+/// Swamp Cave: dark cave with peat water and twisted roots.
+fn swamp_cave_get(x: i32, y: i32, seed: u32) -> Tile {
+    let sc = seed.wrapping_add(0x5AA9_0CA1);
+    let open = cave_open_at(x, y, sc);
+    if !open {
+        return Tile::CaveWall;
+    }
+    let r = hash2(x, y, sc.wrapping_add(0x5EED_5EED)) % 100;
+    if r < 8 {
+        return Tile::TreeTrunk;
+    }
+    if r < 60 {
+        return Tile::Water;
+    }
+    Tile::CaveFloor
+}
+
+/// Bog Cathedral: large rectangular hall, columns on a 6-grid, flooded
+/// floor with path islands.
+fn bog_cathedral_get(x: i32, y: i32) -> Tile {
+    if x < -20 || x > 20 || y < -12 || y > 12 {
+        return Tile::Wall;
+    }
+    if x == -20 || x == 20 || y == -12 || y == 12 {
+        // south doorway
+        if y == 12 && (-1..=1).contains(&x) {
+            return Tile::Path;
+        }
+        return Tile::Wall;
+    }
+    if x.rem_euclid(6) == 0 && y.rem_euclid(6) == 0 && x.abs() < 18 && y.abs() < 10 {
+        return Tile::Wall; // column
+    }
+    if x.rem_euclid(6).abs() <= 1 && y.rem_euclid(6).abs() <= 1 {
+        return Tile::Path;
+    }
+    Tile::Water
+}
+
+/// Mirror Lake: a perfect circular shimmering pool ringed by sand.
+fn mirror_lake_get(x: i32, y: i32) -> Tile {
+    let r2 = x * x + y * y;
+    if r2 <= 25 * 25 {
+        return Tile::MineralWater;
+    }
+    if r2 <= 30 * 30 {
+        return Tile::Sand;
+    }
+    Tile::Grass
+}
+
+/// Iceshelf: flat snow with sparse fishing holes.
+fn iceshelf_get(x: i32, y: i32, seed: u32) -> Tile {
+    let h = hash2(x, y, seed.wrapping_add(0x01CE_5E1F));
+    if h % 600 < 3 {
+        return Tile::Water;
+    }
+    Tile::Sand
+}
+
+/// Wreckage: long rectangular ship hull, half-flooded, with crossbeams.
+fn wreckage_get(x: i32, y: i32) -> Tile {
+    if x < -30 || x > 30 || y < -6 || y > 6 {
+        return Tile::Wall;
+    }
+    if x == -30 || x == 30 || y == -6 || y == 6 {
+        return Tile::Wall;
+    }
+    if y == 0 {
+        return Tile::Dock;
+    }
+    if x.rem_euclid(8) == 0 {
+        return Tile::Wall;
+    }
+    Tile::Water
+}
+
+/// Crater: single round cosmic pool ringed by glowing rock.
+fn crater_get(x: i32, y: i32) -> Tile {
+    let r2 = x * x + y * y;
+    if r2 <= 12 * 12 {
+        return Tile::MineralWater;
+    }
+    if r2 <= 18 * 18 {
+        return Tile::Rock;
+    }
+    if r2 <= 22 * 22 {
+        return Tile::CaveFloor;
+    }
+    Tile::CaveWall
+}
+
+/// Colosseum: white stone amphitheater with square concentric corridors.
+/// Three rings of seating, doorways at axes, central flooded arena pit.
+fn colosseum_get(x: i32, y: i32) -> Tile {
+    if x < -25 || x > 25 || y < -15 || y > 15 {
+        return Tile::Wall;
+    }
+    if x == -25 || x == 25 || y == -15 || y == 15 {
+        return Tile::Wall;
+    }
+    let dist = x.abs().max(y.abs());
+    if dist == 10 || dist == 20 {
+        if x == 0 || y == 0 {
+            return Tile::Path;
+        }
+        return Tile::Wall;
+    }
+    if dist <= 5 {
+        return Tile::Water;
+    }
+    Tile::Path
+}
+
+/// All Blue: open ocean everywhere; the endgame pool that lets every
+/// fish in the game potentially spawn (pool dispatch handles that).
+fn all_blue_get(x: i32, y: i32, seed: u32) -> Tile {
+    let h = hash2(x, y, seed.wrapping_add(0xA11B_100));
+    if h % 30 == 0 {
+        return Tile::Kelp;
+    }
+    if h % 200 == 7 {
+        return Tile::CoralTrunk;
+    }
+    Tile::DeepWater
+}
+
 

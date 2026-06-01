@@ -40,17 +40,68 @@ pub enum Weather {
     PopLow,
     PopMedium,
     PopHigh,
+    // Sewer: Drain Activity
+    DrainLow,
+    DrainMedium,
+    DrainHigh,
+    // Pyramid: Sandstorm Activity
+    SandstormActLow,
+    SandstormActMedium,
+    SandstormActHigh,
+    // Hot Spring: Heat
+    HeatLow,
+    HeatMedium,
+    HeatHigh,
+    // Swamp Cave: Sulphur
+    SulphurLow,
+    SulphurMedium,
+    SulphurHigh,
+    // Bog Cathedral: Supernatural Activity
+    SupernaturalLow,
+    SupernaturalMedium,
+    SupernaturalHigh,
+    // Mirror Lake: Light
+    LightLow,
+    LightMedium,
+    LightHigh,
+    // Iceshelf: Cold
+    ColdLow,
+    ColdMedium,
+    ColdHigh,
+    // Wreckage: Creaking
+    CreakingLow,
+    CreakingMedium,
+    CreakingHigh,
+    // Crater: Stardust
+    StardustLow,
+    StardustMedium,
+    StardustHigh,
+    // Colosseum: Sound
+    SoundLow,
+    SoundMedium,
+    SoundHigh,
+    // All Blue: no weather (use a Calm sentinel for rendering)
+    Calm,
 }
 
 impl Weather {
     /// The category label shown in the HUD, always white.
     pub fn category(self) -> &'static str {
         match self {
-            Weather::TectonicLow | Weather::TectonicMedium | Weather::TectonicHigh => {
-                "Tectonic"
-            }
+            Weather::TectonicLow | Weather::TectonicMedium | Weather::TectonicHigh => "Tectonic",
             Weather::TempLow | Weather::TempMedium | Weather::TempHigh => "Temperature",
             Weather::PopLow | Weather::PopMedium | Weather::PopHigh => "Population",
+            Weather::DrainLow | Weather::DrainMedium | Weather::DrainHigh => "Drain Activity",
+            Weather::SandstormActLow | Weather::SandstormActMedium | Weather::SandstormActHigh => "Sandstorm",
+            Weather::HeatLow | Weather::HeatMedium | Weather::HeatHigh => "Heat",
+            Weather::SulphurLow | Weather::SulphurMedium | Weather::SulphurHigh => "Sulphur",
+            Weather::SupernaturalLow | Weather::SupernaturalMedium | Weather::SupernaturalHigh => "Supernatural",
+            Weather::LightLow | Weather::LightMedium | Weather::LightHigh => "Light",
+            Weather::ColdLow | Weather::ColdMedium | Weather::ColdHigh => "Cold",
+            Weather::CreakingLow | Weather::CreakingMedium | Weather::CreakingHigh => "Creaking",
+            Weather::StardustLow | Weather::StardustMedium | Weather::StardustHigh => "Stardust",
+            Weather::SoundLow | Weather::SoundMedium | Weather::SoundHigh => "Sound",
+            Weather::Calm => "Stillness",
             _ => "Weather",
         }
     }
@@ -68,9 +119,22 @@ impl Weather {
             Weather::Windy => "Windy",
             Weather::Thunderstorm => "Thunderstorm",
             Weather::HeatWave => "Heat Wave",
-            Weather::TectonicLow | Weather::TempLow | Weather::PopLow => "Low",
-            Weather::TectonicMedium | Weather::TempMedium | Weather::PopMedium => "Medium",
-            Weather::TectonicHigh | Weather::TempHigh | Weather::PopHigh => "High",
+            Weather::TectonicLow | Weather::TempLow | Weather::PopLow
+            | Weather::DrainLow | Weather::SandstormActLow | Weather::HeatLow
+            | Weather::SulphurLow | Weather::SupernaturalLow | Weather::LightLow
+            | Weather::ColdLow | Weather::CreakingLow | Weather::StardustLow
+            | Weather::SoundLow => "Low",
+            Weather::TectonicMedium | Weather::TempMedium | Weather::PopMedium
+            | Weather::DrainMedium | Weather::SandstormActMedium | Weather::HeatMedium
+            | Weather::SulphurMedium | Weather::SupernaturalMedium | Weather::LightMedium
+            | Weather::ColdMedium | Weather::CreakingMedium | Weather::StardustMedium
+            | Weather::SoundMedium => "Medium",
+            Weather::TectonicHigh | Weather::TempHigh | Weather::PopHigh
+            | Weather::DrainHigh | Weather::SandstormActHigh | Weather::HeatHigh
+            | Weather::SulphurHigh | Weather::SupernaturalHigh | Weather::LightHigh
+            | Weather::ColdHigh | Weather::CreakingHigh | Weather::StardustHigh
+            | Weather::SoundHigh => "High",
+            Weather::Calm => "—",
         }
     }
     /// Color of the value text in the HUD.
@@ -87,11 +151,22 @@ impl Weather {
             Weather::Windy => Color::Rgb(180, 200, 220),
             Weather::Thunderstorm => Color::Rgb(200, 200, 255),
             Weather::HeatWave => Color::Rgb(255, 100, 30),
-            Weather::TectonicLow | Weather::TempLow | Weather::PopLow => Color::Yellow,
-            Weather::TectonicMedium | Weather::TempMedium | Weather::PopMedium => {
-                Color::Rgb(255, 150, 60)
-            }
-            Weather::TectonicHigh | Weather::TempHigh | Weather::PopHigh => Color::Red,
+            Weather::TectonicLow | Weather::TempLow | Weather::PopLow
+            | Weather::DrainLow | Weather::SandstormActLow | Weather::HeatLow
+            | Weather::SulphurLow | Weather::SupernaturalLow | Weather::LightLow
+            | Weather::ColdLow | Weather::CreakingLow | Weather::StardustLow
+            | Weather::SoundLow => Color::Yellow,
+            Weather::TectonicMedium | Weather::TempMedium | Weather::PopMedium
+            | Weather::DrainMedium | Weather::SandstormActMedium | Weather::HeatMedium
+            | Weather::SulphurMedium | Weather::SupernaturalMedium | Weather::LightMedium
+            | Weather::ColdMedium | Weather::CreakingMedium | Weather::StardustMedium
+            | Weather::SoundMedium => Color::Rgb(255, 150, 60),
+            Weather::TectonicHigh | Weather::TempHigh | Weather::PopHigh
+            | Weather::DrainHigh | Weather::SandstormActHigh | Weather::HeatHigh
+            | Weather::SulphurHigh | Weather::SupernaturalHigh | Weather::LightHigh
+            | Weather::ColdHigh | Weather::CreakingHigh | Weather::StardustHigh
+            | Weather::SoundHigh => Color::Red,
+            Weather::Calm => Color::Gray,
         }
     }
     pub fn icon(self) -> char {
@@ -107,9 +182,22 @@ impl Weather {
             Weather::Windy => '>',
             Weather::Thunderstorm => '!',
             Weather::HeatWave => '*',
-            Weather::TectonicLow | Weather::TempLow | Weather::PopLow => '.',
-            Weather::TectonicMedium | Weather::TempMedium | Weather::PopMedium => '~',
-            Weather::TectonicHigh | Weather::TempHigh | Weather::PopHigh => '#',
+            Weather::TectonicLow | Weather::TempLow | Weather::PopLow
+            | Weather::DrainLow | Weather::SandstormActLow | Weather::HeatLow
+            | Weather::SulphurLow | Weather::SupernaturalLow | Weather::LightLow
+            | Weather::ColdLow | Weather::CreakingLow | Weather::StardustLow
+            | Weather::SoundLow => '.',
+            Weather::TectonicMedium | Weather::TempMedium | Weather::PopMedium
+            | Weather::DrainMedium | Weather::SandstormActMedium | Weather::HeatMedium
+            | Weather::SulphurMedium | Weather::SupernaturalMedium | Weather::LightMedium
+            | Weather::ColdMedium | Weather::CreakingMedium | Weather::StardustMedium
+            | Weather::SoundMedium => '~',
+            Weather::TectonicHigh | Weather::TempHigh | Weather::PopHigh
+            | Weather::DrainHigh | Weather::SandstormActHigh | Weather::HeatHigh
+            | Weather::SulphurHigh | Weather::SupernaturalHigh | Weather::LightHigh
+            | Weather::ColdHigh | Weather::CreakingHigh | Weather::StardustHigh
+            | Weather::SoundHigh => '#',
+            Weather::Calm => '*',
         }
     }
 }
@@ -173,7 +261,23 @@ fn weather_for_season(
             }
         }
         Dimension::Surface => surface_weather_with_season(day, biome, seed, season),
+        Dimension::Sewer => three_tier(day, 0x501, seed, [Weather::DrainLow, Weather::DrainMedium, Weather::DrainHigh]),
+        Dimension::HotSpring => three_tier(day, 0x502, seed, [Weather::HeatLow, Weather::HeatMedium, Weather::HeatHigh]),
+        Dimension::Pyramid => three_tier(day, 0x503, seed, [Weather::SandstormActLow, Weather::SandstormActMedium, Weather::SandstormActHigh]),
+        Dimension::SwampCave => three_tier(day, 0x504, seed, [Weather::SulphurLow, Weather::SulphurMedium, Weather::SulphurHigh]),
+        Dimension::BogCathedral => three_tier(day, 0x505, seed, [Weather::SupernaturalLow, Weather::SupernaturalMedium, Weather::SupernaturalHigh]),
+        Dimension::MirrorLake => three_tier(day, 0x506, seed, [Weather::LightLow, Weather::LightMedium, Weather::LightHigh]),
+        Dimension::Iceshelf => three_tier(day, 0x507, seed, [Weather::ColdLow, Weather::ColdMedium, Weather::ColdHigh]),
+        Dimension::Wreckage => three_tier(day, 0x508, seed, [Weather::CreakingLow, Weather::CreakingMedium, Weather::CreakingHigh]),
+        Dimension::Crater => three_tier(day, 0x509, seed, [Weather::StardustLow, Weather::StardustMedium, Weather::StardustHigh]),
+        Dimension::Colosseum => three_tier(day, 0x50A, seed, [Weather::SoundLow, Weather::SoundMedium, Weather::SoundHigh]),
+        Dimension::AllBlue => Weather::Calm,
     }
+}
+
+fn three_tier(day: u64, salt: u32, seed: u32, opts: [Weather; 3]) -> Weather {
+    let h = hash_day(day, salt, seed) % 3;
+    opts[h as usize]
 }
 
 fn surface_weather_with_season(day: u64, biome: Biome, seed: u32, season: Season) -> Weather {

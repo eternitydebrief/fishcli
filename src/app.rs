@@ -1767,6 +1767,27 @@ impl App {
                 }
             }
             "" => {}
+            // :travel <name>  — jump to a specialty dim if your rod tier
+            // qualifies. Surface is always free; leaving uses :l.
+            other if other.starts_with("travel ") || other.starts_with("t ") => {
+                let name = other.splitn(2, ' ').nth(1).unwrap_or("").trim();
+                if let Some(dim) = crate::world::Dimension::from_name(name) {
+                    let gate = dim.min_rod_tier();
+                    if self.player.rods.max_owned < gate {
+                        self.narrator.say(format!(
+                            "{} needs rod tier {gate}. (You have tier {}.)",
+                            dim.label(),
+                            self.player.rods.max_owned
+                        ));
+                    } else {
+                        self.world.dim = dim;
+                        self.narrator.say(format!("You arrive at: {}.", dim.label()));
+                    }
+                } else {
+                    self.narrator
+                        .say(format!("Unknown destination: '{name}'."));
+                }
+            }
             other => self.narrator.say(format!("Unknown command: :{other}")),
         }
     }
@@ -2960,12 +2981,7 @@ impl App {
         // Non-surface dimensions don't use the biome system; show the dim
         // name in the popup once on entry.
         if self.world.dim != crate::world::Dimension::Surface {
-            let label = match self.world.dim {
-                crate::world::Dimension::Mines => "Mines",
-                crate::world::Dimension::Atlantis => "Atlantis",
-                crate::world::Dimension::Inferno => "Inferno",
-                crate::world::Dimension::Surface => "Sentinel",
-            };
+            let label = self.world.dim.label();
             if self.current_location.as_deref() != Some(label) {
                 self.current_location = Some(label.to_string());
                 self.biome_popup_ticks = 60;
@@ -3459,6 +3475,8 @@ fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
         Dimension::Mines => Color::Rgb(28, 18, 14),
         Dimension::Atlantis => Color::Rgb(10, 28, 60),
         Dimension::Inferno => Color::Rgb(40, 12, 8),
+        // specialty dims: dark backdrop matching their theme
+        _ => Color::Rgb(20, 20, 30),
     };
     let t = world.get(x, y);
     let (g, fg) = match t {
@@ -4419,6 +4437,8 @@ impl App {
                         crate::world::Dimension::Mines => crate::world::Dimension::Atlantis,
                         crate::world::Dimension::Atlantis => crate::world::Dimension::Inferno,
                         crate::world::Dimension::Inferno => crate::world::Dimension::Surface,
+                        // specialty dims cycle through their order then back to Surface
+                        _ => crate::world::Dimension::Surface,
                     };
                 }
             }
@@ -4474,6 +4494,7 @@ impl App {
                     crate::world::Dimension::Mines => crate::world::Dimension::Atlantis,
                     crate::world::Dimension::Atlantis => crate::world::Dimension::Inferno,
                     crate::world::Dimension::Inferno => crate::world::Dimension::Surface,
+                    _ => crate::world::Dimension::Surface,
                 };
             }
             _ => {}
@@ -4499,12 +4520,7 @@ fn render_debug_console(
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let dim_label = match dim {
-        crate::world::Dimension::Surface => "Surface",
-        crate::world::Dimension::Mines => "Mines",
-        crate::world::Dimension::Atlantis => "Atlantis",
-        crate::world::Dimension::Inferno => "Inferno",
-    };
+    let dim_label = dim.label();
     let rows: Vec<(String, String)> = debug_entries()
         .iter()
         .map(|e| match e {
@@ -4663,6 +4679,9 @@ fn fishing_context(world: &World, x: i32, y: i32) -> (&'static str, String) {
         crate::world::Dimension::Mines => ("mineral_pool", "Mines".to_string()),
         crate::world::Dimension::Atlantis => ("atlantis", "Atlantis".to_string()),
         crate::world::Dimension::Inferno => ("lava", "Inferno".to_string()),
+        // specialty dims: pass the dim label as the biome and let the fish
+        // picker fall back to default water type filtering.
+        other => ("any", other.label().to_string()),
     }
 }
 
