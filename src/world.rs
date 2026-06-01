@@ -426,6 +426,9 @@ pub struct WorldView<'a> {
     pub tick: u64,
     pub player_on_boat: bool,
     pub player_swimming: bool,
+    /// Wandering faceless figures in the Mines (Borin's "ones with no faces").
+    /// Empty in every other dim. Painted as dim `o` glyphs.
+    pub faceless: &'a [(i32, i32)],
 }
 
 impl<'a> Widget for WorldView<'a> {
@@ -472,6 +475,14 @@ impl<'a> Widget for WorldView<'a> {
                         npc.render_char(),
                         Style::default()
                             .fg(npc.render_color())
+                            .add_modifier(Modifier::BOLD),
+                    );
+                }
+                if self.faceless.iter().any(|&(fx, fy)| fx == wx && fy == wy) {
+                    return (
+                        'o',
+                        Style::default()
+                            .fg(Color::Rgb(70, 60, 60))
                             .add_modifier(Modifier::BOLD),
                     );
                 }

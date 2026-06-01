@@ -55,5 +55,8 @@
   "furn:Table":   "A small wooden table.",
   "furn:Chair":   "A chair.",
   "furn:Rug":     "A worn rug.",
-  "furn:Exit":    "Front door. Step on it to leave."
+  "furn:Exit":    "Front door. Step on it to leave.",
+
+  "faceless:blessing": "Faceless: \"Hey there, friend of Borin. Many blessings on your spelunking.\"",
+  "faceless:curse":    "Faceless: \"YOU ARE ONE OF BORIN THE CANNIBAL. DEVOURED THAT WHICH IS DEAREST TO ME. SUFFER.\""
 }

@@ -242,6 +242,16 @@ pub struct App {
     /// Bait consumed at cast time; applied (and cleared) on the next catch.
     /// Tuple is (effect_id, magnitude).
     pub bait_pending: Option<(String, f32)>,
+    /// Wandering faceless figures in the Mines. Empty when not in Mines or
+    /// not yet spawned. Movement ticked in `tick`. NOT persisted.
+    pub faceless: Vec<(i32, i32)>,
+    /// Unix-secs timestamp at which the Mining XP boost (from a blessing)
+    /// expires. 0 = no boost.
+    pub mining_boost_until: u64,
+    /// When set, the game will save+quit at this anim_tick. Used by the
+    /// faceless-curse event to flush a few seconds of cursed log before
+    /// kicking the player out.
+    pub pending_quit_at: Option<u64>,
     /// Daily quest state. `day_id` is the UTC date when progress started;
     /// if today's date differs, progress resets and `completed` is cleared.
     pub daily_day_id: String,
@@ -332,6 +342,9 @@ impl App {
             last_step_tick: 0,
             veins: crate::mining::VeinMap::new(),
             bait_pending: None,
+            faceless: Vec::new(),
+            mining_boost_until: 0,
+            pending_quit_at: None,
             daily_day_id: String::new(),
             daily_progress: 0,
             daily_completed: false,
@@ -516,6 +529,7 @@ impl App {
         self.challenge_bonus_points = data.challenge_bonus_points;
         self.streak_species = data.streak_species.clone();
         self.streak_count = data.streak_count;
+        self.mining_boost_until = data.mining_boost_until;
         self.veins = data
             .veins
             .iter()
@@ -596,6 +610,7 @@ impl App {
             challenge_bonus_points: self.challenge_bonus_points,
             streak_species: self.streak_species.clone(),
             streak_count: self.streak_count,
+            mining_boost_until: self.mining_boost_until,
             veins: self
                 .veins
                 .iter()
@@ -764,6 +779,13 @@ impl App {
             self.check_pantheon_unlocks();
             self.check_achievements();
             self.refresh_daily();
+            self.tick_faceless();
+        }
+        if let Some(t) = self.pending_quit_at {
+            if self.anim_tick >= t {
+                self.do_save();
+                self.running = false;
+            }
         }
 
         let movement_allowed =
@@ -1518,10 +1540,16 @@ impl App {
                     self.player.items.push(item);
                     let base_weight: u64 = (ore.value / 20).max(2);
                     let tackle_xp = 1.0 + self.player.tackle.sum_effect("xp_mult");
+                    let faceless_boost = if crate::mining::now_secs() < self.mining_boost_until {
+                        1.25
+                    } else {
+                        1.0
+                    };
                     let weight = ((base_weight as f32)
                         * self.skill_tree.global_xp_mult()
                         * self.skill_tree.mining_xp_mult()
-                        * tackle_xp)
+                        * tackle_xp
+                        * faceless_boost)
                         as u64;
                     let weight = weight.max(1);
                     let before = self.skills.mining_level();
@@ -1976,6 +2004,9 @@ impl App {
         self.player.facing = (dx, dy);
         let nx = self.player.x + dx;
         let ny = self.player.y + dy;
+        if self.faceless.iter().any(|&(x, y)| x == nx && y == ny) {
+            return; // faceless block; talk with f to engage
+        }
         if npc::npc_at_dim(nx, ny, self.world.dim).is_some() {
             return; // blocked by NPC; press f to interact
         }
@@ -2037,6 +2068,9 @@ impl App {
         let (dx, dy) = self.player.facing;
         let nx = self.player.x + dx;
         let ny = self.player.y + dy;
+        if self.try_interact_faceless(nx, ny) {
+            return;
+        }
         if let Some(npc) = npc::npc_at_dim(nx, ny, self.world.dim) {
             if npc.id == "sailor" {
                 self.interact_sailor();
@@ -2360,6 +2394,117 @@ impl App {
 
     /// Group the (non-unique) basket by species name. Returns
     /// (name, unit_price_with_buff, count). Stable ordering matches inv.
+    // -------- faceless wanderers (Mines only) -----------------------------
+
+    /// Number of faceless figures kept around the player in the Mines.
+    const FACELESS_COUNT: usize = 6;
+    fn ensure_faceless_spawned(&mut self) {
+        if self.world.dim != crate::world::Dimension::Mines {
+            self.faceless.clear();
+            return;
+        }
+        while self.faceless.len() < Self::FACELESS_COUNT {
+            if let Some(p) = self.random_walkable_near(self.player.x, self.player.y, 12, 24) {
+                self.faceless.push(p);
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn random_walkable_near(
+        &mut self,
+        cx: i32,
+        cy: i32,
+        min_r: i32,
+        max_r: i32,
+    ) -> Option<(i32, i32)> {
+        for _ in 0..32 {
+            let r = crate::fish::next_rand_f32(&mut self.rng_state);
+            let dx = ((r * (2.0 * max_r as f32 + 1.0)) as i32) - max_r;
+            let r2 = crate::fish::next_rand_f32(&mut self.rng_state);
+            let dy = ((r2 * (2.0 * max_r as f32 + 1.0)) as i32) - max_r;
+            if dx.abs() < min_r && dy.abs() < min_r {
+                continue;
+            }
+            let x = cx + dx;
+            let y = cy + dy;
+            if self.world.get(x, y).walkable() {
+                return Some((x, y));
+            }
+        }
+        None
+    }
+
+    fn tick_faceless(&mut self) {
+        if self.world.dim != crate::world::Dimension::Mines {
+            self.faceless.clear();
+            return;
+        }
+        self.ensure_faceless_spawned();
+        // Re-anchor any wanderer that drifted too far from the player.
+        let px = self.player.x;
+        let py = self.player.y;
+        for i in 0..self.faceless.len() {
+            let (x, y) = self.faceless[i];
+            let far = (x - px).abs() > 50 || (y - py).abs() > 50;
+            if far {
+                if let Some(p) = self.random_walkable_near(px, py, 15, 28) {
+                    self.faceless[i] = p;
+                }
+                continue;
+            }
+            // 60% chance to wander one tile per tick (called every 20 ticks).
+            let r = crate::fish::next_rand_f32(&mut self.rng_state);
+            if r > 0.60 {
+                continue;
+            }
+            let dir = crate::fish::next_rand_f32(&mut self.rng_state);
+            let (dx, dy) = if dir < 0.25 {
+                (-1, 0)
+            } else if dir < 0.50 {
+                (1, 0)
+            } else if dir < 0.75 {
+                (0, -1)
+            } else {
+                (0, 1)
+            };
+            let nx = x + dx;
+            let ny = y + dy;
+            if self.world.get(nx, ny).walkable() {
+                self.faceless[i] = (nx, ny);
+            }
+        }
+    }
+
+    fn try_interact_faceless(&mut self, nx: i32, ny: i32) -> bool {
+        if self.world.dim != crate::world::Dimension::Mines {
+            return false;
+        }
+        let idx = self.faceless.iter().position(|&(x, y)| x == nx && y == ny);
+        let Some(idx) = idx else { return false };
+        // Remove this faceless on encounter — they only appear once each.
+        self.faceless.swap_remove(idx);
+        let roll = crate::fish::next_rand_f32(&mut self.rng_state);
+        if roll < 0.25 {
+            // Blessing: +25% mining xp for 60 seconds.
+            self.mining_boost_until = crate::mining::now_secs() + 60;
+            self.narrator
+                .say(crate::inspect_text::get("faceless:blessing"));
+            self.narrator
+                .say("(Mining XP +25% for 1 minute.)");
+        } else {
+            // Curse: spam the line and quit in ~3 seconds.
+            for _ in 0..20 {
+                self.narrator
+                    .say(crate::inspect_text::get("faceless:curse"));
+            }
+            // ~3 seconds at 20fps = 60 ticks
+            self.pending_quit_at = Some(self.anim_tick + 60);
+        }
+        true
+    }
+
     fn tick_streak(&mut self, name: &str) {
         let new = match &self.streak_species {
             Some(prev) if prev == name => self.streak_count.saturating_add(1),
@@ -2736,6 +2881,7 @@ impl App {
                         tick: anim_tick,
                         player_on_boat: self.player.on_boat,
                         player_swimming: false,
+                        faceless: &self.faceless,
                     },
                     inner,
                 );

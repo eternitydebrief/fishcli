@@ -119,6 +119,8 @@ pub struct SaveData {
     pub streak_species: Option<String>,
     #[serde(default)]
     pub streak_count: u32,
+    #[serde(default)]
+    pub mining_boost_until: u64,
 }
 
 /// Saves live in ./saves/ relative to the current working directory so they
