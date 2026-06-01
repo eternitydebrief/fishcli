@@ -2195,6 +2195,22 @@ fn is_mine_entrance_anchor(x: i32, y: i32, seed: u32) -> bool {
     if cached_water_body_at(x, y + 1, seed) {
         return false;
     }
+    // Underground openness check: the same (x, y) in the Mines dim must
+    // sit in mostly-open cave, not buried inside a wall mass. Without this
+    // the player drops in and immediately stares at pitch-black walls on
+    // every side past the carved 3x3 pocket.
+    if !cave_open_at(x, y, seed) {
+        return false;
+    }
+    let mut open_neighbors = 0;
+    for (dx, dy) in &[(-1, 0), (1, 0), (0, -1), (0, 1)] {
+        if cave_open_at(x + dx, y + dy, seed) {
+            open_neighbors += 1;
+        }
+    }
+    if open_neighbors < 3 {
+        return false;
+    }
     true
 }
 
