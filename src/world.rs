@@ -625,6 +625,13 @@ impl World {
     }
 
     fn surface_get(&self, x: i32, y: i32) -> Tile {
+        // Bespoke portals first: sewer manhole inside the home-village plaza,
+        // wreckage portal floating south of the pier in deep ocean. These
+        // sit at fixed coords (independent of seed) so the player can find
+        // them after enough exploration.
+        if (x, y) == SEWER_PORTAL_XY || (x, y) == WRECKAGE_PORTAL_XY {
+            return Tile::DimPortal;
+        }
         if let Some(t) = village_tile(x, y) {
             return t;
         }
@@ -1880,6 +1887,14 @@ fn in_village_zone(x: i32, y: i32) -> bool {
 // procedural village system: coarse grid of anchors, three village kinds.
 // Origin village is hand-coded (the "Home Village"); procedural villages
 // spawn far enough away to avoid colliding with it.
+
+/// Home-village plaza coords for the Sewer manhole. Picked to sit on a
+/// path cell south-east of the well so it's noticeable but doesn't block
+/// any standard movement lane.
+pub const SEWER_PORTAL_XY: (i32, i32) = (7, 3);
+/// Open-ocean coords for the Wreckage portal. Deep past the southern
+/// pier tip (pier ends at y=12); requires a boat to reach.
+pub const WRECKAGE_PORTAL_XY: (i32, i32) = (0, 22);
 
 const PV_CELL_W: i32 = 160;
 const PV_CELL_H: i32 = 80;
@@ -3140,6 +3155,13 @@ fn shore_splash(x: i32, row: i32, tick: u64) -> Option<(char, Style)> {
 /// Sparse hash-gated per dim, with biome filters where it makes sense.
 /// None for cells that aren't a portal.
 pub fn dim_portal_for(x: i32, y: i32, seed: u32) -> Option<Dimension> {
+    // Bespoke first — these escape the village/water early-returns.
+    if (x, y) == SEWER_PORTAL_XY {
+        return Some(Dimension::Sewer);
+    }
+    if (x, y) == WRECKAGE_PORTAL_XY {
+        return Some(Dimension::Wreckage);
+    }
     if in_village_zone(x, y) {
         return None;
     }
