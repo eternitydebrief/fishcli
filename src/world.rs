@@ -3271,92 +3271,161 @@ pub fn dim_portal_for(x: i32, y: i32, seed: u32) -> Option<Dimension> {
 // dim. Minimum-viable but distinct procedural layouts. Wall interiors
 // render pitch black via the existing is_buried_wall logic in render_tile.
 
-/// Shared labyrinth helper: each chamber lives on a (W × H) grid and
-/// each edge between adjacent chambers is independently open or closed
-/// based on a per-edge hash. Returns `true` when the edge between cells
-/// `(cx, cy)` and the neighbour in direction `dir` (0=N, 1=E, 2=S, 3=W)
-/// is open. We hash the canonicalised midpoint so adjacent chambers
-/// always agree on the wall state between them.
+// ---- Labyrinth-of-rooms primitive -----------------------------------------
+//
+// Each macro cell (M × M) hosts one *anchor* placed at a hash-derived offset
+// inside the cell. The anchor carries a recipe (shape kind + dimensions)
+// so adjacent macro cells produce wildly different rooms — small squares
+// next to long corridors next to round chambers next to tall halls.
+// L-corridors connect every anchor to its right + lower neighbour so the
+// whole labyrinth is reachable.
+
+#[derive(Clone, Copy)]
+pub(super) enum LabCell {
+    /// Cell sits inside a room. `ax, ay` = room centre, `hash` = its recipe.
+    Room { ax: i32, ay: i32, hash: u32 },
+    /// Cell sits on a corridor between two anchors.
+    Corridor,
+    /// Cell is solid wall.
+    Wall,
+}
+
+fn macro_anchor(mcx: i32, mcy: i32, macro_size: i32, seed: u32) -> (i32, i32, u32) {
+    let h = hash2(mcx, mcy, seed.wrapping_add(0xA17C_8081));
+    let usable = macro_size - 4; // keep anchors a bit away from cell edges
+    let off_x = 2 + (h as i32).rem_euclid(usable);
+    let off_y = 2 + ((h >> 8) as i32).rem_euclid(usable);
+    (mcx * macro_size + off_x, mcy * macro_size + off_y, h)
+}
+
+/// Decode a recipe hash into a room shape. Returns
+/// (half_width_in_world_cells, half_height_in_world_cells, is_round).
 ///
-/// `density` controls how dense the maze is: `h % density != 0` opens
-/// the edge, so higher density = fewer walls. 3 ≈ 67% open (loose
-/// labyrinth); 2 ≈ 50% (tight maze with many dead-ends).
-fn maze_edge_open(cx: i32, cy: i32, dir: u8, seed: u32, density: u32) -> bool {
-    let (nx, ny) = match dir {
-        0 => (cx, cy - 1),
-        1 => (cx + 1, cy),
-        2 => (cx, cy + 1),
-        _ => (cx - 1, cy),
-    };
-    // Canonicalise: order the two cells so both sides agree.
-    let (ax, ay, bx, by) = if (cx, cy) < (nx, ny) {
-        (cx, cy, nx, ny)
+/// Terminal cells are ~2:1 tall, so for any shape that should *look*
+/// square or round on screen the horizontal half-extent is twice the
+/// vertical half-extent.
+fn room_shape(h: u32, macro_size: i32) -> (i32, i32, bool) {
+    let max_hw = macro_size - 2;       // wide cap (we have lots of horizontal room)
+    let max_hh = macro_size / 2 - 1;   // half the cap vertically because cells are 2:1
+    let kind = h % 6;
+    let r1 = ((h >> 4) as i32).rem_euclid(5);
+    let r2 = ((h >> 12) as i32).rem_euclid(4);
+    match kind {
+        // small square (8×4 .. 14×7 on screen)
+        0 => ((8 + r1 * 2).min(max_hw), (3 + r2).min(max_hh), false),
+        // long horizontal corridor (very wide, short)
+        1 => ((max_hw).min(14 + r1 * 2), (1 + r2 / 2).min(max_hh), false),
+        // tall vertical hall (narrow on screen but tall — needs ~6 world hw to look narrow-ish)
+        2 => ((4 + r1).min(max_hw), (max_hh).min(7 + r2), false),
+        // round room on screen — ellipse hw=2*hh in world coords
+        3 => {
+            let hh = (3 + r2).min(max_hh);
+            ((hh * 2).min(max_hw), hh, true)
+        }
+        // big oval room (wider than tall on screen)
+        4 => {
+            let hh = (4 + r2).min(max_hh);
+            ((hh * 3).min(max_hw), hh, true)
+        }
+        // tiny nook
+        _ => ((4 + r1).min(max_hw), (2 + r2 / 2).min(max_hh), false),
+    }
+}
+
+fn in_room_at(x: i32, y: i32, ax: i32, ay: i32, h: u32, macro_size: i32) -> bool {
+    let (hw, hh, round) = room_shape(h, macro_size);
+    let dx = (x - ax) as i64;
+    let dy = (y - ay) as i64;
+    if round {
+        let hw = hw as i64;
+        let hh = hh as i64;
+        // ellipse: dx²·hh² + dy²·hw² <= hw²·hh²
+        dx * dx * hh * hh + dy * dy * hw * hw <= hw * hw * hh * hh
     } else {
-        (nx, ny, cx, cy)
-    };
-    let h = hash2(ax.wrapping_mul(7919) + bx, ay.wrapping_mul(7919) + by,
-                  seed.wrapping_add(0xEDEA_4747));
-    h % density != 0
+        dx.abs() <= hw as i64 && dy.abs() <= hh as i64
+    }
 }
 
-/// True when (lx, ly) sits on the perimeter of a `(w × h)` room AND on
-/// the doorway band for one of its edges. Doorway is `gap` cells wide
-/// centred on the midpoint of each side. Returns Some((cx, cy, dir))
-/// when (lx, ly) is on a doorway, with the canonical chamber coords +
-/// the edge direction so the caller can ask `maze_edge_open(...)`.
-fn maze_doorway(x: i32, y: i32, w: i32, h: i32, gap: i32) -> Option<(i32, i32, u8)> {
-    let cx = x.div_euclid(w);
-    let cy = y.div_euclid(h);
-    let lx = x.rem_euclid(w);
-    let ly = y.rem_euclid(h);
-    let mid_x = w / 2;
-    let mid_y = h / 2;
-    let door_v = (ly - mid_y).abs() <= gap; // along the vertical midline of a side
-    let door_h = (lx - mid_x).abs() <= gap;
-    if lx == 0 && door_v { return Some((cx, cy, 3)); }
-    if lx == w - 1 && door_v { return Some((cx, cy, 1)); }
-    if ly == 0 && door_h { return Some((cx, cy, 0)); }
-    if ly == h - 1 && door_h { return Some((cx, cy, 2)); }
-    None
+/// L-shaped corridor from anchor (ax, ay) to (bx, by). Hash on the pair
+/// decides whether the bend goes "horizontal first" or "vertical first".
+fn on_l_corridor(x: i32, y: i32, ax: i32, ay: i32, bx: i32, by: i32, seed: u32) -> bool {
+    let h_first = (hash2(ax + bx, ay + by, seed.wrapping_add(0xC0_47_E07A)) & 1) == 0;
+    let (x0, x1) = (ax.min(bx), ax.max(bx));
+    let (y0, y1) = (ay.min(by), ay.max(by));
+    if h_first {
+        if y == ay && x >= x0 && x <= x1 { return true; }
+        if x == bx && y >= y0 && y <= y1 { return true; }
+    } else {
+        if x == ax && y >= y0 && y <= y1 { return true; }
+        if y == by && x >= x0 && x <= x1 { return true; }
+    }
+    false
 }
 
-/// Sewer: a labyrinth of large brick chambers. Each chamber is 28×20,
-/// has a central cross of mossy river water, and connects to its
-/// neighbours through 3-wide doorways only when the per-edge maze hash
-/// opens them — so most chambers have walls on 1-3 sides and the layout
-/// reads as a winding sewer rather than a checkerboard.
-fn sewer_get(x: i32, y: i32) -> Tile {
-    const W: i32 = 28;
-    const H: i32 = 20;
-    const SEED: u32 = 0x5E_E5_5E_E5;
-    let lx = x.rem_euclid(W);
-    let ly = y.rem_euclid(H);
-    let cx = x.div_euclid(W);
-    let cy = y.div_euclid(H);
-    let on_perim = lx == 0 || lx == W - 1 || ly == 0 || ly == H - 1;
-    if on_perim {
-        if let Some((dcx, dcy, dir)) = maze_doorway(x, y, W, H, 1) {
-            if maze_edge_open(dcx, dcy, dir, SEED, 3) {
-                return Tile::Path;
+/// Resolve any cell into a labyrinth state (room, corridor, or wall).
+/// Looks at the 3×3 macro neighbourhood so rooms whose footprint spills
+/// into a neighbour macro cell still register.
+fn labyrinth_cell(x: i32, y: i32, macro_size: i32, seed: u32) -> LabCell {
+    let mcx = x.div_euclid(macro_size);
+    let mcy = y.div_euclid(macro_size);
+    // 1. room membership
+    for dmcy in -1..=1i32 {
+        for dmcx in -1..=1i32 {
+            let mx = mcx + dmcx;
+            let my = mcy + dmcy;
+            let (ax, ay, h) = macro_anchor(mx, my, macro_size, seed);
+            if in_room_at(x, y, ax, ay, h, macro_size) {
+                return LabCell::Room { ax, ay, hash: h };
             }
         }
-        return Tile::Wall;
     }
-    // Central cross of river water (5 cells wide each arm) within the
-    // chamber interior — the river runs through every room.
-    let mid_x = W / 2;
-    let mid_y = H / 2;
-    let in_vriver = (lx - mid_x).abs() <= 2;
-    let in_hriver = (ly - mid_y).abs() <= 2;
-    if in_vriver || in_hriver {
-        return Tile::Water;
+    // 2. corridor membership: each anchor connects to its right + lower
+    //    neighbour, so every pair of adjacent anchors gets exactly one
+    //    L-corridor and the whole labyrinth stays reachable.
+    for dmcy in -1..=1i32 {
+        for dmcx in -1..=1i32 {
+            let mx = mcx + dmcx;
+            let my = mcy + dmcy;
+            let (ax, ay, _) = macro_anchor(mx, my, macro_size, seed);
+            let (rx, ry, _) = macro_anchor(mx + 1, my, macro_size, seed);
+            if on_l_corridor(x, y, ax, ay, rx, ry, seed) {
+                return LabCell::Corridor;
+            }
+            let (dx, dy, _) = macro_anchor(mx, my + 1, macro_size, seed);
+            if on_l_corridor(x, y, ax, ay, dx, dy, seed) {
+                return LabCell::Corridor;
+            }
+        }
     }
-    // a handful of stray bricks per chamber for visual variety
-    let h = hash2(cx.wrapping_mul(311) + lx, cy.wrapping_mul(311) + ly, SEED.wrapping_add(0x1));
-    if h % 47 == 0 {
-        return Tile::Wall;
+    LabCell::Wall
+}
+
+/// Sewer: brick chambers of every shape and size — small rectangular
+/// cisterns, long horizontal aqueducts, tall vertical shafts, round
+/// pump rooms — strung together by L-shaped maintenance corridors.
+/// Bigger rooms get a small dark river in the centre; smaller ones
+/// stay dry path.
+fn sewer_get(x: i32, y: i32) -> Tile {
+    const M: i32 = 22;
+    const SEED: u32 = 0x5E_E5_5E_E5;
+    match labyrinth_cell(x, y, M, SEED) {
+        LabCell::Room { ax, ay, hash } => {
+            let (hw, hh, _) = room_shape(hash, M);
+            let dx = x - ax;
+            let dy = y - ay;
+            // Anything bigger than a tiny nook gets a river pool that
+            // scales with the room: thin sliver in small rooms, broad
+            // pool in the big halls.
+            let pool_hw = (hw / 3).max(1);
+            let pool_hh = (hh / 3).max(1);
+            if hw >= 4 && dx.abs() <= pool_hw && dy.abs() <= pool_hh {
+                return Tile::Water;
+            }
+            Tile::Path
+        }
+        LabCell::Corridor => Tile::Path,
+        LabCell::Wall => Tile::Wall,
     }
-    Tile::Path
 }
 
 /// Hot Spring: tiny natural cave overflowing with mineral water.
@@ -3377,49 +3446,28 @@ fn hot_spring_get(x: i32, y: i32, seed: u32) -> Tile {
     }
 }
 
-/// Pyramid: a labyrinth of nested sandstone chambers. Each 30×30 tomb
-/// has a central tomb pool; adjacent tombs are connected only when the
-/// per-edge maze hash agrees. A second hash sprinkles small sand-filled
-/// alcoves inside each tomb so no two chambers feel identical.
+/// Pyramid: tomb chambers of every shape — small antechambers, long
+/// hieroglyph halls, round burial pits, tall granary shafts — buried in
+/// sandstone. Bigger tombs get a sacred pool. Corridors are sand-floored
+/// passages between chambers.
 fn pyramid_get(x: i32, y: i32) -> Tile {
-    const W: i32 = 30;
-    const H: i32 = 30;
+    const M: i32 = 24;
     const SEED: u32 = 0x5A04_F00D;
-    let lx = x.rem_euclid(W);
-    let ly = y.rem_euclid(H);
-    let cx = x.div_euclid(W);
-    let cy = y.div_euclid(H);
-    let on_perim = lx == 0 || lx == W - 1 || ly == 0 || ly == H - 1;
-    if on_perim {
-        if let Some((dcx, dcy, dir)) = maze_doorway(x, y, W, H, 1) {
-            if maze_edge_open(dcx, dcy, dir, SEED, 3) {
-                return Tile::Sand;
+    match labyrinth_cell(x, y, M, SEED) {
+        LabCell::Room { ax, ay, hash } => {
+            let (hw, hh, _) = room_shape(hash, M);
+            let dx = x - ax;
+            let dy = y - ay;
+            let pool_hw = (hw / 4).max(1);
+            let pool_hh = (hh / 4).max(1);
+            if hw >= 6 && dx.abs() <= pool_hw && dy.abs() <= pool_hh {
+                return Tile::Water;
             }
+            Tile::Sand
         }
-        return Tile::Wall;
+        LabCell::Corridor => Tile::Sand,
+        LabCell::Wall => Tile::Wall,
     }
-    let mid_x = W / 2;
-    let mid_y = H / 2;
-    // central tomb pool
-    if (lx - mid_x).abs() <= 2 && (ly - mid_y).abs() <= 2 {
-        return Tile::Water;
-    }
-    // nested inner ring chamber, also with its own maze opening
-    let inner_d = (lx - mid_x).abs().max((ly - mid_y).abs());
-    if inner_d == 7 {
-        let on_axis = lx == mid_x || ly == mid_y;
-        if on_axis {
-            return Tile::Sand;
-        }
-        // inner ring is partly broken so chambers aren't all the same
-        let h = hash2(cx.wrapping_mul(73) + lx, cy.wrapping_mul(73) + ly,
-                       SEED.wrapping_add(0xA1));
-        if h % 5 == 0 {
-            return Tile::Sand;
-        }
-        return Tile::Wall;
-    }
-    Tile::Sand
 }
 
 /// Swamp Cave: dark cave with peat water and twisted roots.
@@ -3439,37 +3487,33 @@ fn swamp_cave_get(x: i32, y: i32, seed: u32) -> Tile {
     Tile::CaveFloor
 }
 
-/// Bog Cathedral: a labyrinth of flooded chapels. Each 16×16 chapel
-/// has a 2×2 altar column in the centre and is connected to its
-/// neighbours only through the maze-opened edges. Inside each chapel
-/// the floor is dark altar water with a cross of stone path running
-/// between the four doorway midpoints.
+/// Bog Cathedral: flooded chapels of varying scale — confessionals,
+/// long naves, round rotundas, tall bell-shafts — joined by stone
+/// causeways across dark altar water. Each chapel floods with water
+/// around a central stone altar.
 fn bog_cathedral_get(x: i32, y: i32) -> Tile {
-    const W: i32 = 16;
-    const H: i32 = 16;
+    const M: i32 = 20;
     const SEED: u32 = 0x6074_C001;
-    let lx = x.rem_euclid(W);
-    let ly = y.rem_euclid(H);
-    let on_perim = lx == 0 || lx == W - 1 || ly == 0 || ly == H - 1;
-    if on_perim {
-        if let Some((dcx, dcy, dir)) = maze_doorway(x, y, W, H, 1) {
-            if maze_edge_open(dcx, dcy, dir, SEED, 3) {
+    match labyrinth_cell(x, y, M, SEED) {
+        LabCell::Room { ax, ay, hash } => {
+            let (hw, hh, _) = room_shape(hash, M);
+            let dx = x - ax;
+            let dy = y - ay;
+            let altar_hw = 1.max(hw / 4);
+            let altar_hh = 1.max(hh / 4);
+            // altar column at centre
+            if dx.abs() <= altar_hw && dy.abs() <= altar_hh {
+                return Tile::Wall;
+            }
+            // stone walkway cross from altar out to the room edges
+            if dx == 0 || dy == 0 {
                 return Tile::Path;
             }
+            Tile::Water
         }
-        return Tile::Wall;
+        LabCell::Corridor => Tile::Path,
+        LabCell::Wall => Tile::Wall,
     }
-    let mid_x = W / 2;
-    let mid_y = H / 2;
-    // 2x2 altar column at centre
-    if (lx == mid_x || lx == mid_x - 1) && (ly == mid_y || ly == mid_y - 1) {
-        return Tile::Wall;
-    }
-    // cross-shaped stone path joining the four doorways
-    if lx == mid_x || ly == mid_y {
-        return Tile::Path;
-    }
-    Tile::Water
 }
 
 /// Mirror Lake: an infinite archipelago of overlapping silver pools.
@@ -3499,134 +3543,98 @@ fn iceshelf_get(x: i32, y: i32, seed: u32) -> Tile {
     Tile::Sand
 }
 
-/// Wreckage: a labyrinth of half-sunken ship hulls drifting at unique
-/// angles across an open teal sea. Each 32×20 cell holds one hull
-/// (16-wide ribcage on a per-cell rotation/offset). Hulls connect to
-/// their neighbours through opened deck planks; closed edges leave a
-/// patch of clear water between hulls.
+/// Wreckage: half-sunken hulls of every size drifting on an open teal
+/// sea. The labyrinth's "rooms" are the hull interiors (varied shape +
+/// orientation per anchor), and the "corridors" are deck-plank gangways
+/// linking neighbouring hulls. Outside any hull/gangway is open water.
 fn wreckage_get(x: i32, y: i32) -> Tile {
-    const W: i32 = 32;
-    const H: i32 = 20;
+    const M: i32 = 26;
     const SEED: u32 = 0x8_0D_5_E_A1;
-    let lx = x.rem_euclid(W);
-    let ly = y.rem_euclid(H);
-    let cx = x.div_euclid(W);
-    let cy = y.div_euclid(H);
-    // Per-cell randomness so each hull lands at a unique offset/orient.
-    let h_cell = hash2(cx, cy, SEED);
-    let off_x = (h_cell as i32 % 7) - 3;
-    let off_y = ((h_cell >> 8) as i32 % 5) - 2;
-    let rotated = (h_cell >> 16) & 1 == 1;
-    let mid_x = W / 2 + off_x;
-    let mid_y = H / 2 + off_y;
-    let dx = lx - mid_x;
-    let dy = ly - mid_y;
-    let (hull_w, hull_h) = if rotated { (5, 14) } else { (14, 5) };
-    let inside_hull = dx.abs() <= hull_w && dy.abs() <= hull_h;
-    let on_hull_perim = (dx.abs() == hull_w && dy.abs() <= hull_h)
-        || (dy.abs() == hull_h && dx.abs() <= hull_w);
-    if !inside_hull {
-        return Tile::Water;
-    }
-    if on_hull_perim {
-        // perimeter — but punch a doorway gap on whichever side faces an
-        // opened neighbour, so connected hulls share a plank.
-        let face = if dx.abs() == hull_w {
-            if dx > 0 { 1u8 } else { 3u8 }
-        } else if dy < 0 { 0 } else { 2 };
-        let near_midline = if face == 1 || face == 3 { dy.abs() <= 1 } else { dx.abs() <= 1 };
-        if near_midline && maze_edge_open(cx, cy, face, SEED, 3) {
-            return Tile::Dock;
+    match labyrinth_cell(x, y, M, SEED) {
+        LabCell::Room { ax, ay, hash } => {
+            let (hw, hh, _) = room_shape(hash, M);
+            let dx = x - ax;
+            let dy = y - ay;
+            // hull perimeter
+            let on_perim = (dx.abs() == hw && dy.abs() <= hh)
+                || (dy.abs() == hh && dx.abs() <= hw);
+            if on_perim {
+                return Tile::Wall;
+            }
+            // central deck plank along the long axis
+            if hw >= hh {
+                if dy == 0 { return Tile::Dock; }
+            } else if dx == 0 {
+                return Tile::Dock;
+            }
+            // ribs every few cells across the short axis
+            if hw >= hh {
+                if dx.rem_euclid(5) == 0 { return Tile::Wall; }
+            } else if dy.rem_euclid(3) == 0 {
+                return Tile::Wall;
+            }
+            Tile::Water
         }
-        return Tile::Wall;
+        LabCell::Corridor => Tile::Dock,
+        LabCell::Wall => Tile::Water,
     }
-    // central deck plank along the hull's long axis
-    if rotated {
-        if dx == 0 { return Tile::Dock; }
-    } else if dy == 0 {
-        return Tile::Dock;
-    }
-    // crossbeams along the short axis every few cells
-    if rotated {
-        if dy.rem_euclid(5) == 0 { return Tile::Wall; }
-    } else if dx.rem_euclid(5) == 0 {
-        return Tile::Wall;
-    }
-    Tile::Water
 }
 
-/// Crater: a maze of cosmic basins. Each 28×24 cell carries one crater
-/// with a randomised position and radius; rocky ridges between cells
-/// open only where the maze hash allows so the player has to find
-/// passes through the highlands to reach each basin.
+/// Crater: cosmic basins scattered across a starlit plain. Rooms are
+/// the basins themselves (varied shape — round impact craters, long
+/// trenches, tiny pockmarks), each with a cosmic pool at the centre.
+/// Corridors are starlit walkways between basins.
 fn crater_get(x: i32, y: i32) -> Tile {
-    const W: i32 = 28;
-    const H: i32 = 24;
+    const M: i32 = 22;
     const SEED: u32 = 0xC0_5A_77_E1;
-    let lx = x.rem_euclid(W);
-    let ly = y.rem_euclid(H);
-    let cx = x.div_euclid(W);
-    let cy = y.div_euclid(H);
-    let on_perim = lx == 0 || lx == W - 1 || ly == 0 || ly == H - 1;
-    if on_perim {
-        if let Some((dcx, dcy, dir)) = maze_doorway(x, y, W, H, 1) {
-            if maze_edge_open(dcx, dcy, dir, SEED, 3) {
-                return Tile::CaveFloor;
+    match labyrinth_cell(x, y, M, SEED) {
+        LabCell::Room { ax, ay, hash } => {
+            let (hw, hh, _) = room_shape(hash, M);
+            let dx = x - ax;
+            let dy = y - ay;
+            let pool_hw = (hw / 2).max(1);
+            let pool_hh = (hh / 2).max(1);
+            // 2:1-aware ellipse for the pool itself
+            let inside_pool = (dx as i64) * (dx as i64) * (pool_hh as i64) * (pool_hh as i64)
+                + (dy as i64) * (dy as i64) * (pool_hw as i64) * (pool_hw as i64)
+                <= (pool_hw as i64) * (pool_hw as i64) * (pool_hh as i64) * (pool_hh as i64);
+            if inside_pool {
+                return Tile::MineralWater;
             }
+            // rocky shore around the pool
+            let outer_hw = pool_hw + 1;
+            let outer_hh = pool_hh + 1;
+            if dx.abs() <= outer_hw && dy.abs() <= outer_hh {
+                return Tile::Rock;
+            }
+            Tile::CaveFloor
         }
-        return Tile::CaveWall;
+        LabCell::Corridor => Tile::CaveFloor,
+        LabCell::Wall => Tile::CaveWall,
     }
-    // Per-cell crater centre + radius for variety.
-    let h_cell = hash2(cx, cy, SEED);
-    let off_x = (h_cell as i32 % 6) - 3;
-    let off_y = ((h_cell >> 8) as i32 % 4) - 2;
-    let radius = 4 + ((h_cell >> 16) as i32 % 4); // 4..=7
-    let dx = lx - (W / 2 + off_x);
-    let dy = ly - (H / 2 + off_y);
-    let r2 = dx * dx + dy * dy;
-    if r2 <= (radius - 2) * (radius - 2) {
-        return Tile::MineralWater;
-    }
-    if r2 <= radius * radius {
-        return Tile::Rock;
-    }
-    Tile::CaveFloor
 }
 
-/// Colosseum: a labyrinth of marble amphitheatres. Each 26×26 arena has
-/// a central fighting pit; outer marble walls surround it. Passages
-/// between adjacent arenas only open when the maze hash agrees, so
-/// finding the right combat ring is the puzzle.
+/// Colosseum: marble amphitheatres of every scale — small training
+/// rings, long colonnades, round arenas, tall vomitoria. Larger arenas
+/// hold a flooded combat pit at their centre.
 fn colosseum_get(x: i32, y: i32) -> Tile {
-    const W: i32 = 26;
-    const H: i32 = 26;
+    const M: i32 = 24;
     const SEED: u32 = 0x0070_5A11;
-    let lx = x.rem_euclid(W);
-    let ly = y.rem_euclid(H);
-    let on_perim = lx == 0 || lx == W - 1 || ly == 0 || ly == H - 1;
-    if on_perim {
-        if let Some((dcx, dcy, dir)) = maze_doorway(x, y, W, H, 1) {
-            if maze_edge_open(dcx, dcy, dir, SEED, 3) {
-                return Tile::Path;
+    match labyrinth_cell(x, y, M, SEED) {
+        LabCell::Room { ax, ay, hash } => {
+            let (hw, hh, _) = room_shape(hash, M);
+            let dx = x - ax;
+            let dy = y - ay;
+            let pit_hw = (hw / 3).max(1);
+            let pit_hh = (hh / 3).max(1);
+            if hw >= 6 && dx.abs() <= pit_hw && dy.abs() <= pit_hh {
+                return Tile::Water;
             }
+            Tile::Path
         }
-        return Tile::Wall;
+        LabCell::Corridor => Tile::Path,
+        LabCell::Wall => Tile::Wall,
     }
-    let mid_x = W / 2;
-    let mid_y = H / 2;
-    let dx = lx - mid_x;
-    let dy = ly - mid_y;
-    // central fighting pit (water — arena is flooded)
-    if dx.abs() <= 2 && dy.abs() <= 2 {
-        return Tile::Water;
-    }
-    // inner seating ring with axis doorways
-    let ring_d = dx.abs().max(dy.abs());
-    if ring_d == 6 {
-        if dx == 0 || dy == 0 { return Tile::Path; }
-        return Tile::Wall;
-    }
-    Tile::Path
 }
 
 /// All Blue: pure open ocean. No clutter — every cell is fishable
