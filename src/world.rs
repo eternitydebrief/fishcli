@@ -3502,6 +3502,12 @@ pub fn cell_visible_from(px: i32, py: i32, wx: i32, wy: i32) -> bool {
     if p_in == c_in {
         return true;
     }
+    // Perimeter walls + their corner caps are always visible from either
+    // side — they're the surface you're meant to look at, not an
+    // obstruction.
+    if village_perimeter(wx, wy).is_some() {
+        return true;
+    }
     // Player inside, cell outside: only the south strip (dock + ocean)
     // can be seen through the dock gap. Everything else blacks out.
     if p_in && wy > WALL_BOT_EDGE {
