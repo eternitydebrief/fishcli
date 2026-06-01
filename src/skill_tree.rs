@@ -361,6 +361,28 @@ impl SkillTree {
     pub fn midnight_boost_pct(&self) -> f32 {
         self.sum("midnight_boost_pct")
     }
+
+    // ---- stamina ---------------------------------------------------------
+
+    pub fn stamina_max_bonus(&self) -> f32 {
+        self.sum("stamina_max_bonus")
+    }
+
+    pub fn stamina_fish_regen_mult(&self) -> f32 {
+        1.0 + self.sum("stamina_fish_regen")
+    }
+
+    pub fn stamina_walk_reduce(&self) -> f32 {
+        self.sum("stamina_walk_red").min(0.9)
+    }
+
+    pub fn stamina_idle_regen(&self) -> f32 {
+        self.sum("stamina_idle_regen")
+    }
+
+    pub fn stamina_second_wind(&self) -> bool {
+        self.any("stamina_second_wind")
+    }
 }
 
 pub fn invest(tree: &mut SkillTree, node: &NodeDef) -> bool {

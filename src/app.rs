@@ -314,7 +314,13 @@ pub struct App {
     /// or after a non-matching catch.
     pub streak_species: Option<String>,
     pub streak_count: u32,
+    /// Inverted stamina: walking/mining/interacting drain it, fishing
+    /// restores it. Floor 0 (player must fish to act again).
+    pub stamina: f32,
 }
+
+/// Baseline maximum stamina before Iron Lungs ranks.
+pub const STAMINA_BASE_MAX: f32 = 100.0;
 
 impl App {
     pub fn new() -> Self {
@@ -397,6 +403,7 @@ impl App {
             challenge_bonus_points: 0,
             streak_species: None,
             streak_count: 0,
+            stamina: STAMINA_BASE_MAX,
         }
     }
 
@@ -573,6 +580,7 @@ impl App {
         self.streak_species = data.streak_species.clone();
         self.streak_count = data.streak_count;
         self.mining_boost_until = data.mining_boost_until;
+        self.stamina = data.stamina.clamp(0.0, self.stamina_max());
         self.veins = data
             .veins
             .iter()
@@ -659,7 +667,43 @@ impl App {
                 .iter()
                 .map(|(&(dim, x, y), v)| (dim, x, y, v.charges_used, v.ready_at_secs))
                 .collect(),
+            stamina: self.stamina,
         }
+    }
+
+    pub fn stamina_max(&self) -> f32 {
+        STAMINA_BASE_MAX + self.skill_tree.stamina_max_bonus()
+    }
+
+    /// Spend `cost` stamina for a non-fishing action. With Second Wind unlocked
+    /// and stamina under 10% of max, costs are waived. At 0 stamina the
+    /// caller should refuse the action.
+    fn spend_stamina(&mut self, cost: f32) {
+        if cost <= 0.0 {
+            return;
+        }
+        let max = self.stamina_max();
+        if self.skill_tree.stamina_second_wind() && self.stamina < max * 0.10 {
+            return;
+        }
+        self.stamina = (self.stamina - cost).max(0.0);
+        if self.stamina <= 0.1 && self.anim_tick % 40 == 0 {
+            self.narrator.say("You are exhausted. Sit down and fish.");
+        }
+    }
+
+    fn grant_stamina(&mut self, amount: f32) {
+        if amount <= 0.0 {
+            return;
+        }
+        let max = self.stamina_max();
+        self.stamina = (self.stamina + amount).min(max);
+    }
+
+    fn walk_stamina_cost(&self, weight: u64) -> f32 {
+        let base = 0.5 * weight as f32;
+        let red = self.skill_tree.stamina_walk_reduce();
+        (base * (1.0 - red)).max(0.0)
     }
 
     pub fn do_save(&mut self) -> bool {
@@ -720,6 +764,15 @@ impl App {
     }
 
     fn cast_action(&mut self) {
+        // Cast itself is a small bit of effort, but the moment after
+        // the line lands you're already in the relaxing part.
+        let phase_is_casting = matches!(
+            self.cast.as_ref().map(|c| c.phase),
+            Some(CastPhase::Casting)
+        );
+        if phase_is_casting {
+            self.spend_stamina(0.5);
+        }
         let Some(c) = self.cast.as_mut() else { return; };
         match c.phase {
             CastPhase::Casting => {
@@ -784,6 +837,25 @@ impl App {
         }
     }
 
+    /// Per-tick stamina regen. Fishing (any sub-state) restores at a
+    /// steady relaxing rate; otherwise the Meditative node gives a much
+    /// smaller idle trickle. Drains happen at the action sites (step,
+    /// mining swing, casting, etc.) not here.
+    fn tick_stamina(&mut self) {
+        if self.stamina >= self.stamina_max() {
+            return;
+        }
+        let is_fishing = self.cast.is_some()
+            || matches!(self.scene, Scene::Fishing(_));
+        let base_per_tick = if is_fishing {
+            // ~10s of fishing back to full from empty at 0.5/tick * 20fps.
+            0.5 * self.skill_tree.stamina_fish_regen_mult()
+        } else {
+            self.skill_tree.stamina_idle_regen()
+        };
+        self.grant_stamina(base_per_tick);
+    }
+
     fn cancel_cast(&mut self) {
         if self.cast.is_some() {
             self.cast = None;
@@ -822,6 +894,7 @@ impl App {
             }
         }
         self.tick_cast();
+        self.tick_stamina();
         self.maybe_autosave();
         // Pantheon meta-progression checks: cheap, idempotent. Only fires when
         // a threshold is crossed and that god isn't already granted.
@@ -1596,9 +1669,20 @@ impl App {
                 self.scene = Scene::Overworld;
             }
             KeyCode::Char(c) => {
+                if self.stamina <= 0.0 && !self.skill_tree.stamina_second_wind() {
+                    self.narrator.say("Too tired to swing. Fish first.");
+                    self.scene = Scene::Overworld;
+                    return;
+                }
+                let completed = {
+                    let Scene::Mining(m) = &mut self.scene else { return };
+                    m.type_char(c)
+                };
+                if completed {
+                    self.spend_stamina(1.0);
+                }
                 let Scene::Mining(m) = &mut self.scene else { return };
-                if m.type_char(c) {
-                    // Completed — grant ore, record charge, exit.
+                if completed {
                     let key = (m.dim, m.x, m.y);
                     let ore = m.ore;
                     crate::mining::record_mine(&mut self.veins, key);
@@ -1965,6 +2049,12 @@ impl App {
                         }
                     }
                     self.bait_pending = None;
+                    // Reeling something in is the most relaxing part — a
+                    // chunky lump of stamina back, scaled by difficulty
+                    // (harder catch = bigger relief).
+                    let relax = 5.0 + (fish_ref.difficulty as f32) * 1.5;
+                    let relax = relax * self.skill_tree.stamina_fish_regen_mult();
+                    self.grant_stamina(relax);
                     self.stats.fish_caught += 1;
                     // Roll a size class and apply mastery-challenge progress.
                     let size = crate::mastery_challenges::roll_size(
@@ -2100,6 +2190,12 @@ impl App {
 
     fn step(&mut self, dx: i32, dy: i32) {
         self.player.facing = (dx, dy);
+        if self.stamina <= 0.0 && !self.skill_tree.stamina_second_wind() {
+            if self.anim_tick % 40 == 0 {
+                self.narrator.say("Too tired. Find water and cast a line.");
+            }
+            return;
+        }
         let nx = self.player.x + dx;
         let ny = self.player.y + dy;
         if self.faceless.iter().any(|&(x, y)| x == nx && y == ny) {
@@ -2123,6 +2219,8 @@ impl App {
         self.check_biome_change();
         self.mark_seen_around_player();
         let weight: u64 = if dy != 0 { 2 } else { 1 };
+        let cost = self.walk_stamina_cost(weight);
+        self.spend_stamina(cost);
         self.stats.steps += weight;
         let wxp = ((weight as f32) * self.skill_tree.global_xp_mult()) as u64;
         self.skills.walking_xp += wxp.max(weight);
@@ -2135,6 +2233,7 @@ impl App {
     }
 
     fn pickup_here(&mut self) {
+        self.spend_stamina(0.2);
         let candidates = [(0, 0), (0, -1), (0, 1), (-1, 0), (1, 0)];
         for (dx, dy) in candidates {
             let (tx, ty) = (self.player.x + dx, self.player.y + dy);
@@ -3323,6 +3422,19 @@ impl App {
                 height: log_h,
             };
             self.narrator.render(frame, log_area);
+        }
+
+        // Stamina bar: 1-row strip just above the log, spanning the same
+        // horizontal slice. Always visible in Overworld/HouseInterior.
+        let stam_h = 1u16;
+        if log_w > 4 && effective_h > log_h + stam_h {
+            let stam_area = Rect {
+                x: full.x,
+                y: full.y + effective_h - log_h - stam_h,
+                width: log_w,
+                height: stam_h,
+            };
+            render_stamina_bar(frame, stam_area, self.stamina, self.stamina_max());
         }
 
         if cmdline_h > 0 && full.height >= cmdline_h {
@@ -5678,6 +5790,36 @@ fn render_valu(frame: &mut Frame, area: Rect, text: &str) {
         .alignment(Alignment::Right)
         .block(block);
     frame.render_widget(p, area);
+}
+
+/// 1-row horizontal gauge: bracketed filled/empty cells and a centered
+/// numeric readout. Colors shift green -> yellow -> red as stamina drops
+/// so the player can read the bar at a glance.
+fn render_stamina_bar(frame: &mut Frame, area: Rect, current: f32, max: f32) {
+    if area.width < 6 || max <= 0.0 {
+        return;
+    }
+    let pct = (current / max).clamp(0.0, 1.0);
+    let color = if pct > 0.5 {
+        Color::Green
+    } else if pct > 0.20 {
+        Color::Yellow
+    } else if pct > 0.0 {
+        Color::Red
+    } else {
+        Color::DarkGray
+    };
+    // Account for the "[ ]" framing and a 9-char numeric tail: " 045/100"
+    let total_cells = area.width.saturating_sub(11) as usize;
+    let filled = ((total_cells as f32) * pct).round() as usize;
+    let bar: String = std::iter::repeat('#').take(filled)
+        .chain(std::iter::repeat('-').take(total_cells.saturating_sub(filled)))
+        .collect();
+    let label = format!("[{bar}] {:>3}/{:>3}", current as u32, max as u32);
+    let para = Paragraph::new(label)
+        .style(Style::default().fg(color).add_modifier(Modifier::BOLD))
+        .alignment(Alignment::Left);
+    frame.render_widget(para, area);
 }
 
 pub fn format_valu(v: u64) -> String {

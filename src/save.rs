@@ -121,6 +121,12 @@ pub struct SaveData {
     pub streak_count: u32,
     #[serde(default)]
     pub mining_boost_until: u64,
+    #[serde(default = "default_stamina")]
+    pub stamina: f32,
+}
+
+fn default_stamina() -> f32 {
+    100.0
 }
 
 /// Saves live in ./saves/ relative to the current working directory so they
