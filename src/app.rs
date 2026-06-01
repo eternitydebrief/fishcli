@@ -3588,7 +3588,7 @@ fn render_map(
     let area = viewport(frame);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" map (arrows or hjkl to pan, q/esc to close) ")
+        .title(" map (hjkl pan, q/esc close, @=you M=mine D=door Δ§Ω†❄☼☄∞ΨΦ◊=portals) ")
         .border_style(Style::default().fg(Color::Cyan));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -3672,7 +3672,25 @@ fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
         Tile::Roof => ('#', Color::Rgb(200, 100, 70)),
         Tile::DoorRod | Tile::DoorSchool => ('D', Color::Rgb(245, 215, 90)),
         Tile::DoorHouse => ('D', Color::Rgb(180, 150, 110)),
-        Tile::DimPortal => ('?', Color::Rgb(230, 200, 255)),
+        Tile::DimPortal => {
+            let dest = crate::world::dim_portal_for(x, y, world.seed)
+                .unwrap_or(crate::world::Dimension::Surface);
+            let glyph = match dest {
+                crate::world::Dimension::Pyramid => 'Δ',
+                crate::world::Dimension::HotSpring => '§',
+                crate::world::Dimension::Iceshelf => '❄',
+                crate::world::Dimension::SwampCave => 'Ω',
+                crate::world::Dimension::BogCathedral => '†',
+                crate::world::Dimension::MirrorLake => '☼',
+                crate::world::Dimension::Crater => '☄',
+                crate::world::Dimension::Colosseum => '∞',
+                crate::world::Dimension::Sewer => 'Ψ',
+                crate::world::Dimension::Wreckage => 'Φ',
+                crate::world::Dimension::AllBlue => '◊',
+                _ => '¤',
+            };
+            (glyph, Color::Rgb(230, 200, 255))
+        }
         Tile::TreeCanopy | Tile::TreeTrunk => ('T', Color::Rgb(110, 200, 95)),
         Tile::BigRock | Tile::MediumRock | Tile::Rock => ('#', Color::Rgb(170, 170, 170)),
         Tile::Path => ('.', Color::Rgb(195, 170, 130)),
@@ -3682,7 +3700,8 @@ fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
         Tile::Pebble => ('.', Color::Rgb(170, 160, 130)),
         Tile::Flower => ('*', Color::Rgb(210, 190, 180)),
         Tile::Grass => ('.', Color::Rgb(130, 175, 130)),
-        Tile::MineEntrance | Tile::MineFrame => ('#', Color::Rgb(120, 80, 45)),
+        Tile::MineEntrance => ('M', Color::Rgb(255, 180, 80)),
+        Tile::MineFrame => ('#', Color::Rgb(120, 80, 45)),
         Tile::CaveFloor | Tile::CaveWall | Tile::Stalactite | Tile::Stalagmite => {
             ('#', Color::Rgb(90, 65, 45))
         }
