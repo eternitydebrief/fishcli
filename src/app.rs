@@ -334,6 +334,10 @@ pub struct App {
     /// Tutorial progress index. Each step fires a one-time hint then
     /// advances. Stops contributing chatter past TUTORIAL_STEPS.
     pub tutorial_step: u32,
+    /// Random countdown of steps before the next stamina drain event.
+    /// Rerolled to 5..=20 every time it fires. NOT persisted (ephemeral
+    /// per session is fine — at worst you get a slightly easy first walk).
+    steps_until_drain: u32,
 }
 
 pub const TUTORIAL_STEPS: u32 = 6;
@@ -442,6 +446,7 @@ impl App {
             settings_cursor: 0,
             bounty: None,
             tutorial_step: 0,
+            steps_until_drain: 10,
         }
     }
 
@@ -840,10 +845,17 @@ impl App {
         self.stamina = (self.stamina + amount).min(max);
     }
 
-    fn walk_stamina_cost(&self, weight: u64) -> f32 {
-        let base = 0.5 * weight as f32;
+    /// Stamina drained per random walk event (not per step). Reduced by
+    /// the Light Step skill.
+    fn walk_event_drain(&self) -> f32 {
         let red = self.skill_tree.stamina_walk_reduce();
-        (base * (1.0 - red)).max(0.0)
+        (2.0 * (1.0 - red)).max(0.0)
+    }
+
+    fn reroll_steps_until_drain(&mut self) {
+        let r = crate::fish::next_rand_f32(&mut self.rng_state);
+        // Uniform 5..=20 inclusive.
+        self.steps_until_drain = 5 + (r * 16.0) as u32;
     }
 
     pub fn do_save(&mut self) -> bool {
@@ -904,15 +916,6 @@ impl App {
     }
 
     fn cast_action(&mut self) {
-        // Cast itself is a small bit of effort, but the moment after
-        // the line lands you're already in the relaxing part.
-        let phase_is_casting = matches!(
-            self.cast.as_ref().map(|c| c.phase),
-            Some(CastPhase::Casting)
-        );
-        if phase_is_casting {
-            self.spend_stamina(0.5);
-        }
         let Some(c) = self.cast.as_mut() else { return; };
         match c.phase {
             CastPhase::Casting => {
@@ -977,23 +980,17 @@ impl App {
         }
     }
 
-    /// Per-tick stamina regen. Fishing (any sub-state) restores at a
-    /// steady relaxing rate; otherwise the Meditative node gives a much
-    /// smaller idle trickle. Drains happen at the action sites (step,
-    /// mining swing, casting, etc.) not here.
+    /// Per-tick stamina regen. Only the Meditative skill ticks here —
+    /// fishing's restorative payoff is the per-catch lump grant, not a
+    /// continuous drip.
     fn tick_stamina(&mut self) {
         if self.stamina >= self.stamina_max() {
             return;
         }
-        let is_fishing = self.cast.is_some()
-            || matches!(self.scene, Scene::Fishing(_));
-        let base_per_tick = if is_fishing {
-            // ~10s of fishing back to full from empty at 0.5/tick * 20fps.
-            0.5 * self.skill_tree.stamina_fish_regen_mult()
-        } else {
-            self.skill_tree.stamina_idle_regen()
-        };
-        self.grant_stamina(base_per_tick);
+        let r = self.skill_tree.stamina_idle_regen();
+        if r > 0.0 {
+            self.grant_stamina(r);
+        }
     }
 
     fn cancel_cast(&mut self) {
@@ -1065,8 +1062,12 @@ impl App {
                     } else {
                         MOVE_INTERVAL_V
                     };
-                    let interval =
-                        ((base as f32) * self.buffs.walk_mult()).round().max(1.0) as u64;
+                    // Exhausted: each step interval is 1.67x longer (40%
+                    // slower). Doesn't block movement — just drags it.
+                    let stam_mult = if self.stamina <= 0.0 { 1.0 / 0.6 } else { 1.0 };
+                    let interval = ((base as f32) * self.buffs.walk_mult() * stam_mult)
+                        .round()
+                        .max(1.0) as u64;
                     if self.anim_tick.saturating_sub(self.last_step_tick) >= interval {
                         self.step(dir.0, dir.1);
                         self.last_step_tick = self.anim_tick;
@@ -2382,11 +2383,10 @@ impl App {
                         }
                     }
                     self.bait_pending = None;
-                    // Reeling something in is the most relaxing part — a
-                    // chunky lump of stamina back, scaled by difficulty
-                    // (harder catch = bigger relief).
-                    let relax = 5.0 + (fish_ref.difficulty as f32) * 1.5;
-                    let relax = relax * self.skill_tree.stamina_fish_regen_mult();
+                    // Each catch gives a small fixed dose of stamina back
+                    // — 5..=10, jittered per catch. Scaled by Relaxed.
+                    let r = crate::fish::next_rand_f32(&mut self.rng_state);
+                    let relax = (5.0 + r * 5.0) * self.skill_tree.stamina_fish_regen_mult();
                     self.grant_stamina(relax);
                     self.stats.fish_caught += 1;
                     // Roll a size class and apply mastery-challenge progress.
@@ -2527,12 +2527,6 @@ impl App {
 
     fn step(&mut self, dx: i32, dy: i32) {
         self.player.facing = (dx, dy);
-        if self.stamina <= 0.0 && !self.skill_tree.stamina_second_wind() {
-            if self.anim_tick % 40 == 0 {
-                self.narrator.say("Too tired. Find water and cast a line.");
-            }
-            return;
-        }
         let nx = self.player.x + dx;
         let ny = self.player.y + dy;
         if self.faceless.iter().any(|&(x, y)| x == nx && y == ny) {
@@ -2556,8 +2550,20 @@ impl App {
         self.check_biome_change();
         self.mark_seen_around_player();
         let weight: u64 = if dy != 0 { 2 } else { 1 };
-        let cost = self.walk_stamina_cost(weight);
-        self.spend_stamina(cost);
+        // Stamina drain is a random event roughly every 5..=20 steps
+        // (Second Wind under 10% waives it). Vertical steps tick the
+        // counter twice since they cover 2x as much ground.
+        for _ in 0..weight {
+            if self.steps_until_drain == 0 {
+                self.reroll_steps_until_drain();
+            }
+            self.steps_until_drain = self.steps_until_drain.saturating_sub(1);
+            if self.steps_until_drain == 0 {
+                let drain = self.walk_event_drain();
+                self.spend_stamina(drain);
+                self.reroll_steps_until_drain();
+            }
+        }
         self.stats.steps += weight;
         if self.tutorial_step == 0 {
             self.tutorial_advance(0);
