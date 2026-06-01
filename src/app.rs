@@ -163,17 +163,21 @@ pub struct CastState {
 const MOVE_INTERVAL_H: u64 = 2;
 const MOVE_INTERVAL_V: u64 = 4;
 
-/// Forced game viewport. Larger terminals get blank letterbox padding;
-/// smaller terminals get an apologetic "make the window bigger" message.
+/// Forced game viewport. Terminals smaller than (MIN_W, MIN_H) get an
+/// apologetic "make the window bigger" message. Terminals at or beyond
+/// (MAX_W, MAX_H) get blank letterbox padding around a viewport capped
+/// at MAX_*. Anything in between renders at the real terminal size.
 pub const MIN_W: u16 = 140;
-pub const MIN_H: u16 = 36;
+pub const MIN_H: u16 = 30;
+pub const MAX_W: u16 = 150;
+pub const MAX_H: u16 = 50;
 
-/// Computes the centered viewport rect inside the terminal area. The game
-/// always renders into this fixed-size rect.
+/// Computes the centered viewport rect inside the terminal area. Width
+/// stretches between MIN_W and MAX_W; height between MIN_H and MAX_H.
 pub fn viewport(frame: &ratatui::Frame) -> Rect {
     let full = frame.area();
-    let w = MIN_W.min(full.width);
-    let h = MIN_H.min(full.height);
+    let w = full.width.min(MAX_W);
+    let h = full.height.min(MAX_H);
     let x = full.x + full.width.saturating_sub(w) / 2;
     let y = full.y + full.height.saturating_sub(h) / 2;
     Rect { x, y, width: w, height: h }

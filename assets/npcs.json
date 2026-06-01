@@ -11,8 +11,8 @@
     "dialogue": [
       "Old Angler grins.",
       "\"Mornin'. Been fishin' these waters longer than you've been breathing.\"",
-      "\"It is so, so good to see another fisherman around here. Our population is minuscule.\"",
-      "\"Don't ignore the wells. They're not just for water.\""
+      "\"It is so damn good to see another fisherman around here. Our population is minuscule, I tell ya.\"",
+      "\"Just a tip, don't ignore the wells. They're not just for water.\""
     ]
   },
   {
@@ -46,8 +46,8 @@
     "glyph": "F",
     "color": "lightyellow",
     "dialogue": [
-      "The old fisher doesn't look up from his line.",
-      "\"Cast far and stand still. The biggest ones are deep.\""
+      "The old fisher doesn't glance at you, but feels your presence and reacts with a nod.",
+      "\"Casting your line is just as important as reeling in the fish.\""
     ]
   },
   {
@@ -58,8 +58,8 @@
     "glyph": "F",
     "color": "cyan",
     "dialogue": [
-      "Young fisher gives you a quick nod.",
-      "\"Caught my first walleye last week off this very plank.\""
+      "The young fisher gives you a quick glance.",
+      "\"Caught my first walleye last week off this very plank. It's my lucky plank!\""
     ]
   },
   {
@@ -70,12 +70,12 @@
     "glyph": "S",
     "color": "lightblue",
     "dialogue": [
-      "The Sailor stares past you, at the horizon.",
+      "The sailor is unbothered by you. His thick, white beard unmoved by the tame zephyr.",
       "\"You need a thousand fish before you'll survive what's down there. Come back when you have them.\""
     ],
     "responses": {
-      "not_enough": "Sailor: \"You've landed {count} fish. Bring me a thousand and I'll show you the deep.\"",
-      "taking_you": "Sailor: \"Hold your breath. Or don't.\""
+      "not_enough": "Sailor: \"You've landed {count} fish. Not bad, but I tell ya', down there, they don't take 'good enough'.\"",
+      "taking_you": "Sailor: \"Hold your breath.\""
     }
   },
 
@@ -89,8 +89,8 @@
     "glyph": "B",
     "color": "yellow",
     "dialogue": [
-      "Borin taps his pickaxe against his boot.",
-      "\"There's a way down, walker. The world has cousins beneath it. Look for a big rock with a wooden A-frame nailed to it - that's a mineshaft. Step on the opening and press f.\"",
+      "You look at Borin. He looks at you, but, really, you notice nothing behind his pale blue eyes. His expression is that of wise sage whose mind is blank of all material needs or that of a miner who knows nothing but hitting rocks for cash.",
+      "\"I like mining a lot. You can mine down there. You find a big rock and enter it haha.\"",
       "\"The mines have their own people. Don't trust the ones that don't have faces.\""
     ]
   },
