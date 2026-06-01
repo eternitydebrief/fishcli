@@ -66,6 +66,12 @@ pub struct Fishing {
     /// minigame just renders them in a corner panel.
     pub gear_bait_label: String,
     pub gear_tackle_label: String,
+    /// Onboarding grace: while > 0, the catch meter never drains.
+    /// Counts down in tick().
+    start_no_drain_left: u32,
+    /// Wider grace: while > 0, the catch meter can hit zero without the
+    /// fish escaping. Counts down in tick().
+    start_no_fail_left: u32,
 }
 
 impl Fishing {
@@ -86,7 +92,8 @@ impl Fishing {
         let rect_h = (fish.rect_h() + tree.rect_h_bonus()).min(bar_h as f32 - 1.0);
         // Player rectangle starts at the very bottom of the bar — the
         // player has to actively reel up to track whatever the fish
-        // does. Catch progress starts at 0% so no fish is a freebie.
+        // does. Catch progress starts at 25% so there's a small buffer
+        // but not enough to coast a catch.
         let rect_y = bar_h as f32 - rect_h;
         let mid = bar_h as f32 / 2.0;
         let rod_mult = 0.99f32.powi(rod_tier as i32);
@@ -103,7 +110,7 @@ impl Fishing {
             fish_target_y: mid,
             fish_speed: fish.fish_speed() * rod_mult,
             target_change_ticks: ((fish.target_change_ticks() as f32) * calm) as u32,
-            progress: 0.0,
+            progress: 25.0,
             finished: None,
             up_held: false,
             down_held: false,
@@ -132,6 +139,10 @@ impl Fishing {
             tm_grace_left: tree.telepathic_grace_frames(),
             gear_bait_label: String::new(),
             gear_tackle_label: String::new(),
+            // 1s no-drain + 6s no-fail grace at the start of every
+            // fight so the player has time to find the fish and react.
+            start_no_drain_left: 20,
+            start_no_fail_left: 120,
         };
         if s.target_change_ticks == 0 {
             s.target_change_ticks = 1;
@@ -297,9 +308,12 @@ impl Fishing {
         let in_rect = self.fish_y >= self.rect_y && self.fish_y <= self.rect_y + effective_rect_h;
         let fishing_mult = 1.0 + (self.fishing_level as f32) * 0.0025;
         let speed_mult = self.qc_speed_mult * self.qc_perfect_mult * self.qc_effortless_mult;
+        // Tick down the two onboarding grace windows.
+        if self.start_no_drain_left > 0 { self.start_no_drain_left -= 1; }
+        if self.start_no_fail_left > 0 { self.start_no_fail_left -= 1; }
         if in_rect {
             self.progress += 0.8 * fishing_mult * speed_mult;
-        } else {
+        } else if self.start_no_drain_left == 0 {
             self.progress -= 0.4;
         }
         if self.progress >= 100.0 {
@@ -307,7 +321,11 @@ impl Fishing {
             self.finished = Some(FishingResult::Caught);
         } else if self.progress <= 0.0 {
             self.progress = 0.0;
-            self.finished = Some(FishingResult::Escaped);
+            // The first ~6s of every fight is a soft floor: the meter can
+            // park at 0 but the fish doesn't actually slip the line yet.
+            if self.start_no_fail_left == 0 {
+                self.finished = Some(FishingResult::Escaped);
+            }
         }
     }
 
