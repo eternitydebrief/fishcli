@@ -3651,71 +3651,183 @@ fn all_blue_get(_x: i32, _y: i32, _seed: u32) -> Tile {
 fn sandstone_wall_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0x5A04_57E0);
     let g = match h % 4 { 0 => '#', 1 => '%', 2 => '8', _ => 'H' };
+    let bucket = (h >> 8) % 100;
     let shade = 175 + (h % 30) as u8;
-    (g, Style::default().fg(Color::Rgb(shade, shade - 35, shade - 80)).add_modifier(Modifier::BOLD))
+    let style = if bucket < 5 {
+        // rare: bright turquoise hieroglyph paint
+        Style::default().fg(Color::Rgb(70, 175, 175)).add_modifier(Modifier::BOLD)
+    } else if bucket < 25 {
+        // secondary: darker ochre layer
+        Style::default().fg(Color::Rgb(shade - 25, shade - 60, shade - 110)).add_modifier(Modifier::BOLD)
+    } else {
+        // primary sandstone gold
+        Style::default().fg(Color::Rgb(shade, shade - 35, shade - 80)).add_modifier(Modifier::BOLD)
+    };
+    (g, style)
 }
 
 fn wood_hull_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0x80D_517E1);
-    let g = match h % 3 { 0 => '|', 1 => '#', _ => '=' };
+    let g = match h % 4 { 0 => '|', 1 => '#', 2 => '=', _ => '%' };
+    let bucket = (h >> 8) % 100;
     let shade = 95 + (h % 25) as u8;
-    (g, Style::default().fg(Color::Rgb(shade + 10, shade - 25, shade.saturating_sub(60))).add_modifier(Modifier::BOLD))
+    let style = if bucket < 6 {
+        // rare: pale green algae growth
+        Style::default().fg(Color::Rgb(80, 140, 95)).add_modifier(Modifier::BOLD)
+    } else if bucket < 30 {
+        // secondary: rust-orange copper plating
+        Style::default().fg(Color::Rgb(170, 95, 50)).add_modifier(Modifier::BOLD)
+    } else {
+        // primary: dark sea-rotted wood
+        Style::default().fg(Color::Rgb(shade + 10, shade - 25, shade.saturating_sub(60))).add_modifier(Modifier::BOLD)
+    };
+    (g, style)
 }
 
 fn roman_wall_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0x0070_5A11);
     let g = match h % 4 { 0 => '#', 1 => 'H', 2 => '%', _ => '8' };
+    let bucket = (h >> 8) % 100;
     let shade = 220 + (h % 25) as u8;
-    (g, Style::default().fg(Color::Rgb(shade, shade, shade.saturating_sub(20))).add_modifier(Modifier::BOLD))
+    let style = if bucket < 5 {
+        // rare: imperial purple trim
+        Style::default().fg(Color::Rgb(130, 60, 140)).add_modifier(Modifier::BOLD)
+    } else if bucket < 25 {
+        // secondary: gold gilding
+        Style::default().fg(Color::Rgb(210, 175, 80)).add_modifier(Modifier::BOLD)
+    } else {
+        // primary: cream marble
+        Style::default().fg(Color::Rgb(shade, shade, shade.saturating_sub(20))).add_modifier(Modifier::BOLD)
+    };
+    (g, style)
 }
 
 fn gothic_wall_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0x6074_1C00);
     let g = match h % 4 { 0 => '#', 1 => '%', 2 => '|', _ => '+' };
+    let bucket = (h >> 8) % 100;
     let shade = 95 + (h % 25) as u8;
-    (g, Style::default().fg(Color::Rgb(shade, shade - 10, shade + 5)).add_modifier(Modifier::BOLD))
+    let style = if bucket < 5 {
+        // rare: pale gold reliquary inlay
+        Style::default().fg(Color::Rgb(180, 155, 80)).add_modifier(Modifier::BOLD)
+    } else if bucket < 28 {
+        // secondary: dark teal moss
+        Style::default().fg(Color::Rgb(45, 80, 80)).add_modifier(Modifier::BOLD)
+    } else {
+        // primary: gothic violet stone
+        Style::default().fg(Color::Rgb(shade, shade - 10, shade + 5)).add_modifier(Modifier::BOLD)
+    };
+    (g, style)
 }
 
 fn sewer_brick_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0x5E_EB_4_C00);
-    let g = match h % 3 { 0 => '#', 1 => '%', _ => '=' };
+    // Triadic palette: mostly dark muddy brown brick (~80%), olive green
+    // mortar (~15%), rare cyan rust pipe (~5%).
+    let g = match h % 5 { 0 => '%', 1 => '=', 2 => '|', _ => '#' };
+    let bucket = (h >> 8) % 100;
     let shade = 75 + (h % 22) as u8;
-    (g, Style::default().fg(Color::Rgb(shade - 20, shade, shade.saturating_sub(35))).add_modifier(Modifier::BOLD))
+    let style = if bucket < 5 {
+        // cyan rust accent
+        Style::default().fg(Color::Rgb(50, 130, 145)).add_modifier(Modifier::BOLD)
+    } else if bucket < 20 {
+        // olive mortar
+        Style::default().fg(Color::Rgb(shade - 10, shade + 10, shade.saturating_sub(40))).add_modifier(Modifier::BOLD)
+    } else {
+        // dominant: dark muddy brown brick
+        Style::default().fg(Color::Rgb(shade + 5, shade.saturating_sub(20), shade.saturating_sub(45))).add_modifier(Modifier::BOLD)
+    };
+    (g, style)
 }
 
 fn snow_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0x5_001_5_001);
-    let g = match h % 4 { 0 => '.', 1 => ',', 2 => '`', _ => ' ' };
+    let g = match h % 5 { 0 => '.', 1 => ',', 2 => '`', 3 => '*', _ => ' ' };
+    let bucket = (h >> 8) % 100;
     let shade = 215 + (h % 35) as u8;
-    (g, Style::default().fg(Color::Rgb(shade, shade, 255)))
+    let style = if bucket < 4 {
+        // rare: dark indigo crevasse
+        Style::default().fg(Color::Rgb(50, 70, 110))
+    } else if bucket < 25 {
+        // secondary: pale steel blue ice
+        Style::default().fg(Color::Rgb(170, 195, 220))
+    } else {
+        // primary: white snow with cool tint
+        Style::default().fg(Color::Rgb(shade, shade, 255))
+    };
+    (g, style)
 }
 
 fn pyramid_sand_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0x5A04_FA90);
-    let g = match h % 3 { 0 => ',', 1 => '.', _ => '`' };
+    let g = match h % 4 { 0 => ',', 1 => '.', 2 => '`', _ => '\'' };
+    let bucket = (h >> 8) % 100;
     let shade = 210 + (h % 30) as u8;
-    (g, Style::default().fg(Color::Rgb(shade, shade - 30, shade.saturating_sub(110))))
+    let style = if bucket < 4 {
+        // rare: dark obsidian shard
+        Style::default().fg(Color::Rgb(50, 35, 70))
+    } else if bucket < 22 {
+        // secondary: deeper burnt orange dune
+        Style::default().fg(Color::Rgb(shade - 25, shade - 70, shade.saturating_sub(140)))
+    } else {
+        // primary: golden sand
+        Style::default().fg(Color::Rgb(shade, shade - 30, shade.saturating_sub(110)))
+    };
+    (g, style)
 }
 
 fn roman_floor_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0x0070_5F10);
     let g = match h % 4 { 0 => '.', 1 => ',', 2 => '_', _ => ':' };
+    let bucket = (h >> 8) % 100;
     let shade = 200 + (h % 30) as u8;
-    (g, Style::default().fg(Color::Rgb(shade, shade - 5, shade.saturating_sub(40))))
+    let style = if bucket < 4 {
+        // rare: bloodstain mosaic
+        Style::default().fg(Color::Rgb(150, 50, 60))
+    } else if bucket < 22 {
+        // secondary: muted bronze
+        Style::default().fg(Color::Rgb(160, 130, 75))
+    } else {
+        // primary: cream marble
+        Style::default().fg(Color::Rgb(shade, shade - 5, shade.saturating_sub(40)))
+    };
+    (g, style)
 }
 
 fn sewer_walk_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0x5E_EB_5_EE7);
     let g = match h % 4 { 0 => '.', 1 => ',', 2 => ':', _ => '`' };
+    let bucket = (h >> 8) % 100;
     let shade = 90 + (h % 25) as u8;
-    (g, Style::default().fg(Color::Rgb(shade - 15, shade - 10, shade.saturating_sub(40))))
+    let style = if bucket < 5 {
+        // rare: cyan rust drip
+        Style::default().fg(Color::Rgb(60, 130, 130))
+    } else if bucket < 22 {
+        // secondary: bright mossy green patch
+        Style::default().fg(Color::Rgb(75, 110, 55))
+    } else {
+        // primary: dark sewer dust
+        Style::default().fg(Color::Rgb(shade - 15, shade - 10, shade.saturating_sub(40)))
+    };
+    (g, style)
 }
 
 fn cathedral_floor_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0x6074_F100);
     let g = match h % 4 { 0 => '.', 1 => ',', 2 => '_', _ => ':' };
+    let bucket = (h >> 8) % 100;
     let shade = 130 + (h % 25) as u8;
-    (g, Style::default().fg(Color::Rgb(shade, shade - 5, shade + 10)))
+    let style = if bucket < 5 {
+        // rare: pale gold candlewax
+        Style::default().fg(Color::Rgb(190, 160, 90))
+    } else if bucket < 24 {
+        // secondary: deep cobalt mosaic
+        Style::default().fg(Color::Rgb(60, 65, 130))
+    } else {
+        // primary: gothic violet stone
+        Style::default().fg(Color::Rgb(shade, shade - 5, shade + 10))
+    };
+    (g, style)
 }
 
 // ---- Per-dim CaveWall / CaveFloor variants ---------------------------------
@@ -3723,52 +3835,109 @@ fn cathedral_floor_glyph(x: i32, y: i32) -> (char, Style) {
 fn hot_spring_wall_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0x4075_5_AA1);
     let g = match h % 5 { 0 => '#', 1 => '%', 2 => '&', 3 => 'M', _ => '8' };
+    let bucket = (h >> 8) % 100;
     let shade = 95 + (h % 35) as u8;
-    let r = shade + 35;
-    let gc = shade.saturating_sub(15);
-    let b = shade.saturating_sub(20);
-    (g, Style::default().fg(Color::Rgb(r, gc, b)).add_modifier(Modifier::BOLD))
+    let style = if bucket < 5 {
+        // rare: bright sulphur gold vein
+        Style::default().fg(Color::Rgb(220, 180, 70)).add_modifier(Modifier::BOLD)
+    } else if bucket < 25 {
+        // secondary: dark crimson basalt
+        Style::default().fg(Color::Rgb(120, 45, 50)).add_modifier(Modifier::BOLD)
+    } else {
+        // primary: warm pink steam-rock
+        Style::default().fg(Color::Rgb(shade + 35, shade.saturating_sub(15), shade.saturating_sub(20))).add_modifier(Modifier::BOLD)
+    };
+    (g, style)
 }
 
 fn hot_spring_floor_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0x4075_5F00);
     let g = match h % 5 { 0 => '.', 1 => ',', 2 => '`', 3 => ':', _ => ';' };
+    let bucket = (h >> 8) % 100;
     let shade = 60 + (h % 22) as u8;
-    (g, Style::default().fg(Color::Rgb(shade + 25, shade.saturating_sub(8), shade.saturating_sub(15))))
+    let style = if bucket < 5 {
+        // rare: bright orange ember
+        Style::default().fg(Color::Rgb(210, 130, 60))
+    } else if bucket < 22 {
+        // secondary: dusty olive ash
+        Style::default().fg(Color::Rgb(95, 90, 55))
+    } else {
+        // primary: rust-brown steamed earth
+        Style::default().fg(Color::Rgb(shade + 25, shade.saturating_sub(8), shade.saturating_sub(15)))
+    };
+    (g, style)
 }
 
 fn swamp_wall_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0x5AA9_5_AA1);
     let g = match h % 5 { 0 => '#', 1 => '%', 2 => '@', 3 => 'W', _ => '$' };
+    let bucket = (h >> 8) % 100;
     let shade = 55 + (h % 28) as u8;
-    let r = shade.saturating_sub(8);
-    let gc = shade + 15;
-    let b = shade.saturating_sub(20);
-    (g, Style::default().fg(Color::Rgb(r, gc, b)).add_modifier(Modifier::BOLD))
+    let style = if bucket < 5 {
+        // rare: glowing yellow-green spore patch
+        Style::default().fg(Color::Rgb(170, 200, 80)).add_modifier(Modifier::BOLD)
+    } else if bucket < 25 {
+        // secondary: brown rot
+        Style::default().fg(Color::Rgb(80, 55, 35)).add_modifier(Modifier::BOLD)
+    } else {
+        // primary: sickly olive moss
+        Style::default().fg(Color::Rgb(shade.saturating_sub(8), shade + 15, shade.saturating_sub(20))).add_modifier(Modifier::BOLD)
+    };
+    (g, style)
 }
 
 fn swamp_floor_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0x5AA9_5F00);
     let g = match h % 4 { 0 => '.', 1 => ',', 2 => ';', _ => ':' };
+    let bucket = (h >> 8) % 100;
     let shade = 45 + (h % 18) as u8;
-    (g, Style::default().fg(Color::Rgb(shade.saturating_sub(5), shade + 8, shade.saturating_sub(15))))
+    let style = if bucket < 4 {
+        // rare: bright bioluminescent yellow-green
+        Style::default().fg(Color::Rgb(160, 200, 90))
+    } else if bucket < 24 {
+        // secondary: dark wet brown
+        Style::default().fg(Color::Rgb(55, 35, 25))
+    } else {
+        // primary: sickly olive damp
+        Style::default().fg(Color::Rgb(shade.saturating_sub(5), shade + 8, shade.saturating_sub(15)))
+    };
+    (g, style)
 }
 
 fn crater_wall_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0xC0_5A_71_E1);
     let g = match h % 5 { 0 => '#', 1 => '%', 2 => '*', 3 => '+', _ => 'M' };
+    let bucket = (h >> 8) % 100;
     let shade = 65 + (h % 28) as u8;
-    let r = shade + 20;
-    let gc = shade.saturating_sub(10);
-    let b = shade + 45;
-    (g, Style::default().fg(Color::Rgb(r, gc, b)).add_modifier(Modifier::BOLD))
+    let style = if bucket < 4 {
+        // rare: hot pink crystal vein
+        Style::default().fg(Color::Rgb(230, 80, 180)).add_modifier(Modifier::BOLD)
+    } else if bucket < 25 {
+        // secondary: teal stardust accent
+        Style::default().fg(Color::Rgb(60, 165, 175)).add_modifier(Modifier::BOLD)
+    } else {
+        // primary: cosmic violet rock
+        Style::default().fg(Color::Rgb(shade + 20, shade.saturating_sub(10), shade + 45)).add_modifier(Modifier::BOLD)
+    };
+    (g, style)
 }
 
 fn crater_floor_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0xC0_5A_72_F0);
     let g = match h % 5 { 0 => '.', 1 => ',', 2 => '`', 3 => '\'', _ => ':' };
+    let bucket = (h >> 8) % 100;
     let shade = 30 + (h % 16) as u8;
-    (g, Style::default().fg(Color::Rgb(shade + 10, shade.saturating_sub(2), shade + 25)))
+    let style = if bucket < 3 {
+        // rare: pale starlight twinkle
+        Style::default().fg(Color::Rgb(220, 200, 240)).add_modifier(Modifier::BOLD)
+    } else if bucket < 25 {
+        // secondary: deeper indigo
+        Style::default().fg(Color::Rgb(25, 25, 55))
+    } else {
+        // primary: dusky violet plain
+        Style::default().fg(Color::Rgb(shade + 10, shade.saturating_sub(2), shade + 25))
+    };
+    (g, style)
 }
 
 // ---- Per-dim Water tints --------------------------------------------------
