@@ -1096,12 +1096,25 @@ impl App {
         }
         match &mut self.scene {
             Scene::Overworld => self.handle_overworld(code),
-            Scene::Fishdex(d) => match code {
-                KeyCode::Char('j') | KeyCode::Down => d.cursor_down(),
-                KeyCode::Char('k') | KeyCode::Up => d.cursor_up(),
-                KeyCode::Char('q') | KeyCode::Char('e') => self.exit_subscene(),
-                _ => {}
-            },
+            Scene::Fishdex(d) => {
+                if d.editing_filter {
+                    match code {
+                        KeyCode::Enter => d.apply_filter(&self.caught),
+                        KeyCode::Esc => d.clear_filter(),
+                        KeyCode::Backspace => d.pop_filter(),
+                        KeyCode::Char(c) if !c.is_control() => d.push_filter(c),
+                        _ => {}
+                    }
+                } else {
+                    match code {
+                        KeyCode::Char('j') | KeyCode::Down => d.cursor_down(&self.caught),
+                        KeyCode::Char('k') | KeyCode::Up => d.cursor_up(&self.caught),
+                        KeyCode::Char('/') => d.start_filter(),
+                        KeyCode::Char('q') | KeyCode::Char('e') => self.exit_subscene(),
+                        _ => {}
+                    }
+                }
+            }
             Scene::RodShop { cursor } => {
                 let owned = self.player.rods.max_owned;
                 let next = owned + 1;

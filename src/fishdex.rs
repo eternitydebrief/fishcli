@@ -9,27 +9,98 @@ use ratatui::{
 
 pub struct Fishdex {
     pub state: ListState,
+    pub filter: String,
+    /// True while typing into the filter box (/-prompt mode).
+    pub editing_filter: bool,
 }
 
 impl Fishdex {
     pub fn new() -> Self {
         let mut s = ListState::default();
         s.select(Some(0));
-        Self { state: s }
+        Self { state: s, filter: String::new(), editing_filter: false }
     }
 
-    pub fn cursor_down(&mut self) {
-        let len = fish().len();
-        if len == 0 {
+    /// Indices into the global fish list that match the current filter.
+    /// Empty filter = every entry, in catalog order.
+    pub fn visible(&self, caught: &[bool]) -> Vec<usize> {
+        let q = self.filter.to_ascii_lowercase();
+        fish()
+            .iter()
+            .enumerate()
+            .filter(|(i, f)| {
+                if q.is_empty() {
+                    return true;
+                }
+                let known = caught.get(*i).copied().unwrap_or(false);
+                if !known {
+                    return false;
+                }
+                if f.name.to_ascii_lowercase().contains(&q) {
+                    return true;
+                }
+                if f.biomes.iter().any(|b| b.to_ascii_lowercase().contains(&q)) {
+                    return true;
+                }
+                if f.waters.iter().any(|w| w.to_ascii_lowercase().contains(&q)) {
+                    return true;
+                }
+                if f.pool.iter().any(|p| p.to_ascii_lowercase().contains(&q)) {
+                    return true;
+                }
+                false
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    pub fn cursor_down(&mut self, caught: &[bool]) {
+        let vis = self.visible(caught);
+        if vis.is_empty() {
             return;
         }
-        let i = self.state.selected().unwrap_or(0);
-        self.state.select(Some((i + 1).min(len - 1)));
+        let cur = self.state.selected().unwrap_or(0);
+        let pos = vis.iter().position(|&i| i == cur).unwrap_or(0);
+        let next = (pos + 1).min(vis.len() - 1);
+        self.state.select(Some(vis[next]));
     }
 
-    pub fn cursor_up(&mut self) {
-        let i = self.state.selected().unwrap_or(0);
-        self.state.select(Some(i.saturating_sub(1)));
+    pub fn cursor_up(&mut self, caught: &[bool]) {
+        let vis = self.visible(caught);
+        if vis.is_empty() {
+            return;
+        }
+        let cur = self.state.selected().unwrap_or(0);
+        let pos = vis.iter().position(|&i| i == cur).unwrap_or(0);
+        let prev = pos.saturating_sub(1);
+        self.state.select(Some(vis[prev]));
+    }
+
+    pub fn start_filter(&mut self) {
+        self.editing_filter = true;
+    }
+
+    pub fn push_filter(&mut self, c: char) {
+        if self.filter.chars().count() < 40 {
+            self.filter.push(c);
+        }
+    }
+
+    pub fn pop_filter(&mut self) {
+        self.filter.pop();
+    }
+
+    /// Commit the current filter; cursor snaps to first visible match.
+    pub fn apply_filter(&mut self, caught: &[bool]) {
+        self.editing_filter = false;
+        if let Some(&first) = self.visible(caught).first() {
+            self.state.select(Some(first));
+        }
+    }
+
+    pub fn clear_filter(&mut self) {
+        self.filter.clear();
+        self.editing_filter = false;
     }
 
     pub fn render(
@@ -42,7 +113,20 @@ impl Fishdex {
         let area = frame.area();
         let total = fish().len();
         let caught_count = caught.iter().filter(|c| **c).count();
-        let title = format!(" fishdex ({}/{}) - j/k or arrows to browse, esc/q to leave ", caught_count, total);
+        let visible_idx = self.visible(caught);
+        let title = if self.editing_filter {
+            format!(" fishdex / {}_  (Enter apply, Esc clear) ", self.filter)
+        } else if !self.filter.is_empty() {
+            format!(
+                " fishdex ({}/{}) filter: {} ({} match) ",
+                caught_count,
+                total,
+                self.filter,
+                visible_idx.len()
+            )
+        } else {
+            format!(" fishdex ({}/{}) - j/k browse, / filter, esc/q leave ", caught_count, total)
+        };
         let outer = Block::default()
             .borders(Borders::ALL)
             .title(title)
@@ -57,10 +141,10 @@ impl Fishdex {
             .constraints([Constraint::Length(list_w), Constraint::Min(8)])
             .split(inner);
 
-        let items: Vec<ListItem<'static>> = fish()
+        let items: Vec<ListItem<'static>> = visible_idx
             .iter()
-            .enumerate()
-            .map(|(i, f)| {
+            .map(|&i| {
+                let f = &fish()[i];
                 let known = caught.get(i).copied().unwrap_or(false);
                 if known {
                     ListItem::new(Line::from(vec![
@@ -83,10 +167,16 @@ impl Fishdex {
             })
             .collect();
 
+        // The list widget needs a local cursor counting from 0 against the
+        // filtered indices, not the global fish index that self.state holds.
+        let global_sel = self.state.selected().unwrap_or(0);
+        let local_pos = visible_idx.iter().position(|&i| i == global_sel);
+        let mut local_state = ListState::default();
+        local_state.select(local_pos);
         let list = List::new(items)
             .block(Block::default().borders(Borders::ALL).title(" species "))
             .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-        frame.render_stateful_widget(list, chunks[0], &mut self.state);
+        frame.render_stateful_widget(list, chunks[0], &mut local_state);
 
         let sel = self.state.selected().unwrap_or(0);
         let detail_lines: Vec<Line> = if let Some(f) = fish().get(sel) {
