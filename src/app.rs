@@ -2052,8 +2052,22 @@ impl App {
         match &self.scene {
             Scene::Fishing(g) => {
                 let fish_ref: &'static crate::fish::FishDef = g.fish;
-                let caught = matches!(g.finished, Some(FishingResult::Caught));
-                let escaped = matches!(g.finished, Some(FishingResult::Escaped));
+                let raw_caught = matches!(g.finished, Some(FishingResult::Caught));
+                let mut escaped = matches!(g.finished, Some(FishingResult::Escaped));
+                // Blessed (escape_save_pct): roll once on every escape, and
+                // on success flip it into a catch instead.
+                let mut caught = raw_caught;
+                if escaped {
+                    let p = self.skill_tree.escape_save_pct();
+                    if p > 0.0 {
+                        let r = crate::fish::next_rand_f32(&mut self.rng_state);
+                        if r < p {
+                            caught = true;
+                            escaped = false;
+                            self.narrator.say("Blessed: the line held. You bring it in anyway.");
+                        }
+                    }
+                }
                 if caught {
                     let mut already_had_unique = false;
                     if let Some(i) = fishlist::fish().iter().position(|f| std::ptr::eq(f, fish_ref)) {
@@ -2953,8 +2967,16 @@ impl App {
         if count == 0 {
             return 0;
         }
+        let biome_label = self
+            .current_biome
+            .map(|b| b.label())
+            .unwrap_or("Meadow");
+        let biome_mult = self.skill_tree.biome_value_mult(biome_label);
+        let archivist_bonus = self.skill_tree.archivist_per_dex()
+            * (self.caught.iter().filter(|c| **c).count() as u64);
         let mult = self.buffs.price_mult()
             * self.skill_tree.valu_mult()
+            * biome_mult
             * (1.0 + self.player.tackle.sum_effect("valu_mult"));
         let mut sold = 0u64;
         let mut total = 0u64;
@@ -2969,7 +2991,8 @@ impl App {
                     * (1.0 + mbonus + wmods.valu_pct)
                     * lvl_decay
                     * dim_bonus)
-                    .round() as u64;
+                    .round() as u64
+                    + archivist_bonus;
                 total = total.saturating_add(price);
                 sold += 1;
             }
@@ -3012,15 +3035,24 @@ impl App {
     }
 
     fn fishmonger_listing(&self) -> Vec<(String, u64, u64)> {
+        let biome_label = self
+            .current_biome
+            .map(|b| b.label())
+            .unwrap_or("Meadow");
+        let biome_mult = self.skill_tree.biome_value_mult(biome_label);
+        let archivist_bonus = self.skill_tree.archivist_per_dex()
+            * (self.caught.iter().filter(|c| **c).count() as u64);
         let mult = self.buffs.price_mult()
             * self.skill_tree.valu_mult()
+            * biome_mult
             * (1.0 + self.player.tackle.sum_effect("valu_mult"));
         let mut out: Vec<(String, u64, u64)> = Vec::new();
         for f in self.player.inventory.iter().filter(|f| !f.unique) {
             let mbonus = self.mastery_value_bonus(f);
             let lvl_decay = self.level_value_mult(f);
             let price = ((f.sell_price() as f32) * mult * (1.0 + mbonus) * lvl_decay)
-                .round() as u64;
+                .round() as u64
+                + archivist_bonus;
             if let Some(entry) = out.iter_mut().find(|(n, _, _)| n == &f.name) {
                 entry.2 += 1;
             } else {
@@ -3035,8 +3067,16 @@ impl App {
         if count == 0 {
             return;
         }
+        let biome_label = self
+            .current_biome
+            .map(|b| b.label())
+            .unwrap_or("Meadow");
+        let biome_mult = self.skill_tree.biome_value_mult(biome_label);
+        let archivist_bonus = self.skill_tree.archivist_per_dex()
+            * (self.caught.iter().filter(|c| **c).count() as u64);
         let mult = self.buffs.price_mult()
             * self.skill_tree.valu_mult()
+            * biome_mult
             * (1.0 + self.player.tackle.sum_effect("valu_mult"));
         let mut sold = 0u64;
         let mut total = 0u64;
@@ -3053,7 +3093,8 @@ impl App {
                     * (1.0 + mbonus + wmods.valu_pct)
                     * lvl_decay
                     * dim_bonus)
-                    .round() as u64;
+                    .round() as u64
+                    + archivist_bonus;
                 total = total.saturating_add(price);
                 sold += 1;
             } else {
@@ -3214,11 +3255,16 @@ impl App {
     fn mark_seen_around_player(&mut self) {
         const VIEW_W: i32 = 50;
         const VIEW_H: i32 = 18;
+        // Mapped Mind / fog_radius_bonus widens the reveal — each rank adds
+        // one coarse cell on every side.
+        let fog_bonus = self.skill_tree.fog_radius_bonus() as i32;
+        let extra_w = fog_bonus * crate::app::MAP_CELL_W;
+        let extra_h = fog_bonus * crate::app::MAP_CELL_H;
         let (px, py) = (self.player.x, self.player.y);
         let dim = self.world.dim;
         let set = self.seen_cells.entry(dim).or_default();
-        for dy in -VIEW_H / 2..=VIEW_H / 2 {
-            for dx in -VIEW_W / 2..=VIEW_W / 2 {
+        for dy in -VIEW_H / 2 - extra_h..=VIEW_H / 2 + extra_h {
+            for dx in -VIEW_W / 2 - extra_w..=VIEW_W / 2 + extra_w {
                 let cc = coarse_cell(px + dx, py + dy);
                 set.insert(cc);
             }
