@@ -16,6 +16,29 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 rayon = "1.10"
 
 [profile.release]
-lto = true
+# Iteration-friendly release builds. ~30-60s instead of ~2min. The binary
+# loses ~5-10% perf vs full LTO but is plenty fast for gameplay.
+lto = false
+codegen-units = 16
+strip = true
+incremental = true
+
+# Use `cargo build --profile ship` only for distributable binaries. Full
+# LTO + single codegen unit; slow but smallest/fastest output.
+[profile.ship]
+inherits = "release"
+lto = "fat"
 codegen-units = 1
 strip = true
+incremental = false
+
+# Debug builds: cheap to compile, still tolerable to play. Heavy deps
+# build at -O2 once and cache; only fishcli code is rebuilt unoptimised
+# on every edit.
+[profile.dev]
+opt-level = 0
+debug = 1
+incremental = true
+
+[profile.dev.package."*"]
+opt-level = 2
