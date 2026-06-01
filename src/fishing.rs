@@ -84,7 +84,10 @@ impl Fishing {
     ) -> Self {
         let bar_h = 20usize;
         let rect_h = (fish.rect_h() + tree.rect_h_bonus()).min(bar_h as f32 - 1.0);
-        let rect_y = (bar_h as f32 - rect_h) / 2.0;
+        // Player rectangle starts at the very bottom of the bar — the
+        // player has to actively reel up to track whatever the fish
+        // does. Catch progress starts at 0% so no fish is a freebie.
+        let rect_y = bar_h as f32 - rect_h;
         let mid = bar_h as f32 / 2.0;
         let rod_mult = 0.99f32.powi(rod_tier as i32);
         let calm = tree.tamer_calm_mult();
@@ -100,7 +103,7 @@ impl Fishing {
             fish_target_y: mid,
             fish_speed: fish.fish_speed() * rod_mult,
             target_change_ticks: ((fish.target_change_ticks() as f32) * calm) as u32,
-            progress: 50.0,
+            progress: 0.0,
             finished: None,
             up_held: false,
             down_held: false,

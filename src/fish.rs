@@ -62,16 +62,23 @@ impl FishDef {
         ((self.difficulty as f32 - 1.0) / 9.0).clamp(0.0, 1.0)
     }
 
+    // Difficulty-driven minigame stats. The full ramp is `t = 0..1` for
+    // difficulty 1..10. Tuned so even a "level 1" catch is a real fight:
+    // shorter rect, faster fish, more chaotic direction changes.
     pub fn rect_h(&self) -> f32 {
-        7.0 - self.t() * 4.0
+        // diff 1: 5.0 cells (25% of the 20-cell bar)
+        // diff 10: 2.0 cells (10% of the bar)
+        5.0 - self.t() * 3.0
     }
 
     pub fn fish_speed(&self) -> f32 {
-        0.25 + self.t() * 0.55
+        // diff 1: 0.45, diff 10: 1.05 — every fish actively dodges.
+        0.45 + self.t() * 0.60
     }
 
     pub fn target_change_ticks(&self) -> u32 {
-        50 - (self.t() * 30.0) as u32
+        // diff 1: ~32 (1.6s between flicks), diff 10: ~12 (0.6s)
+        32 - (self.t() * 20.0) as u32
     }
 
     pub fn sell_price(&self) -> u64 {
