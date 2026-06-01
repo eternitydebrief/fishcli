@@ -2396,15 +2396,17 @@ impl App {
     /// (name, unit_price_with_buff, count). Stable ordering matches inv.
     // -------- faceless wanderers (Mines only) -----------------------------
 
-    /// Number of faceless figures kept around the player in the Mines.
-    const FACELESS_COUNT: usize = 6;
+    /// Number of faceless figures kept in the player's vision in the Mines.
+    const FACELESS_COUNT: usize = 3;
     fn ensure_faceless_spawned(&mut self) {
         if self.world.dim != crate::world::Dimension::Mines {
             self.faceless.clear();
             return;
         }
         while self.faceless.len() < Self::FACELESS_COUNT {
-            if let Some(p) = self.random_walkable_near(self.player.x, self.player.y, 12, 24) {
+            // Spawn close enough to be on-screen — not arm's reach but well
+            // within the viewport — so there are always 2-3 visible.
+            if let Some(p) = self.random_walkable_near(self.player.x, self.player.y, 5, 14) {
                 self.faceless.push(p);
             } else {
                 break;
@@ -2447,9 +2449,9 @@ impl App {
         let py = self.player.y;
         for i in 0..self.faceless.len() {
             let (x, y) = self.faceless[i];
-            let far = (x - px).abs() > 50 || (y - py).abs() > 50;
+            let far = (x - px).abs() > 18 || (y - py).abs() > 12;
             if far {
-                if let Some(p) = self.random_walkable_near(px, py, 15, 28) {
+                if let Some(p) = self.random_walkable_near(px, py, 5, 14) {
                     self.faceless[i] = p;
                 }
                 continue;
