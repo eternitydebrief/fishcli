@@ -161,7 +161,10 @@ pub struct CastState {
 /// Horizontal movement interval (ticks/step). Smaller because terminal cells
 /// are roughly 2:1 - a vertical step covers ~2x the visual distance of a horizontal one.
 const MOVE_INTERVAL_H: u64 = 2;
-const MOVE_INTERVAL_V: u64 = 4;
+// Vertical was 4 (twice horizontal, matching 2:1 cell aspect). Slightly
+// snappier at 3 — still visually slower than horizontal but doesn't
+// feel sluggish.
+const MOVE_INTERVAL_V: u64 = 3;
 
 /// Forced game viewport. Terminals smaller than (MIN_W, MIN_H) get an
 /// apologetic "make the window bigger" message. Terminals at or beyond
@@ -1533,6 +1536,10 @@ impl App {
             }
             _ => return,
         };
+        // Set facing immediately so the player glyph (^v<>) rotates the
+        // moment the player hits a direction key, even when the actual
+        // move is held back by the vertical-phase parity.
+        self.player.facing = (dx, dy);
         // Vertical moves take two presses (cells are ~2:1 tall, so
         // committing every keypress feels twice as fast vertically as
         // horizontally — the phase flag enforces parity).
@@ -3075,7 +3082,7 @@ impl App {
             }
             Scene::Mining(m) => render_mining(frame, m),
             Scene::HouseInterior { px, py, seed, .. } => {
-                render_house(frame, *px, *py, *seed);
+                render_house(frame, *px, *py, *seed, self.player.facing);
             }
             Scene::TackleShop { slot_idx, cursor } => {
                 render_tackle_shop(
@@ -4088,12 +4095,16 @@ fn render_fishmonger(
                     } else {
                         Style::default().fg(Color::White)
                     };
-                    // Price is intentionally hidden until the player confirms a sale.
-                    let _ = price;
-                    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
-                        format!("{prefix}{name:<32} x{count:<5}  (price revealed at confirm)"),
-                        style,
-                    )));
+                    lines.push(ratatui::text::Line::from(vec![
+                        ratatui::text::Span::styled(
+                            format!("{prefix}{name:<32} x{count:<5}"),
+                            style,
+                        ),
+                        ratatui::text::Span::styled(
+                            format!("{}$V each", price),
+                            Style::default().fg(Color::Yellow),
+                        ),
+                    ]));
                 }
                 lines.push(ratatui::text::Line::from(""));
                 lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
@@ -4986,7 +4997,7 @@ fn render_notes(frame: &mut Frame, buf: &NotesBuf) {
     frame.render_widget(p, inner);
 }
 
-fn render_house(frame: &mut Frame, px: i32, py: i32, seed: u32) {
+fn render_house(frame: &mut Frame, px: i32, py: i32, seed: u32, facing: (i32, i32)) {
     let area = viewport(frame);
     frame.render_widget(Clear, area);
     let block = Block::default()
@@ -5015,11 +5026,18 @@ fn render_house(frame: &mut Frame, px: i32, py: i32, seed: u32) {
             buf[(sx, sy)].set_char(g).set_style(style);
         }
     }
-    // Player on top
+    // Player on top — facing-direction glyph matches the overworld.
     let sx = ox + px as u16;
     let sy = oy + py as u16;
+    let glyph = match facing {
+        (0, -1) => '^',
+        (0, 1) => 'v',
+        (-1, 0) => '<',
+        (1, 0) => '>',
+        _ => '@',
+    };
     buf[(sx, sy)]
-        .set_char('@')
+        .set_char(glyph)
         .set_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
 }
 

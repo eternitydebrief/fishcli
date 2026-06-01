@@ -734,6 +734,23 @@ impl World {
     }
 
     pub fn render_tile(&self, x: i32, y: i32, tick: u64) -> (char, Style) {
+        // In dims with cave-shaped walls, any cell fully buried inside a
+        // wall mass renders as pure black — the player can't see through
+        // stone. This catches CaveWall, Stalactite, and anything else the
+        // wall-zone procedural noise may have placed there.
+        match self.dim {
+            Dimension::Mines => {
+                if is_buried_wall(x, y, self.seed) {
+                    return (' ', Style::default());
+                }
+            }
+            Dimension::Inferno => {
+                if is_buried_wall(x, y, self.seed.wrapping_add(0x1AFE_5A00)) {
+                    return (' ', Style::default());
+                }
+            }
+            _ => {}
+        }
         match self.get(x, y) {
             Tile::Wall => perimeter_glyph(x, y).unwrap_or_else(|| wall_glyph(x, y)),
             Tile::Roof => roof_glyph(x, y),

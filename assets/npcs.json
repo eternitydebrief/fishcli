@@ -66,7 +66,7 @@
     "id": "sailor",
     "name": "The Sailor",
     "x": 0,
-    "y": 14,
+    "y": 12,
     "glyph": "S",
     "color": "lightblue",
     "dialogue": [
@@ -147,7 +147,7 @@
     "id": "shipwright",
     "name": "The Shipwright",
     "x": 4,
-    "y": 13,
+    "y": 12,
     "glyph": "W",
     "color": "yellow",
     "dialogue": [
@@ -166,7 +166,7 @@
     "id": "nereus",
     "name": "Nereus the Old",
     "x": -1,
-    "y": 13,
+    "y": 12,
     "glyph": "N",
     "color": "lightcyan",
     "dialogue": [

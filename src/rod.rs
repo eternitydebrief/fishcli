@@ -10,10 +10,17 @@ pub struct RodDef {
 }
 
 impl RodDef {
-    /// Price in valu to buy this rod. Grows as tier^2 * 5, with a floor.
+    /// Price in valu to buy this rod. Cubic + quadratic curve tuned so the
+    /// full 200-rod ladder takes hundreds of hours of cumulative income to
+    /// climb. Early rods are tens-of-valu cheap; tier 200 costs millions.
+    ///   tier   1 → ~80
+    ///   tier  11 → ~5k     (cumulative ~20k)
+    ///   tier  50 → ~200k   (cumulative ~3M)
+    ///   tier 100 → ~1.3M   (cumulative ~33M)
+    ///   tier 200 → ~9M     (cumulative ~485M)
     pub fn price(&self) -> u64 {
         let t = self.tier as u64;
-        (t * t * 5).max(20)
+        (t * t * t) + (30 * t * t) + 50
     }
 
     /// Multiplier applied to fish speed in the minigame. Each tier shaves
