@@ -169,15 +169,8 @@ impl Fishdex {
                         ),
                     ]));
                 }
-                if f.price > 0 {
-                    lines.push(Line::from(vec![
-                        Span::raw("price:     "),
-                        Span::styled(
-                            format!("{}$V", f.price),
-                            Style::default().fg(Color::Yellow),
-                        ),
-                    ]));
-                }
+                // Sale price intentionally hidden — sell at the fishmonger
+                // to learn what something is worth.
                 if let Some(eff) = &f.effect {
                     lines.push(Line::from(vec![
                         Span::raw("effect:    "),

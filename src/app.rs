@@ -95,6 +95,9 @@ pub enum FishmongerStep {
     PickQuantity { picked: String, max: u64 },
     /// Custom quantity input — typed digits into `buf`.
     EnterQuantity { picked: String, max: u64, buf: String },
+    /// Final confirmation before money changes hands. Shows the total
+    /// payout for transparency; y/Enter confirms, n/Esc cancels.
+    Confirm { picked: String, qty: u64, total: u64 },
 }
 
 #[derive(Clone, Copy)]
@@ -1510,10 +1513,7 @@ impl App {
                     let item = crate::item::Item {
                         name: ore.name.to_string(),
                         category: crate::item::Category::Mineral,
-                        description: format!(
-                            "Mined from a vein. Worth ~{}$V to a smith.",
-                            ore.value
-                        ),
+                        description: "Mined from a vein. A smith will weigh it for you.".to_string(),
                     };
                     self.player.items.push(item);
                     let base_weight: u64 = (ore.value / 20).max(2);
@@ -2309,12 +2309,12 @@ impl App {
                         }),
                     ),
                     1 => {
-                        self.sell_fish_by_name(&picked, max);
-                        (0, Some(FishmongerStep::PickFish))
+                        let total = self.fishmonger_quote(&picked, max);
+                        (0, Some(FishmongerStep::Confirm { picked, qty: max, total }))
                     }
                     2 => {
-                        self.sell_fish_by_name(&picked, 1);
-                        (0, Some(FishmongerStep::PickFish))
+                        let total = self.fishmonger_quote(&picked, 1);
+                        (0, Some(FishmongerStep::Confirm { picked, qty: 1, total }))
                     }
                     _ => (cursor, Some(FishmongerStep::PickFish)),
                 },
@@ -2337,12 +2337,23 @@ impl App {
                 KeyCode::Enter => {
                     let n: u64 = buf.parse().unwrap_or(0);
                     let n = n.min(max);
-                    if n > 0 {
-                        self.sell_fish_by_name(&picked, n);
+                    if n == 0 {
+                        return (cursor, Some(FishmongerStep::PickFish));
                     }
-                    (0, Some(FishmongerStep::PickFish))
+                    let total = self.fishmonger_quote(&picked, n);
+                    (0, Some(FishmongerStep::Confirm { picked, qty: n, total }))
                 }
                 _ => (cursor, Some(FishmongerStep::EnterQuantity { picked, max, buf })),
+            },
+            FishmongerStep::Confirm { picked, qty, total } => match code {
+                KeyCode::Char('y') | KeyCode::Enter | KeyCode::Char(' ') => {
+                    self.sell_fish_by_name(&picked, qty);
+                    (0, Some(FishmongerStep::PickFish))
+                }
+                KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => {
+                    (0, Some(FishmongerStep::PickFish))
+                }
+                _ => (cursor, Some(FishmongerStep::Confirm { picked, qty, total })),
             },
         }
     }
@@ -2451,6 +2462,28 @@ impl App {
                 if points == 1 { "" } else { "s" }
             ));
         }
+    }
+
+    /// Compute the would-be payout for selling `count` of `name` right now,
+    /// without performing the sale. Used by the confirmation prompt.
+    fn fishmonger_quote(&self, name: &str, count: u64) -> u64 {
+        if count == 0 {
+            return 0;
+        }
+        let mult = self.buffs.price_mult()
+            * self.skill_tree.valu_mult()
+            * (1.0 + self.player.tackle.sum_effect("valu_mult"));
+        let mut sold = 0u64;
+        let mut total = 0u64;
+        for f in self.player.inventory.iter() {
+            if !f.unique && f.name == name && sold < count {
+                let mbonus = self.mastery_value_bonus(f);
+                let price = ((f.sell_price() as f32) * mult * (1.0 + mbonus)).round() as u64;
+                total = total.saturating_add(price);
+                sold += 1;
+            }
+        }
+        total
     }
 
     /// +2% sale value per 5 mastery on that species, capped at +50% (125).
@@ -2827,6 +2860,13 @@ impl App {
                             picked: picked.clone(),
                             max: *max,
                             buf: buf.clone(),
+                        }
+                    }
+                    FishmongerStep::Confirm { picked, qty, total } => {
+                        FishmongerStep::Confirm {
+                            picked: picked.clone(),
+                            qty: *qty,
+                            total: *total,
                         }
                     }
                 };
@@ -3848,16 +3888,12 @@ fn render_fishmonger(
                     } else {
                         Style::default().fg(Color::White)
                     };
-                    lines.push(ratatui::text::Line::from(vec![
-                        ratatui::text::Span::styled(
-                            format!("{prefix}{name:<32} x{count:<5}"),
-                            style,
-                        ),
-                        ratatui::text::Span::styled(
-                            format!("{}$V each", price),
-                            Style::default().fg(Color::Yellow),
-                        ),
-                    ]));
+                    // Price is intentionally hidden until the player confirms a sale.
+                    let _ = price;
+                    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+                        format!("{prefix}{name:<32} x{count:<5}  (price revealed at confirm)"),
+                        style,
+                    )));
                 }
                 lines.push(ratatui::text::Line::from(""));
                 lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
@@ -3917,6 +3953,21 @@ fn render_fishmonger(
                 ratatui::text::Line::from(""),
                 ratatui::text::Line::from(ratatui::text::Span::styled(
                     "  digits to type, enter to confirm, backspace to delete, esc to go back",
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ];
+            frame.render_widget(Paragraph::new(lines), inner);
+        }
+        FishmongerStep::Confirm { picked, qty, total } => {
+            let lines = vec![
+                ratatui::text::Line::from(""),
+                ratatui::text::Line::from(ratatui::text::Span::styled(
+                    format!("  Sell {qty} {picked} for {total}$V?"),
+                    Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD),
+                )),
+                ratatui::text::Line::from(""),
+                ratatui::text::Line::from(ratatui::text::Span::styled(
+                    "  y / enter to confirm    n / esc to cancel",
                     Style::default().fg(Color::DarkGray),
                 )),
             ];
