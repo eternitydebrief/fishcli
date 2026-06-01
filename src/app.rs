@@ -163,6 +163,42 @@ pub struct CastState {
 const MOVE_INTERVAL_H: u64 = 2;
 const MOVE_INTERVAL_V: u64 = 4;
 
+/// Forced game viewport. Larger terminals get blank letterbox padding;
+/// smaller terminals get an apologetic "make the window bigger" message.
+pub const MIN_W: u16 = 140;
+pub const MIN_H: u16 = 36;
+
+/// Computes the centered viewport rect inside the terminal area. The game
+/// always renders into this fixed-size rect.
+pub fn viewport(frame: &ratatui::Frame) -> Rect {
+    let full = frame.area();
+    let w = MIN_W.min(full.width);
+    let h = MIN_H.min(full.height);
+    let x = full.x + full.width.saturating_sub(w) / 2;
+    let y = full.y + full.height.saturating_sub(h) / 2;
+    Rect { x, y, width: w, height: h }
+}
+
+fn render_too_small(frame: &mut ratatui::Frame, area: Rect) {
+    let msg = format!(
+        "Please lower the font size or stretch your terminal. (need {}x{}, have {}x{})",
+        MIN_W, MIN_H, area.width, area.height,
+    );
+    let para = ratatui::widgets::Paragraph::new(msg)
+        .alignment(ratatui::layout::Alignment::Center)
+        .wrap(ratatui::widgets::Wrap { trim: true });
+    // center vertically too: use a 1-row band in the middle.
+    let mid_y = area.y + area.height / 2;
+    let band = Rect {
+        x: area.x,
+        y: mid_y,
+        width: area.width,
+        height: 3.min(area.height),
+    };
+    frame.render_widget(ratatui::widgets::Clear, area);
+    frame.render_widget(para, band);
+}
+
 pub struct App {
     pub world: World,
     pub player: Player,
@@ -2859,13 +2895,18 @@ impl App {
     }
 
     pub fn render(&mut self, frame: &mut Frame) {
+        let term = frame.area();
+        if term.width < MIN_W || term.height < MIN_H {
+            render_too_small(frame, term);
+            return;
+        }
         let anim_tick = self.anim_tick;
         let caught_snapshot = self.caught.clone();
         let caught_at_snapshot = self.caught_at.clone();
         let caught_context_snapshot = self.caught_context.clone();
         match &mut self.scene {
             Scene::Overworld => {
-                let area = frame.area();
+                let area = viewport(frame);
                 let block = Block::default()
                     .borders(Borders::ALL)
                     .title(format!(
@@ -2925,7 +2966,7 @@ impl App {
             ),
             Scene::Fishing(g) => {
                 // fishing scene gets the whole frame; log is hidden during reel
-                g.render(frame, frame.area(), anim_tick);
+                g.render(frame, viewport(frame), anim_tick);
             }
             Scene::Fishdex(d) => d.render(
                 frame,
@@ -3070,7 +3111,7 @@ impl App {
             return;
         }
 
-        let full = frame.area();
+        let full = viewport(frame);
         let cmdline_h = 1u16;
         let effective_h = full.height.saturating_sub(cmdline_h);
         // The log/valu HUD belongs on the Overworld and inside houses
@@ -3250,7 +3291,7 @@ fn render_map(
             }
         }
     }
-    let area = frame.area();
+    let area = viewport(frame);
     let block = Block::default()
         .borders(Borders::ALL)
         .title(" map (arrows or hjkl to pan, q/esc to close) ")
@@ -3372,7 +3413,7 @@ fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
 }
 
 fn render_pinned_task(frame: &mut Frame, q: &quest::QuestDef, progress: u32) {
-    let area = frame.area();
+    let area = viewport(frame);
     let title_line = format!(" {} ", q.title);
     let progress_line = format!(" {}/{} ", progress, q.objective.count);
     let w = (title_line.len().max(progress_line.len()) as u16 + 2).min(area.width);
@@ -3415,7 +3456,7 @@ fn render_quests(
     done: &[String],
     pinned: Option<&str>,
 ) {
-    let area = frame.area();
+    let area = viewport(frame);
     let block = Block::default()
         .borders(Borders::ALL)
         .title(" tasks (j/k navigate, p pin/unpin, q/esc close) ")
@@ -3639,7 +3680,7 @@ fn render_rod_shop(
     valu: u64,
 ) {
     use crate::rod::rods;
-    let area = frame.area();
+    let area = viewport(frame);
     let block = Block::default()
         .borders(Borders::ALL)
         .title(format!(
@@ -3723,7 +3764,7 @@ fn render_xp_popup(
     level: u32,
 ) {
     use crate::stats::level_to_xp;
-    let area = frame.area();
+    let area = viewport(frame);
     let w = 48u16.min(area.width);
     let h = 4u16.min(area.height);
     if w < 20 || h < 4 {
@@ -3758,7 +3799,7 @@ fn render_xp_popup(
 }
 
 fn render_location_popup(frame: &mut Frame, label: &str) {
-    let area = frame.area();
+    let area = viewport(frame);
     let w = (label.len() as u16 + 6).min(area.width);
     let h = 3u16.min(area.height);
     if w < 6 || h < 3 {
@@ -3902,7 +3943,7 @@ fn render_skill_tree(
 ) {
     use crate::skill_tree::SkillTree;
     use ratatui::widgets::Paragraph;
-    let area = frame.area();
+    let area = viewport(frame);
     let earned = SkillTree::earned(fishing_level, achievements, mastery_milestones);
     let available = tree.available(fishing_level, achievements, mastery_milestones);
     let title = format!(
@@ -4006,7 +4047,7 @@ fn render_fishmonger(
     valu: u64,
 ) {
     use ratatui::widgets::Paragraph;
-    let area = frame.area();
+    let area = viewport(frame);
     let block = Block::default()
         .borders(Borders::ALL)
         .title(format!(
@@ -4144,7 +4185,7 @@ const LOOT_POOLS: &[(&str, &str)] = &[
 
 fn render_loot_pool(frame: &mut Frame, cursor: usize, current: Option<&str>) {
     use ratatui::widgets::Paragraph;
-    let area = frame.area();
+    let area = viewport(frame);
     let block = Block::default()
         .borders(Borders::ALL)
         .title(" THE ROD - select loot pool (j/k browse, enter pick, q close) ")
@@ -4352,7 +4393,7 @@ fn render_debug_console(
     _buffs: &crate::buffs::Buffs,
 ) {
     use ratatui::widgets::Paragraph;
-    let area = frame.area();
+    let area = viewport(frame);
     let block = Block::default()
         .borders(Borders::ALL)
         .title(" developer console - h/l adjust, H/L big step, enter action, q/esc close ")
@@ -4553,7 +4594,7 @@ fn render_stats(
     skills: &Skills,
     buffs: &crate::buffs::Buffs,
 ) {
-    let area = frame.area();
+    let area = viewport(frame);
     let block = Block::default()
         .borders(Borders::ALL)
         .title(" stats (q/esc to close) ")
@@ -4669,7 +4710,7 @@ fn row(key: &str, val: String) -> ratatui::text::Line<'static> {
 }
 
 fn render_settings(frame: &mut Frame) {
-    let area = frame.area();
+    let area = viewport(frame);
     let block = Block::default()
         .borders(Borders::ALL)
         .title(" settings (q/esc to close) ")
@@ -4700,7 +4741,7 @@ fn render_settings(frame: &mut Frame) {
 }
 
 fn render_help(frame: &mut Frame, topic: HelpTopic) {
-    let area = frame.area();
+    let area = viewport(frame);
     let (title, lines): (&str, Vec<(&str, &str)>) = match topic {
         HelpTopic::Controls => (
             " controls (q/esc to close) ",
@@ -4782,7 +4823,7 @@ fn render_inventory(
     items: &[Item],
     tab_idx: usize,
 ) {
-    let area = frame.area();
+    let area = viewport(frame);
     let cats = Category::all();
     let cat = cats[tab_idx.min(cats.len() - 1)];
     let outer = Block::default()
@@ -4894,7 +4935,7 @@ fn render_inventory(
 }
 
 fn render_notes(frame: &mut Frame, buf: &NotesBuf) {
-    let area = frame.area();
+    let area = viewport(frame);
     let block = Block::default()
         .borders(Borders::ALL)
         .title(" notebook (esc to save & leave) ")
@@ -4935,7 +4976,7 @@ fn render_notes(frame: &mut Frame, buf: &NotesBuf) {
 }
 
 fn render_house(frame: &mut Frame, px: i32, py: i32, seed: u32) {
-    let area = frame.area();
+    let area = viewport(frame);
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
@@ -5004,7 +5045,7 @@ fn render_achievements(
     progress: &crate::achievements::AchievementProgress,
 ) {
     use ratatui::widgets::Paragraph;
-    let area = frame.area();
+    let area = viewport(frame);
     let title = format!(
         " achievements - {} points earned, q to leave ",
         progress.points_granted
@@ -5088,7 +5129,7 @@ fn render_bait_shop(
     valu: u64,
 ) {
     use ratatui::widgets::Paragraph;
-    let area = frame.area();
+    let area = viewport(frame);
     let title = format!(
         " bait - j/k browse, enter buy 1, e equip, u unequip, q leave | valu {} ",
         valu
@@ -5155,7 +5196,7 @@ fn render_tackle_shop(
 ) {
     use crate::tackle::Slot;
     use ratatui::widgets::Paragraph;
-    let area = frame.area();
+    let area = viewport(frame);
     let slot = Slot::ALL[slot_idx % Slot::ALL.len()];
     let owned = equipped.tier(slot);
     let title = format!(
@@ -5234,7 +5275,7 @@ fn render_tackle_shop(
 }
 
 fn render_mining(frame: &mut Frame, m: &crate::mining::Mining) {
-    let area = frame.area();
+    let area = viewport(frame);
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
@@ -5277,7 +5318,7 @@ fn render_mining(frame: &mut Frame, m: &crate::mining::Mining) {
 fn render_dialogue(frame: &mut Frame, npc: &Npc, line: usize) {
     // Fullscreen, top-down. All previously-seen lines render above the
     // current one (waterfall style), so the player sees the full conversation.
-    let area = frame.area();
+    let area = viewport(frame);
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
@@ -5323,7 +5364,7 @@ fn render_dialogue(frame: &mut Frame, npc: &Npc, line: usize) {
 }
 
 fn render_name_prompt(frame: &mut Frame, buf: &str) {
-    let area = frame.area();
+    let area = viewport(frame);
     frame.render_widget(Clear, area);
 
     let outer = Block::default()
