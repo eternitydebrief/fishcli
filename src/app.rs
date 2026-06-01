@@ -77,6 +77,10 @@ pub enum Scene {
         return_xy: (i32, i32),
         /// Seed for procedural furniture layout (derived from door coords).
         seed: u32,
+        /// Vertical-move pacing flag: terminal cells are ~2:1 tall, so
+        /// vertical moves only commit every *second* up/down keypress to
+        /// match overworld pacing.
+        v_phase: bool,
     },
 }
 
@@ -1427,7 +1431,7 @@ impl App {
     }
 
     fn handle_house_key(&mut self, code: KeyCode) {
-        let Scene::HouseInterior { px, py, return_xy, seed } = &mut self.scene else { return };
+        let Scene::HouseInterior { px, py, return_xy, seed, v_phase } = &mut self.scene else { return };
         let (dx, dy) = match code {
             KeyCode::Esc | KeyCode::Char('q') => {
                 let r = *return_xy;
@@ -1448,6 +1452,16 @@ impl App {
             }
             _ => return,
         };
+        // Vertical moves take two presses (cells are ~2:1 tall, so
+        // committing every keypress feels twice as fast vertically as
+        // horizontally — the phase flag enforces parity).
+        if dy != 0 {
+            if !*v_phase {
+                *v_phase = true;
+                return;
+            }
+            *v_phase = false;
+        }
         let nx = *px + dx;
         let ny = *py + dy;
         let f = crate::house::tile_at(nx, ny, *seed);
@@ -2064,6 +2078,7 @@ impl App {
                     py: crate::house::EXIT_Y - 1,
                     return_xy: (self.player.x, self.player.y + 1),
                     seed,
+                    v_phase: false,
                 };
             }
             Tile::OreRock => {
@@ -2815,10 +2830,13 @@ impl App {
         let full = frame.area();
         let cmdline_h = 1u16;
         let effective_h = full.height.saturating_sub(cmdline_h);
-        // The log/valu HUD only belongs over the Overworld. Every other
-        // scene is a full-screen menu and shouldn't have the log slab
-        // covering its bottom-left corner.
-        let in_modal = !matches!(self.scene, Scene::Overworld);
+        // The log/valu HUD belongs on the Overworld and inside houses
+        // (so the player can read inspect output). Every other scene is a
+        // full-screen menu and shouldn't have the log slab on it.
+        let in_modal = !matches!(
+            self.scene,
+            Scene::Overworld | Scene::HouseInterior { .. }
+        );
         if in_modal {
             // only render cmdline at the very bottom
             if cmdline_h > 0 && full.height >= cmdline_h {

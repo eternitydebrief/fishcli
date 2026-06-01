@@ -4,8 +4,10 @@
 //! Layout grid is fixed-size (WIDTH x HEIGHT). The bottom-center cell is
 //! the exit; stepping on it returns the player to the overworld.
 
-pub const WIDTH: i32 = 22;
-pub const HEIGHT: i32 = 12;
+// Terminal cells are ~2:1 (height:width); a 28x8 grid renders as visually
+// 28:16 = 1.75:1 wide, which reads as a proper horizontal room.
+pub const WIDTH: i32 = 28;
+pub const HEIGHT: i32 = 8;
 pub const EXIT_X: i32 = WIDTH / 2;
 pub const EXIT_Y: i32 = HEIGHT - 1;
 

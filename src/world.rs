@@ -2219,12 +2219,22 @@ fn village_oak_glyph(x: i32, y: i32) -> Option<(char, Style)> {
         let dx = x - ax;
         let dy = y - ay;
         let anchor_hash = hash2(ax, ay, 0xCACE_F00D);
-        // trunk - paired [ ] stacked two rows tall
+        // trunk - paired [ ] stacked two rows tall; upper row darker so
+        // the trunk reads as receding shadow under the canopy.
         if (dy == 0 || dy == -1) && (dx == 0 || dx == 1) {
             let g = if dx == 0 { '[' } else { ']' };
             let r = 145 + (anchor_hash % 25) as u8;
             let gc = 100 + (anchor_hash % 22) as u8;
             let b = 60 + (anchor_hash % 18) as u8;
+            let (r, gc, b) = if dy == -1 {
+                (
+                    r.saturating_sub(45),
+                    gc.saturating_sub(30),
+                    b.saturating_sub(20),
+                )
+            } else {
+                (r, gc, b)
+            };
             return Some((
                 g,
                 Style::default()
