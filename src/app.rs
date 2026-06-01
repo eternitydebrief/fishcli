@@ -1900,6 +1900,17 @@ impl App {
                 self.scene = Scene::Stats;
                 self.mode = Mode::Insert;
             }
+            "saves" => {
+                let metas = save::list_saves_meta();
+                if metas.is_empty() {
+                    self.narrator.say("No save files on disk yet.");
+                } else {
+                    self.narrator.say(format!("Saves on disk ({}):", metas.len()));
+                    for (name, bytes) in &metas {
+                        self.narrator.say(format!("  {} ({} B)", name, bytes));
+                    }
+                }
+            }
             "m" | "map" => {
                 self.mark_seen_around_player();
                 self.scene = Scene::Map { offset: (0, 0) };

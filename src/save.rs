@@ -300,6 +300,31 @@ pub fn save_to_disk(data: &SaveData) -> Result<()> {
     Ok(())
 }
 
+/// Returns a list of (filename, byte size) for every save file on disk,
+/// primaries followed by redundancy entries. Names are short for log display.
+pub fn list_saves_meta() -> Vec<(String, u64)> {
+    let mut out = Vec::new();
+    for p in list_saves() {
+        let name = p
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("?")
+            .to_string();
+        let bytes = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+        out.push((name, bytes));
+    }
+    for p in list_dat_files(&redundancy_dir()) {
+        let name = p
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("?")
+            .to_string();
+        let bytes = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+        out.push((format!("redundancy/{name}"), bytes));
+    }
+    out
+}
+
 pub fn load_from_disk() -> Option<SaveData> {
     // primary saves: newest first; fall back to redundancy if every primary
     // is corrupt or missing.
