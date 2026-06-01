@@ -2317,9 +2317,12 @@ impl App {
                     .map(|(e, _)| e == "rare_chance")
                     .unwrap_or(false);
                 self.bait_pending = bait_effect;
+                let weather_now = self.current_weather();
+                let weather_rare = crate::weather::weather_modifiers(weather_now).rare_pct > 0.0;
                 let rare_window =
                     crate::gametime::time_of_day(self.total_play_secs()).is_rare_window()
-                        || rare_boost;
+                        || rare_boost
+                        || weather_rare;
                 let weather_name = weather.value();
                 let f = crate::fish::pick_fish_full(
                     &mut self.rng_state,
@@ -2736,7 +2739,11 @@ impl App {
             if !f.unique && f.name == name && sold < count {
                 let mbonus = self.mastery_value_bonus(f);
                 let lvl_decay = self.level_value_mult(f);
-                let price = ((f.sell_price() as f32) * mult * (1.0 + mbonus) * lvl_decay)
+                let wmods = crate::weather::weather_modifiers(self.current_weather());
+                let price = ((f.sell_price() as f32)
+                    * mult
+                    * (1.0 + mbonus + wmods.valu_pct)
+                    * lvl_decay)
                     .round() as u64;
                 total = total.saturating_add(price);
                 sold += 1;
@@ -2804,7 +2811,11 @@ impl App {
             if !f.unique && f.name == name && sold < count {
                 let mbonus = self.mastery_value_bonus(f);
                 let lvl_decay = self.level_value_mult(f);
-                let price = ((f.sell_price() as f32) * mult * (1.0 + mbonus) * lvl_decay)
+                let wmods = crate::weather::weather_modifiers(self.current_weather());
+                let price = ((f.sell_price() as f32)
+                    * mult
+                    * (1.0 + mbonus + wmods.valu_pct)
+                    * lvl_decay)
                     .round() as u64;
                 total = total.saturating_add(price);
                 sold += 1;
@@ -4668,16 +4679,19 @@ fn dim_default_pool(
             _ => Some("hot"),
         },
         // ---- specialty dim → pool tag ----
-        crate::world::Dimension::Sewer => Some("sewer"),
-        crate::world::Dimension::HotSpring => Some("hotspring"),
-        crate::world::Dimension::Pyramid => Some("pyramid"),
-        crate::world::Dimension::SwampCave => Some("swampcave"),
-        crate::world::Dimension::BogCathedral => Some("cathedral"),
-        crate::world::Dimension::MirrorLake => Some("mirrorlake"),
-        crate::world::Dimension::Iceshelf => Some("iceshelf"),
-        crate::world::Dimension::Wreckage => Some("wreckage"),
-        crate::world::Dimension::Crater => Some("crater"),
-        crate::world::Dimension::Colosseum => Some("colosseum"),
+        // On a "High" weather day the dim's weather can override the pool
+        // (e.g. Cathedral on Supernatural-High routes to "divine" instead
+        // of the default cathedral pool — see weather::weather_modifiers).
+        crate::world::Dimension::Sewer => Some(crate::weather::weather_modifiers(weather).pool_override.unwrap_or("sewer")),
+        crate::world::Dimension::HotSpring => Some(crate::weather::weather_modifiers(weather).pool_override.unwrap_or("hotspring")),
+        crate::world::Dimension::Pyramid => Some(crate::weather::weather_modifiers(weather).pool_override.unwrap_or("pyramid")),
+        crate::world::Dimension::SwampCave => Some(crate::weather::weather_modifiers(weather).pool_override.unwrap_or("swampcave")),
+        crate::world::Dimension::BogCathedral => Some(crate::weather::weather_modifiers(weather).pool_override.unwrap_or("cathedral")),
+        crate::world::Dimension::MirrorLake => Some(crate::weather::weather_modifiers(weather).pool_override.unwrap_or("mirrorlake")),
+        crate::world::Dimension::Iceshelf => Some(crate::weather::weather_modifiers(weather).pool_override.unwrap_or("iceshelf")),
+        crate::world::Dimension::Wreckage => Some(crate::weather::weather_modifiers(weather).pool_override.unwrap_or("wreckage")),
+        crate::world::Dimension::Crater => Some(crate::weather::weather_modifiers(weather).pool_override.unwrap_or("crater")),
+        crate::world::Dimension::Colosseum => Some(crate::weather::weather_modifiers(weather).pool_override.unwrap_or("colosseum")),
         // All Blue is the endgame "everything" pool — we route to "allblue"
         // for the rare apex fish AND occasionally fall back to None so the
         // entire fish list is reachable (the picker handles None).

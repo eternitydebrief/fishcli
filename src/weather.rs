@@ -280,6 +280,30 @@ fn three_tier(day: u64, salt: u32, seed: u32, opts: [Weather; 3]) -> Weather {
     opts[h as usize]
 }
 
+/// Modifiers applied when the day's weather "spikes high" in a specialty
+/// dim. Default: no bonus. Only the High tier triggers (per user choice).
+pub struct WeatherMods {
+    pub valu_pct: f32,
+    pub rare_pct: f32,
+    pub pool_override: Option<&'static str>,
+}
+
+pub fn weather_modifiers(w: Weather) -> WeatherMods {
+    use Weather::*;
+    let mut m = WeatherMods { valu_pct: 0.0, rare_pct: 0.0, pool_override: None };
+    match w {
+        DrainHigh => { /* +catch speed wired in fishing minigame later */ }
+        HeatHigh | SulphurHigh | LightHigh => m.rare_pct = 0.30,
+        SandstormActHigh | ColdHigh => m.valu_pct = 0.25,
+        SupernaturalHigh => m.pool_override = Some("divine"),
+        StardustHigh => m.pool_override = Some("cosmic"),
+        CreakingHigh => m.pool_override = Some("wreckage"), // existing pool, jokey
+        SoundHigh => { /* +catch speed wired later */ }
+        _ => {}
+    }
+    m
+}
+
 fn surface_weather_with_season(day: u64, biome: Biome, seed: u32, season: Season) -> Weather {
     // Two-stage roll. Per-season Clear chance: Summer 40%, Spring/Autumn 25%,
     // Winter 25%. Otherwise pick from the (biome, season) weighted table.
