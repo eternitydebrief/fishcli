@@ -134,7 +134,7 @@ impl Weather {
             | Weather::SulphurHigh | Weather::SupernaturalHigh | Weather::LightHigh
             | Weather::ColdHigh | Weather::CreakingHigh | Weather::StardustHigh
             | Weather::SoundHigh => "High",
-            Weather::Calm => "—",
+            Weather::Calm => "calm",
         }
     }
     /// Color of the value text in the HUD.

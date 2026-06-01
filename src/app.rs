@@ -1925,7 +1925,7 @@ impl App {
         self.caught[i] = true;
         if let Some(slot) = self.caught_at.get_mut(i) {
             if slot.is_none() {
-                *slot = Some((where_from.to_string(), "—".to_string()));
+                *slot = Some((where_from.to_string(), "-".to_string()));
             }
         }
         self.player.inventory.push(fish_ref);

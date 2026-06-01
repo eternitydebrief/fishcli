@@ -1067,13 +1067,16 @@ impl World {
                 let (g, c) = match dest {
                     Dimension::Pyramid => ('Δ', Color::Rgb(230, 200, 120)),
                     Dimension::HotSpring => ('§', Color::Rgb(220, 180, 200)),
-                    Dimension::Iceshelf => ('*', Color::Rgb(200, 230, 255)),
+                    Dimension::Iceshelf => ('❄', Color::Rgb(200, 230, 255)),
                     Dimension::SwampCave => ('Ω', Color::Rgb(110, 180, 110)),
                     Dimension::BogCathedral => ('†', Color::Rgb(150, 140, 170)),
-                    Dimension::MirrorLake => ('O', Color::Rgb(220, 230, 255)),
-                    Dimension::Crater => ('@', Color::Rgb(200, 170, 255)),
+                    Dimension::MirrorLake => ('☼', Color::Rgb(220, 230, 255)),
+                    Dimension::Crater => ('☄', Color::Rgb(200, 170, 255)),
                     Dimension::Colosseum => ('∞', Color::Rgb(240, 240, 230)),
-                    _ => ('?', Color::Rgb(220, 200, 200)),
+                    Dimension::Sewer => ('Ψ', Color::Rgb(120, 130, 110)),
+                    Dimension::Wreckage => ('Φ', Color::Rgb(100, 140, 170)),
+                    Dimension::AllBlue => ('◊', Color::Rgb(120, 200, 255)),
+                    _ => ('¤', Color::Rgb(220, 200, 200)),
                 };
                 (g, Style::default().fg(c).add_modifier(Modifier::BOLD))
             }
