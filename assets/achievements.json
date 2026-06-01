@@ -1,69 +1,31 @@
 [
-  { "_comment": "schema: { id (kebab-case), title, description, kind (one of: 'catch_total' / 'catch_species' / 'casts' / 'steps' / 'valu_earned' / 'fish_sold' / 'unique_species_caught' / 'rod_tier' / 'mining_level' / 'fishing_level' / 'play_hours' / 'mastery_total' / 'pickaxe' / 'boat' / 'visit_dim'), target (i64 — meaning depends on kind), reward_points (u32 — skill points granted on unlock) }. titles & descriptions are user-editable narrative. Each achievement unlocks at most once." },
+  { "_comment": "schema: { id (kebab-case chain id), title (without tier suffix), kind (see achievements.rs), tiers: [ { target (i64), reward_points (u32) }, ... ] }. Achievements display as 'Title I/II/.../X'. Only the active tier (next unmet) is shown in the menu; completed tiers disappear, the chain advances. Single-shot achievements are just a chain with one tier." },
 
-  { "id": "first-cast",      "title": "First Cast",            "description": "Make your first cast.",                        "kind": "casts",                "target": 1,     "reward_points": 1 },
-  { "id": "ten-casts",       "title": "Limber",                "description": "Cast 10 times.",                                "kind": "casts",                "target": 10,    "reward_points": 1 },
-  { "id": "hundred-casts",   "title": "Practiced",             "description": "Cast 100 times.",                               "kind": "casts",                "target": 100,   "reward_points": 1 },
-  { "id": "thousand-casts",  "title": "Disciplined",           "description": "Cast 1,000 times.",                             "kind": "casts",                "target": 1000,  "reward_points": 2 },
-  { "id": "ten-thousand-casts","title": "Tireless",            "description": "Cast 10,000 times.",                            "kind": "casts",                "target": 10000, "reward_points": 3 },
+  { "id": "caster",  "title": "Caster",     "kind": "casts",                "tiers": [ { "target": 1, "reward_points": 1 }, { "target": 10, "reward_points": 1 }, { "target": 100, "reward_points": 1 }, { "target": 1000, "reward_points": 2 }, { "target": 10000, "reward_points": 3 }, { "target": 100000, "reward_points": 5 }, { "target": 1000000, "reward_points": 8 } ] },
 
-  { "id": "first-fish",      "title": "First Fish",            "description": "Catch a fish.",                                 "kind": "catch_total",          "target": 1,     "reward_points": 1 },
-  { "id": "ten-fish",        "title": "Basketful",             "description": "Catch 10 fish.",                                "kind": "catch_total",          "target": 10,    "reward_points": 1 },
-  { "id": "hundred-fish",    "title": "Hundredfold",           "description": "Catch 100 fish.",                               "kind": "catch_total",          "target": 100,   "reward_points": 2 },
-  { "id": "five-hundred-fish","title": "Fishmonger's Friend",  "description": "Catch 500 fish.",                               "kind": "catch_total",          "target": 500,   "reward_points": 2 },
-  { "id": "thousand-fish",   "title": "Master Angler",         "description": "Catch 1,000 fish.",                             "kind": "catch_total",          "target": 1000,  "reward_points": 3 },
-  { "id": "five-thousand-fish","title": "Living Legend",       "description": "Catch 5,000 fish.",                             "kind": "catch_total",          "target": 5000,  "reward_points": 5 },
-  { "id": "ten-thousand-fish","title": "Beyond Reckoning",     "description": "Catch 10,000 fish.",                            "kind": "catch_total",          "target": 10000, "reward_points": 8 },
+  { "id": "angler",  "title": "Angler",     "kind": "catch_total",          "tiers": [ { "target": 1, "reward_points": 1 }, { "target": 10, "reward_points": 1 }, { "target": 100, "reward_points": 2 }, { "target": 500, "reward_points": 2 }, { "target": 1000, "reward_points": 3 }, { "target": 5000, "reward_points": 5 }, { "target": 10000, "reward_points": 8 }, { "target": 100000, "reward_points": 12 }, { "target": 1000000, "reward_points": 20 } ] },
 
-  { "id": "five-species",    "title": "Naturalist",            "description": "Catch 5 different species.",                    "kind": "unique_species_caught","target": 5,     "reward_points": 1 },
-  { "id": "twenty-species",  "title": "Catalog Started",       "description": "Catch 20 different species.",                   "kind": "unique_species_caught","target": 20,    "reward_points": 2 },
-  { "id": "fifty-species",   "title": "Wide Net",              "description": "Catch 50 different species.",                   "kind": "unique_species_caught","target": 50,    "reward_points": 2 },
-  { "id": "hundred-species", "title": "Encyclopedist",         "description": "Catch 100 different species.",                  "kind": "unique_species_caught","target": 100,   "reward_points": 3 },
-  { "id": "two-hundred-species","title": "Polymath",           "description": "Catch 200 different species.",                  "kind": "unique_species_caught","target": 200,   "reward_points": 4 },
-  { "id": "three-hundred-species","title": "Archivist Pure",   "description": "Catch 300 different species.",                  "kind": "unique_species_caught","target": 300,   "reward_points": 5 },
+  { "id": "naturalist","title": "Naturalist","kind": "unique_species_caught","tiers": [ { "target": 5, "reward_points": 1 }, { "target": 20, "reward_points": 2 }, { "target": 50, "reward_points": 2 }, { "target": 100, "reward_points": 3 }, { "target": 200, "reward_points": 4 }, { "target": 300, "reward_points": 5 }, { "target": 400, "reward_points": 8 } ] },
 
-  { "id": "ten-mastery",     "title": "Specialist",            "description": "Reach 10 mastery milestones.",                  "kind": "mastery_total",        "target": 10,    "reward_points": 2 },
-  { "id": "fifty-mastery",   "title": "Devoted Specialist",    "description": "Reach 50 mastery milestones.",                  "kind": "mastery_total",        "target": 50,    "reward_points": 3 },
-  { "id": "hundred-mastery", "title": "Five-Star Angler",      "description": "Reach 100 mastery milestones.",                 "kind": "mastery_total",        "target": 100,   "reward_points": 4 },
+  { "id": "specialist","title": "Specialist","kind": "mastery_total",        "tiers": [ { "target": 10, "reward_points": 2 }, { "target": 50, "reward_points": 3 }, { "target": 100, "reward_points": 4 }, { "target": 250, "reward_points": 6 }, { "target": 500, "reward_points": 8 }, { "target": 1000, "reward_points": 12 } ] },
 
-  { "id": "first-steps",     "title": "Walker",                "description": "Take 100 steps.",                               "kind": "steps",                "target": 100,   "reward_points": 1 },
-  { "id": "wanderer",        "title": "Wanderer",              "description": "Take 5,000 steps.",                             "kind": "steps",                "target": 5000,  "reward_points": 2 },
-  { "id": "long-walk",       "title": "Pilgrim",               "description": "Take 50,000 steps.",                            "kind": "steps",                "target": 50000, "reward_points": 3 },
+  { "id": "walker",  "title": "Walker",     "kind": "steps",                "tiers": [ { "target": 100, "reward_points": 1 }, { "target": 500, "reward_points": 1 }, { "target": 5000, "reward_points": 2 }, { "target": 50000, "reward_points": 3 }, { "target": 200000, "reward_points": 5 }, { "target": 1000000, "reward_points": 8 } ] },
 
-  { "id": "first-valu",      "title": "Pocket Change",         "description": "Earn your first valu.",                         "kind": "valu_earned",          "target": 1,     "reward_points": 1 },
-  { "id": "thousand-valu",   "title": "Saved Up",              "description": "Earn 1,000 valu total.",                        "kind": "valu_earned",          "target": 1000,  "reward_points": 1 },
-  { "id": "ten-thousand-valu","title": "Comfortable",          "description": "Earn 10,000 valu total.",                       "kind": "valu_earned",          "target": 10000, "reward_points": 2 },
-  { "id": "hundred-thousand-valu","title": "Well-Off",         "description": "Earn 100,000 valu total.",                      "kind": "valu_earned",          "target": 100000,"reward_points": 3 },
-  { "id": "million-valu",    "title": "Wealthy",               "description": "Earn 1,000,000 valu total.",                    "kind": "valu_earned",          "target": 1000000,"reward_points": 5 },
+  { "id": "earner",  "title": "Earner",     "kind": "valu_earned",          "tiers": [ { "target": 1, "reward_points": 1 }, { "target": 1000, "reward_points": 1 }, { "target": 10000, "reward_points": 2 }, { "target": 100000, "reward_points": 3 }, { "target": 1000000, "reward_points": 5 }, { "target": 10000000, "reward_points": 8 }, { "target": 100000000, "reward_points": 12 } ] },
 
-  { "id": "ten-rods",        "title": "Stocked",               "description": "Own 10 rods.",                                  "kind": "rod_tier",             "target": 10,    "reward_points": 1 },
-  { "id": "fifty-rods",      "title": "Rod Collector",         "description": "Own 50 rods.",                                  "kind": "rod_tier",             "target": 50,    "reward_points": 2 },
-  { "id": "hundred-rods",    "title": "Hundred Tiers",         "description": "Own 100 rods.",                                 "kind": "rod_tier",             "target": 100,   "reward_points": 3 },
-  { "id": "two-hundred-rods","title": "Full Catalogue",        "description": "Own all 200 standard rods.",                    "kind": "rod_tier",             "target": 200,   "reward_points": 5 },
+  { "id": "rod-collector","title": "Rod Collector","kind": "rod_tier",      "tiers": [ { "target": 10, "reward_points": 1 }, { "target": 50, "reward_points": 2 }, { "target": 100, "reward_points": 3 }, { "target": 150, "reward_points": 4 }, { "target": 200, "reward_points": 5 } ] },
 
-  { "id": "first-mining",    "title": "First Strike",          "description": "Reach mining level 2.",                         "kind": "mining_level",         "target": 2,     "reward_points": 1 },
-  { "id": "mining-10",       "title": "Apprentice Miner",      "description": "Reach mining level 10.",                        "kind": "mining_level",         "target": 10,    "reward_points": 2 },
-  { "id": "mining-25",       "title": "Veteran Miner",         "description": "Reach mining level 25.",                        "kind": "mining_level",         "target": 25,    "reward_points": 3 },
-  { "id": "mining-50",       "title": "Master Miner",          "description": "Reach mining level 50.",                        "kind": "mining_level",         "target": 50,    "reward_points": 5 },
+  { "id": "miner",   "title": "Miner",      "kind": "mining_level",         "tiers": [ { "target": 2, "reward_points": 1 }, { "target": 10, "reward_points": 2 }, { "target": 25, "reward_points": 3 }, { "target": 50, "reward_points": 5 }, { "target": 100, "reward_points": 8 } ] },
 
-  { "id": "fishing-10",      "title": "Apprentice Angler",     "description": "Reach fishing level 10.",                       "kind": "fishing_level",        "target": 10,    "reward_points": 1 },
-  { "id": "fishing-25",      "title": "Veteran Angler",        "description": "Reach fishing level 25.",                       "kind": "fishing_level",        "target": 25,    "reward_points": 2 },
-  { "id": "fishing-50",      "title": "Master of Lines",       "description": "Reach fishing level 50.",                       "kind": "fishing_level",        "target": 50,    "reward_points": 3 },
-  { "id": "fishing-100",     "title": "Centurion",             "description": "Reach fishing level 100.",                      "kind": "fishing_level",        "target": 100,   "reward_points": 5 },
+  { "id": "fisher",  "title": "Fisher",     "kind": "fishing_level",        "tiers": [ { "target": 10, "reward_points": 1 }, { "target": 25, "reward_points": 2 }, { "target": 50, "reward_points": 3 }, { "target": 100, "reward_points": 5 }, { "target": 200, "reward_points": 8 }, { "target": 500, "reward_points": 12 } ] },
 
-  { "id": "pickaxe-owned",   "title": "Outfitted",             "description": "Buy a pickaxe.",                                "kind": "pickaxe",              "target": 1,     "reward_points": 1 },
-  { "id": "boat-owned",      "title": "Captain",               "description": "Own a boat.",                                   "kind": "boat",                 "target": 1,     "reward_points": 1 },
+  { "id": "trader",  "title": "Trader",     "kind": "fish_sold",            "tiers": [ { "target": 50, "reward_points": 1 }, { "target": 500, "reward_points": 2 }, { "target": 5000, "reward_points": 4 }, { "target": 50000, "reward_points": 6 } ] },
 
-  { "id": "visit-mines",     "title": "Into the Dark",         "description": "Visit the Mines for the first time.",           "kind": "visit_dim",            "target": 1,     "reward_points": 1 },
-  { "id": "visit-atlantis",  "title": "Down to Atlantis",      "description": "Visit Atlantis for the first time.",            "kind": "visit_dim",            "target": 2,     "reward_points": 2 },
-  { "id": "visit-inferno",   "title": "Down Further",          "description": "Visit the Inferno for the first time.",         "kind": "visit_dim",            "target": 3,     "reward_points": 2 },
+  { "id": "lifer",   "title": "Lifer",      "kind": "play_hours",           "tiers": [ { "target": 1, "reward_points": 1 }, { "target": 10, "reward_points": 2 }, { "target": 100, "reward_points": 5 }, { "target": 500, "reward_points": 10 }, { "target": 1000, "reward_points": 15 } ] },
 
-  { "id": "sold-50",         "title": "Open for Business",     "description": "Sell 50 fish.",                                 "kind": "fish_sold",            "target": 50,    "reward_points": 1 },
-  { "id": "sold-500",        "title": "Steady Trader",         "description": "Sell 500 fish.",                                "kind": "fish_sold",            "target": 500,   "reward_points": 2 },
-  { "id": "sold-5000",       "title": "Magnate",               "description": "Sell 5,000 fish.",                              "kind": "fish_sold",            "target": 5000,  "reward_points": 4 },
-
-  { "id": "play-1h",         "title": "Hour One",              "description": "Play for 1 hour.",                              "kind": "play_hours",           "target": 1,     "reward_points": 1 },
-  { "id": "play-10h",        "title": "Settled In",            "description": "Play for 10 hours.",                            "kind": "play_hours",           "target": 10,    "reward_points": 2 },
-  { "id": "play-100h",       "title": "Devoted",               "description": "Play for 100 hours.",                           "kind": "play_hours",           "target": 100,   "reward_points": 5 },
-  { "id": "play-500h",       "title": "Lifer",                 "description": "Play for 500 hours.",                           "kind": "play_hours",           "target": 500,   "reward_points": 10 }
+  { "id": "outfitted","title": "Outfitted", "kind": "pickaxe",              "tiers": [ { "target": 1, "reward_points": 1 } ] },
+  { "id": "captain", "title": "Captain",    "kind": "boat",                 "tiers": [ { "target": 1, "reward_points": 1 } ] },
+  { "id": "shadow-walker","title": "Into the Dark","kind": "visit_dim",     "tiers": [ { "target": 1, "reward_points": 1 } ] },
+  { "id": "downstream","title": "Down to Atlantis","kind": "visit_dim",     "tiers": [ { "target": 2, "reward_points": 2 } ] },
+  { "id": "downwards","title": "Down Further","kind": "visit_dim",          "tiers": [ { "target": 3, "reward_points": 2 } ] }
 ]

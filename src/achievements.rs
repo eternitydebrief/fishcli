@@ -1,7 +1,9 @@
 #![allow(dead_code)]
-//! Achievements: ~50 lifetime milestones, each grants 1-10 skill points
-//! when first crossed. Definitions live in `assets/achievements.json` so
-//! titles and descriptions are user-editable.
+//! Tiered achievements. Each chain (e.g. "Walker") has 1..N ordered
+//! tiers; the player completes them one at a time, and only the next
+//! unmet tier in each chain is "active". Once a tier is unlocked, the
+//! chain advances; the previous tier disappears from the active view.
+//! Definitions live in `assets/achievements.json`.
 
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
@@ -9,10 +11,15 @@ use std::sync::OnceLock;
 const ACH_JSON: &str = include_str!("../assets/achievements.json");
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct AchievementDef {
+pub struct Tier {
+    pub target: i64,
+    pub reward_points: u32,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct AchievementChain {
     pub id: String,
     pub title: String,
-    pub description: String,
     /// Counter the engine compares against `target`:
     ///   catch_total / casts / steps / valu_earned / fish_sold
     ///   unique_species_caught / mastery_total / rod_tier
@@ -20,25 +27,53 @@ pub struct AchievementDef {
     ///   pickaxe / boat (target=1 means "owns it")
     ///   visit_dim (target=1=Mines, 2=Atlantis, 3=Inferno)
     pub kind: String,
-    pub target: i64,
-    pub reward_points: u32,
+    pub tiers: Vec<Tier>,
 }
 
-static DEFS: OnceLock<Vec<AchievementDef>> = OnceLock::new();
+static DEFS: OnceLock<Vec<AchievementChain>> = OnceLock::new();
 
-pub fn defs() -> &'static [AchievementDef] {
+pub fn chains() -> &'static [AchievementChain] {
     DEFS.get_or_init(|| {
         let raw: Vec<serde_json::Value> = serde_json::from_str(ACH_JSON)
             .expect("assets/achievements.json failed to parse");
         raw.into_iter()
             .filter(|v| v.get("id").and_then(|n| n.as_str()).is_some())
-            .map(|v| serde_json::from_value(v).expect("achievement entry malformed"))
+            .map(|v| serde_json::from_value(v).expect("achievement chain malformed"))
             .collect()
     })
 }
 
-/// Live progress snapshot used by the achievement evaluator. Each field is
-/// the *current* counter on the player; achievements compare against it.
+/// Render a tier number as a Roman numeral (I, II, ..., X, XI, ...).
+pub fn roman(n: u32) -> String {
+    const NUMS: &[(u32, &str)] = &[
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
+    ];
+    let mut n = n;
+    let mut s = String::new();
+    for &(val, lit) in NUMS {
+        while n >= val {
+            s.push_str(lit);
+            n -= val;
+        }
+    }
+    if s.is_empty() {
+        s.push_str("0");
+    }
+    s
+}
+
 pub struct Snapshot<'a> {
     pub catch_total: u64,
     pub casts: u64,
@@ -61,46 +96,83 @@ pub struct Snapshot<'a> {
 
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct AchievementProgress {
+    /// Format "chain_id:tier_idx" (1-indexed). Each entry = one unlocked tier.
     pub unlocked: Vec<String>,
-    /// Total reward points granted from unlocked achievements (sum). Used
-    /// as the skill-point contribution to `SkillTree::available`.
+    /// Total reward points granted across all unlocked tiers.
     pub points_granted: u32,
 }
 
-/// Returns the list of newly-unlocked achievements (not previously listed
-/// in `snap.already_unlocked`) given the current snapshot. Caller is
-/// responsible for adding them to the persistent unlocked list and
-/// totalling `points_granted`.
-pub fn newly_unlocked<'a>(snap: &Snapshot<'a>) -> Vec<&'static AchievementDef> {
-    let mut out = Vec::new();
-    for a in defs() {
-        if snap.already_unlocked.iter().any(|id| id == &a.id) {
-            continue;
+pub fn unlocked_id(chain_id: &str, tier_idx: usize) -> String {
+    format!("{chain_id}:{tier_idx}")
+}
+
+/// How many tiers of this chain are already unlocked.
+pub fn tiers_unlocked(unlocked: &[String], chain_id: &str) -> usize {
+    let prefix = format!("{chain_id}:");
+    unlocked.iter().filter(|u| u.starts_with(&prefix)).count()
+}
+
+/// Current counter value for a chain's kind. Returned as i64 to match
+/// `Tier::target` for direct comparison.
+pub fn counter_for(snap: &Snapshot, kind: &str) -> Option<i64> {
+    Some(match kind {
+        "catch_total" => snap.catch_total as i64,
+        "casts" => snap.casts as i64,
+        "steps" => snap.steps as i64,
+        "valu_earned" => snap.valu_earned as i64,
+        "fish_sold" => snap.fish_sold as i64,
+        "unique_species_caught" => snap.unique_species as i64,
+        "mastery_total" => snap.mastery_total as i64,
+        "rod_tier" => snap.rod_tier as i64,
+        "mining_level" => snap.mining_level as i64,
+        "fishing_level" => snap.fishing_level as i64,
+        "play_hours" => snap.play_hours as i64,
+        "pickaxe" => {
+            if snap.has_pickaxe { 1 } else { 0 }
         }
-        let met = match a.kind.as_str() {
-            "catch_total" => snap.catch_total as i64 >= a.target,
-            "casts" => snap.casts as i64 >= a.target,
-            "steps" => snap.steps as i64 >= a.target,
-            "valu_earned" => snap.valu_earned as i64 >= a.target,
-            "fish_sold" => snap.fish_sold as i64 >= a.target,
-            "unique_species_caught" => snap.unique_species as i64 >= a.target,
-            "mastery_total" => snap.mastery_total as i64 >= a.target,
-            "rod_tier" => snap.rod_tier as i64 >= a.target,
-            "mining_level" => snap.mining_level as i64 >= a.target,
-            "fishing_level" => snap.fishing_level as i64 >= a.target,
-            "play_hours" => snap.play_hours as i64 >= a.target,
-            "pickaxe" => snap.has_pickaxe,
-            "boat" => snap.has_boat,
-            "visit_dim" => match a.target {
-                1 => snap.visited_mines,
-                2 => snap.visited_atlantis,
-                3 => snap.visited_inferno,
-                _ => false,
-            },
-            _ => false,
-        };
-        if met {
-            out.push(a);
+        "boat" => {
+            if snap.has_boat { 1 } else { 0 }
+        }
+        "visit_dim" => {
+            // Special: 1 if mines visited, 2 if atlantis, 3 if inferno.
+            // We compare per-tier target against the most-visited value.
+            let mut max = 0;
+            if snap.visited_mines && 1 > max { max = 1; }
+            if snap.visited_atlantis && 2 > max { max = 2; }
+            if snap.visited_inferno && 3 > max { max = 3; }
+            max
+        }
+        _ => return None,
+    })
+}
+
+/// Returns newly-unlocked (chain_id, tier_idx_1based, reward_points,
+/// display_title_with_roman) for everything that crossed its target this
+/// snapshot.
+pub fn newly_unlocked(snap: &Snapshot) -> Vec<(String, usize, u32, String)> {
+    let mut out = Vec::new();
+    for chain in chains() {
+        let already = tiers_unlocked(snap.already_unlocked, &chain.id);
+        let Some(val) = counter_for(snap, &chain.kind) else { continue };
+        // Visit_dim chains are exact-match (each chain targets a specific dim).
+        for (idx, tier) in chain.tiers.iter().enumerate() {
+            if idx < already {
+                continue;
+            }
+            let met = if chain.kind == "visit_dim" {
+                val == tier.target
+            } else {
+                val >= tier.target
+            };
+            if met {
+                let n = (idx + 1) as u32;
+                let title = if chain.tiers.len() == 1 {
+                    chain.title.clone()
+                } else {
+                    format!("{} {}", chain.title, roman(n))
+                };
+                out.push((chain.id.clone(), idx + 1, tier.reward_points, title));
+            }
         }
     }
     out

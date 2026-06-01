@@ -66,6 +66,9 @@ pub enum Scene {
     /// Bait shop: list of baits with current stock; enter buys 1, B equips
     /// the active bait. q/esc leaves.
     BaitShop { cursor: usize },
+    /// Achievements menu: shows active (next-unmet) tier per chain plus
+    /// completed-tier history at the bottom. q/esc leaves.
+    Achievements { cursor: usize },
     /// Inside someone's house. Procedural one-room interior keyed by the
     /// world-coords of the door used to enter. Player moves with hjkl in
     /// a small grid; stepping back onto the interior door tile exits.
@@ -1315,6 +1318,19 @@ impl App {
             Scene::HouseInterior { .. } => self.handle_house_key(code),
             Scene::TackleShop { .. } => self.handle_tackle_key(code),
             Scene::BaitShop { .. } => self.handle_bait_key(code),
+            Scene::Achievements { cursor } => match code {
+                KeyCode::Esc | KeyCode::Char('q') => self.scene = Scene::Overworld,
+                KeyCode::Char('j') | KeyCode::Down => {
+                    let n = crate::achievements::chains().len();
+                    if n > 0 {
+                        *cursor = (*cursor + 1).min(n - 1);
+                    }
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    *cursor = cursor.saturating_sub(1);
+                }
+                _ => {}
+            },
         }
     }
 
@@ -1635,6 +1651,10 @@ impl App {
             }
             "bait" | "b" => {
                 self.scene = Scene::BaitShop { cursor: 0 };
+                self.mode = Mode::Insert;
+            }
+            "a" | "achievements" => {
+                self.scene = Scene::Achievements { cursor: 0 };
                 self.mode = Mode::Insert;
             }
             "k" | "pool" => {
@@ -2413,15 +2433,17 @@ impl App {
             already_unlocked: &self.achievements.unlocked,
         };
         let new_unlocks = crate::achievements::newly_unlocked(&snap);
-        for def in new_unlocks {
-            self.achievements.unlocked.push(def.id.clone());
+        for (chain_id, tier_idx, points, title) in new_unlocks {
+            self.achievements
+                .unlocked
+                .push(crate::achievements::unlocked_id(&chain_id, tier_idx));
             self.achievements.points_granted =
-                self.achievements.points_granted.saturating_add(def.reward_points);
+                self.achievements.points_granted.saturating_add(points);
             self.narrator.say(format!(
                 "*** Achievement: {} (+{} skill point{}). ***",
-                def.title,
-                def.reward_points,
-                if def.reward_points == 1 { "" } else { "s" }
+                title,
+                points,
+                if points == 1 { "" } else { "s" }
             ));
         }
     }
@@ -2821,6 +2843,33 @@ impl App {
             Scene::BaitShop { cursor } => {
                 render_bait_shop(frame, *cursor, &self.player.bait, self.player.valu);
             }
+            Scene::Achievements { .. } => {
+                // Handled below to side-step the &mut self.scene borrow that
+                // prevents reading other fields of self.
+            }
+        }
+
+        if let Scene::Achievements { cursor } = self.scene {
+            let snap = crate::achievements::Snapshot {
+                catch_total: self.stats.fish_caught,
+                casts: self.stats.casts,
+                steps: self.stats.steps,
+                valu_earned: self.stats.valu_earned,
+                fish_sold: self.stats.fish_sold,
+                unique_species: self.caught.iter().filter(|c| **c).count() as u32,
+                mastery_total: self.mastery_milestones,
+                rod_tier: self.player.rods.max_owned,
+                mining_level: self.skills.mining_level(),
+                fishing_level: self.skills.fishing_level(),
+                play_hours: self.total_play_secs() / 3600,
+                has_pickaxe: self.player.has_pickaxe,
+                has_boat: self.player.has_boat,
+                visited_mines: self.visited_mines,
+                visited_atlantis: self.visited_atlantis,
+                visited_inferno: self.visited_inferno,
+                already_unlocked: &self.achievements.unlocked,
+            };
+            render_achievements(frame, cursor, &snap, &self.achievements);
         }
 
         if matches!(self.scene, Scene::NamePrompt(_)) {
@@ -4741,6 +4790,90 @@ fn furn_style(f: crate::house::Furn) -> (char, Style) {
         style = style.add_modifier(Modifier::BOLD);
     }
     (g, style)
+}
+
+fn render_achievements(
+    frame: &mut Frame,
+    cursor: usize,
+    snap: &crate::achievements::Snapshot,
+    progress: &crate::achievements::AchievementProgress,
+) {
+    use ratatui::widgets::Paragraph;
+    let area = frame.area();
+    let title = format!(
+        " achievements - {} points earned, q to leave ",
+        progress.points_granted
+    );
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(Color::Yellow));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let chains = crate::achievements::chains();
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    for (i, c) in chains.iter().enumerate() {
+        let already = crate::achievements::tiers_unlocked(&progress.unlocked, &c.id);
+        let total = c.tiers.len();
+        let selected = i == cursor;
+        let prefix = if selected { "> " } else { "  " };
+        let val = crate::achievements::counter_for(snap, &c.kind).unwrap_or(0);
+        let row_style = if selected {
+            Style::default()
+                .bg(Color::Rgb(40, 40, 40))
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        if already >= total {
+            // Maxed
+            let suffix = if total == 1 {
+                "(complete)".to_string()
+            } else {
+                format!("{} (MAX)", crate::achievements::roman(total as u32))
+            };
+            lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+                format!("{prefix}{} {suffix}", c.title),
+                row_style.fg(Color::Green),
+            )));
+        } else {
+            let tier = &c.tiers[already];
+            let next_n = (already + 1) as u32;
+            let display_title = if total == 1 {
+                c.title.clone()
+            } else {
+                format!("{} {}", c.title, crate::achievements::roman(next_n))
+            };
+            let bar_w = 24usize;
+            let pct = if tier.target > 0 {
+                (val as f32 / tier.target as f32).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let filled = (pct * bar_w as f32) as usize;
+            let bar: String = (0..bar_w)
+                .map(|i| if i < filled { '=' } else { '.' })
+                .collect();
+            lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+                format!(
+                    "{prefix}{}  [{}]  {}/{}  +{}sp",
+                    display_title, bar, val, tier.target, tier.reward_points
+                ),
+                row_style,
+            )));
+        }
+        if selected {
+            lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+                format!("    kind: {}    unlocked: {}/{}", c.kind, already, total),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+    }
+    frame.render_widget(
+        Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }),
+        inner,
+    );
 }
 
 fn render_bait_shop(
