@@ -109,6 +109,16 @@ pub struct SaveData {
     pub daily_completed: bool,
     #[serde(default)]
     pub daily_bonus_points: u32,
+    #[serde(default)]
+    pub challenge_progress: std::collections::BTreeMap<String, u32>,
+    #[serde(default)]
+    pub challenge_done: Vec<String>,
+    #[serde(default)]
+    pub challenge_bonus_points: u32,
+    #[serde(default)]
+    pub streak_species: Option<String>,
+    #[serde(default)]
+    pub streak_count: u32,
 }
 
 /// Saves live in ./saves/ relative to the current working directory so they

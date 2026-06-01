@@ -23,6 +23,7 @@ mod fishing;
 mod fishlist;
 mod narrator;
 mod item;
+mod mastery_challenges;
 mod mining;
 mod notes;
 mod npc;

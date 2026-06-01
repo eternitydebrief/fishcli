@@ -240,6 +240,17 @@ pub struct App {
     /// Bonus skill points granted by daily-quest completions across all
     /// days. Feeds skill_tree.available().
     pub daily_bonus_points: u32,
+    /// Per-fish mastery challenge progress (challenge id -> current count).
+    pub challenge_progress: std::collections::BTreeMap<String, u32>,
+    /// Completed challenge ids — guarantees one-time reward.
+    pub challenge_done: Vec<String>,
+    /// Total skill points awarded by completed challenges (sum). Feeds
+    /// `skill_tree.available`.
+    pub challenge_bonus_points: u32,
+    /// Last species caught (for streak detection). None at fresh start
+    /// or after a non-matching catch.
+    pub streak_species: Option<String>,
+    pub streak_count: u32,
 }
 
 impl App {
@@ -315,6 +326,11 @@ impl App {
             daily_progress: 0,
             daily_completed: false,
             daily_bonus_points: 0,
+            challenge_progress: std::collections::BTreeMap::new(),
+            challenge_done: Vec::new(),
+            challenge_bonus_points: 0,
+            streak_species: None,
+            streak_count: 0,
         }
     }
 
@@ -485,6 +501,11 @@ impl App {
         self.daily_progress = data.daily_progress;
         self.daily_completed = data.daily_completed;
         self.daily_bonus_points = data.daily_bonus_points;
+        self.challenge_progress = data.challenge_progress.clone();
+        self.challenge_done = data.challenge_done.clone();
+        self.challenge_bonus_points = data.challenge_bonus_points;
+        self.streak_species = data.streak_species.clone();
+        self.streak_count = data.streak_count;
         self.veins = data
             .veins
             .iter()
@@ -560,6 +581,11 @@ impl App {
             daily_progress: self.daily_progress,
             daily_completed: self.daily_completed,
             daily_bonus_points: self.daily_bonus_points,
+            challenge_progress: self.challenge_progress.clone(),
+            challenge_done: self.challenge_done.clone(),
+            challenge_bonus_points: self.challenge_bonus_points,
+            streak_species: self.streak_species.clone(),
+            streak_count: self.streak_count,
             veins: self
                 .veins
                 .iter()
@@ -1015,7 +1041,7 @@ impl App {
                     KeyCode::Enter | KeyCode::Char(' ') => {
                         let node = &nodes[*cursor];
                         let lvl = self.skills.fishing_level();
-                        let available = self.skill_tree.available(lvl, self.achievements.points_granted + self.daily_bonus_points, self.mastery_milestones);
+                        let available = self.skill_tree.available(lvl, self.achievements.points_granted + self.daily_bonus_points + self.challenge_bonus_points, self.mastery_milestones);
                         if available == 0 {
                             self.narrator.say("No skill points to spend.");
                         } else if self.skill_tree.rank(&node.id) >= node.max_rank {
@@ -1785,6 +1811,22 @@ impl App {
                     }
                     self.bait_pending = None;
                     self.stats.fish_caught += 1;
+                    // Roll a size class and apply mastery-challenge progress.
+                    let size = crate::mastery_challenges::roll_size(
+                        crate::fish::next_rand_f32(&mut self.rng_state),
+                    );
+                    if matches!(size,
+                        crate::mastery_challenges::SizeClass::Large
+                        | crate::mastery_challenges::SizeClass::Huge)
+                    {
+                        self.narrator.say(format!(
+                            "...{} {}.",
+                            size.label().to_uppercase(),
+                            fish_ref.name
+                        ));
+                    }
+                    self.tick_streak(&fish_ref.name);
+                    self.tick_mastery_challenges_catch(&fish_ref.name, size);
                     // Fish mastery: bump per-species counter; if we crossed a
                     // milestone (1/5/10/25/50/100), bonus skill point + chat.
                     if let Some(i) = fishlist::fish().iter().position(|f| std::ptr::eq(f, fish_ref)) {
@@ -2267,6 +2309,74 @@ impl App {
 
     /// Group the (non-unique) basket by species name. Returns
     /// (name, unit_price_with_buff, count). Stable ordering matches inv.
+    fn tick_streak(&mut self, name: &str) {
+        let new = match &self.streak_species {
+            Some(prev) if prev == name => self.streak_count.saturating_add(1),
+            _ => 1,
+        };
+        self.streak_species = Some(name.to_string());
+        self.streak_count = new;
+    }
+
+    fn complete_challenge(&mut self, ch: &crate::mastery_challenges::Challenge) {
+        if self.challenge_done.contains(&ch.id) {
+            return;
+        }
+        self.challenge_done.push(ch.id.clone());
+        self.challenge_bonus_points =
+            self.challenge_bonus_points.saturating_add(ch.reward_points);
+        self.narrator.say(format!(
+            "*** {} (+{} skill point{}). ***",
+            ch.title,
+            ch.reward_points,
+            if ch.reward_points == 1 { "" } else { "s" }
+        ));
+    }
+
+    fn tick_mastery_challenges_catch(
+        &mut self,
+        name: &str,
+        size: crate::mastery_challenges::SizeClass,
+    ) {
+        use crate::mastery_challenges::ChallengeKind::*;
+        let chs = crate::mastery_challenges::challenges_for_name(name).to_vec();
+        let streak = self.streak_count;
+        for ch in chs {
+            if self.challenge_done.contains(&ch.id) {
+                continue;
+            }
+            let should_tick = match ch.kind {
+                CatchLarge => matches!(size, crate::mastery_challenges::SizeClass::Large),
+                CatchHuge => matches!(size, crate::mastery_challenges::SizeClass::Huge),
+                Streak | BulkSale => false,
+            };
+            if should_tick {
+                let entry = self.challenge_progress.entry(ch.id.clone()).or_insert(0);
+                *entry = entry.saturating_add(1);
+                if *entry >= ch.target {
+                    self.complete_challenge(&ch);
+                }
+            }
+            // Streak: completion test uses live streak count.
+            if matches!(ch.kind, Streak) && streak >= ch.target {
+                self.complete_challenge(&ch);
+            }
+        }
+    }
+
+    fn tick_mastery_challenges_sale(&mut self, name: &str, sold: u64) {
+        use crate::mastery_challenges::ChallengeKind::*;
+        let chs = crate::mastery_challenges::challenges_for_name(name).to_vec();
+        for ch in chs {
+            if !matches!(ch.kind, BulkSale) {
+                continue;
+            }
+            if sold >= ch.target as u64 {
+                self.complete_challenge(&ch);
+            }
+        }
+    }
+
     fn check_achievements(&mut self) {
         let snap = crate::achievements::Snapshot {
             catch_total: self.stats.fish_caught,
@@ -2362,6 +2472,7 @@ impl App {
             "Sold {} {} for {}$V.",
             sold, name, total
         ));
+        self.tick_mastery_challenges_sale(name, sold);
     }
 
     /// Sell every (non-unique) fish in the basket at fishmonger price.
@@ -2585,7 +2696,7 @@ impl App {
                 *cursor,
                 &self.skill_tree,
                 self.skills.fishing_level(),
-                self.achievements.points_granted + self.daily_bonus_points,
+                self.achievements.points_granted + self.daily_bonus_points + self.challenge_bonus_points,
                 self.mastery_milestones,
             ),
             Scene::Fishing(g) => {
