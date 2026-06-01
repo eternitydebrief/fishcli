@@ -78,8 +78,50 @@ impl FishDef {
         if self.price > 0 {
             return self.price;
         }
-        let d = self.difficulty as u64;
-        10 + d * d * 4
+        // Steeper curve: base 10 + difficulty^2.5 * 4 — keeps low-diff
+        // common fish around 14-25 valu, ramps hard for tier-10 prey
+        // (≈ 1275 valu base). Combined with the fishing-level / min-level
+        // decay applied at sale time, this means catching low-tier fish
+        // in the late game pays much less per minute than working harder
+        // species — preventing "fish carp forever" as a strategy.
+        let d = self.difficulty as f32;
+        (10.0 + d.powf(2.5) * 4.0) as u64
+    }
+
+    /// Auto-derived gate: minimum fishing level required for this species
+    /// to appear in the picker. Beginners catch carp & bluegill; the rare
+    /// difficulty-10 fish need lvl 180 to even hook.
+    pub fn min_fishing_level(&self) -> u32 {
+        match self.difficulty {
+            0 | 1 => 1,
+            2 => 3,
+            3 => 8,
+            4 => 15,
+            5 => 25,
+            6 => 40,
+            7 => 60,
+            8 => 90,
+            9 => 130,
+            _ => 180, // 10 and above
+        }
+    }
+
+    /// Auto-derived gate: minimum *rod tier* the player must own for this
+    /// species to appear. Prevents skipping into a dim and immediately
+    /// scooping up high-value fish without the rod to back it up.
+    pub fn min_rod_tier(&self) -> u32 {
+        match self.difficulty {
+            0 | 1 => 1,
+            2 => 2,
+            3 => 5,
+            4 => 10,
+            5 => 20,
+            6 => 35,
+            7 => 60,
+            8 => 90,
+            9 => 130,
+            _ => 180,
+        }
     }
 
     pub fn matches(&self, biome: &str, water: &str) -> bool {
@@ -117,18 +159,32 @@ pub fn pick_fish_full<'a>(
     rare_boost: bool,
     weather: Option<&str>,
     catches: u64,
+    fishing_level: u32,
+    rod_tier: u32,
 ) -> &'a FishDef {
+    let gated = |f: &FishDef| {
+        // Unique / pool fish ignore level+rod gates so The Rod's pool
+        // override and the pantheon fish remain reachable on their own
+        // criteria; everything else has to clear both bars.
+        f.unique
+            || !f.pool.is_empty()
+            || (fishing_level >= f.min_fishing_level() && rod_tier >= f.min_rod_tier())
+    };
     let eligible: Vec<&'a FishDef> = if let Some(p) = pool {
         fish.iter()
             .filter(|f| f.pool.iter().any(|tag| tag.eq_ignore_ascii_case(p)))
             .collect()
     } else {
         fish.iter()
-            .filter(|f| f.pool.is_empty() && f.matches(biome, water))
+            .filter(|f| f.pool.is_empty() && f.matches(biome, water) && gated(f))
             .collect()
     };
     let pool_vec = if eligible.is_empty() {
-        fish.iter().collect::<Vec<_>>()
+        // Bottom-fallback: ungated common fish so the player always hooks
+        // *something* even on a wrong-biome cast at low level.
+        fish.iter()
+            .filter(|f| f.pool.is_empty() && f.difficulty <= 2)
+            .collect::<Vec<_>>()
     } else {
         eligible
     };

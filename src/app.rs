@@ -2164,6 +2164,13 @@ impl App {
                 self.scene = Scene::FishingSchool { cursor: 0 };
             }
             Tile::MineEntrance => {
+                const MINES_ROD_GATE: u32 = 3;
+                if self.player.rods.max_owned < MINES_ROD_GATE {
+                    self.narrator.say(format!(
+                        "The shaft groans. You need rod tier {MINES_ROD_GATE} to risk going down."
+                    ));
+                    return;
+                }
                 self.world.dim = crate::world::Dimension::Mines;
                 self.visited_mines = true;
                 self.quest_progress("visit_dim", "Mines");
@@ -2228,7 +2235,15 @@ impl App {
                     self.quest_progress_silent("well_cast", "any");
                     // Only the *first* time well_casts crosses 100 do we
                     // teleport. Subsequent well casts still fish normally.
-                    if self.stats.well_casts == 100 {
+                    const INFERNO_ROD_GATE: u32 = 75;
+                    if self.stats.well_casts == 100
+                        && self.player.rods.max_owned < INFERNO_ROD_GATE
+                    {
+                        self.narrator.say(format!(
+                            "The well shudders, but spits you back out. Need rod tier {INFERNO_ROD_GATE} to survive the fall."
+                        ));
+                        // Don't open the portal yet; well_casts can keep ticking.
+                    } else if self.stats.well_casts == 100 {
                         self.narrator
                             .say("*** The well's bottom opens. You fall into the Inferno. ***");
                         self.world.dim = crate::world::Dimension::Inferno;
@@ -2278,6 +2293,8 @@ impl App {
                     rare_window,
                     Some(weather_name),
                     self.stats.fish_caught,
+                    self.skills.fishing_level(),
+                    self.player.rods.max_owned,
                 );
                 self.narrator.say("Casting line - aim for the green!");
                 self.stats.casts += 1;
@@ -2312,6 +2329,8 @@ impl App {
                         rare_window,
                         Some(w.value()),
                         self.stats.fish_caught,
+                        self.skills.fishing_level(),
+                        self.player.rods.max_owned,
                     );
                     self.narrator
                         .say(format!("THE ROD pierces reality. Pool: {}.", pool_override.as_deref().unwrap_or("?")));
@@ -2679,7 +2698,9 @@ impl App {
         for f in self.player.inventory.iter() {
             if !f.unique && f.name == name && sold < count {
                 let mbonus = self.mastery_value_bonus(f);
-                let price = ((f.sell_price() as f32) * mult * (1.0 + mbonus)).round() as u64;
+                let lvl_decay = self.level_value_mult(f);
+                let price = ((f.sell_price() as f32) * mult * (1.0 + mbonus) * lvl_decay)
+                    .round() as u64;
                 total = total.saturating_add(price);
                 sold += 1;
             }
@@ -2697,6 +2718,20 @@ impl App {
         ((m / 5.0) * 0.02).min(0.5)
     }
 
+    /// Over-level decay: when the player's fishing level greatly exceeds
+    /// the fish's min level, the species is "trivial" and pays less so
+    /// that grinding low-tier prey can't substitute for engaging harder
+    /// fish. Floor at 30%.
+    fn level_value_mult(&self, fish_ref: &crate::fish::FishDef) -> f32 {
+        let lvl = self.skills.fishing_level();
+        let min = fish_ref.min_fishing_level();
+        if lvl <= min {
+            return 1.0;
+        }
+        let over = (lvl - min) as f32;
+        (1.0 - 0.005 * over).max(0.30)
+    }
+
     fn fishmonger_listing(&self) -> Vec<(String, u64, u64)> {
         let mult = self.buffs.price_mult()
             * self.skill_tree.valu_mult()
@@ -2704,7 +2739,9 @@ impl App {
         let mut out: Vec<(String, u64, u64)> = Vec::new();
         for f in self.player.inventory.iter().filter(|f| !f.unique) {
             let mbonus = self.mastery_value_bonus(f);
-            let price = ((f.sell_price() as f32) * mult * (1.0 + mbonus)).round() as u64;
+            let lvl_decay = self.level_value_mult(f);
+            let price = ((f.sell_price() as f32) * mult * (1.0 + mbonus) * lvl_decay)
+                .round() as u64;
             if let Some(entry) = out.iter_mut().find(|(n, _, _)| n == &f.name) {
                 entry.2 += 1;
             } else {
@@ -2729,7 +2766,9 @@ impl App {
         for f in self.player.inventory.iter() {
             if !f.unique && f.name == name && sold < count {
                 let mbonus = self.mastery_value_bonus(f);
-                let price = ((f.sell_price() as f32) * mult * (1.0 + mbonus)).round() as u64;
+                let lvl_decay = self.level_value_mult(f);
+                let price = ((f.sell_price() as f32) * mult * (1.0 + mbonus) * lvl_decay)
+                    .round() as u64;
                 total = total.saturating_add(price);
                 sold += 1;
             } else {
@@ -2801,9 +2840,16 @@ impl App {
     /// One-time. After the build, the player can `:inspect` water to board.
     fn interact_miner(&mut self) {
         const PICKAXE_COST: u64 = 500;
+        const PICKAXE_ROD_GATE: u32 = 3;
         let Some(npc) = npc::npcs().iter().find(|n| n.id == "miner") else { return };
         if self.player.has_pickaxe {
             self.narrator.say(npc.response("owns_pickaxe", &[]));
+            return;
+        }
+        if self.player.rods.max_owned < PICKAXE_ROD_GATE {
+            self.narrator.say(format!(
+                "Miner: \"You're swinging a stick. Come back with a tier-{PICKAXE_ROD_GATE} rod, friend.\""
+            ));
             return;
         }
         if self.player.valu < PICKAXE_COST {
@@ -2824,9 +2870,16 @@ impl App {
 
     fn interact_shipwright(&mut self) {
         const GATE: u64 = 1250;
+        const BOAT_ROD_GATE: u32 = 30;
         let Some(npc) = npc::npcs().iter().find(|n| n.id == "shipwright") else { return };
         if self.player.has_boat {
             self.narrator.say(npc.response("owns_boat", &[]));
+            return;
+        }
+        if self.player.rods.max_owned < BOAT_ROD_GATE {
+            self.narrator.say(format!(
+                "Shipwright: \"A hull's no use if your rod can't hook the deep stuff. Tier-{BOAT_ROD_GATE} rod first.\""
+            ));
             return;
         }
         if self.stats.fish_caught < GATE {
@@ -2851,6 +2904,13 @@ impl App {
             self.narrator.say(npc.response(
                 "not_enough",
                 &[("count", self.stats.fish_caught.to_string())],
+            ));
+            return;
+        }
+        const ATLANTIS_ROD_GATE: u32 = 50;
+        if self.player.rods.max_owned < ATLANTIS_ROD_GATE {
+            self.narrator.say(format!(
+                "Sailor: \"You'd snap your line down there. Get a tier-{ATLANTIS_ROD_GATE} rod first.\""
             ));
             return;
         }
