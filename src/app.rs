@@ -316,9 +316,6 @@ pub struct App {
     /// Inverted stamina: walking/mining/interacting drain it, fishing
     /// restores it. Floor 0 (player must fish to act again).
     pub stamina: f32,
-    /// True after :q until the player confirms (y/Enter) or aborts (any
-    /// other key). Guards against fat-finger quits.
-    pub pending_quit_confirm: bool,
     /// Persisted user prefs (autosave interval, log lines, contrast).
     pub settings: Settings,
     /// Cursor for the settings menu.
@@ -455,7 +452,6 @@ impl App {
             streak_species: None,
             streak_count: 0,
             stamina: STAMINA_BASE_MAX,
-            pending_quit_confirm: false,
             settings: Settings::default(),
             settings_cursor: 0,
             bounty: None,
@@ -1187,20 +1183,6 @@ impl App {
                 return;
             }
             self.handle_name_prompt(key.code);
-            return;
-        }
-
-        if self.pending_quit_confirm {
-            if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
-                return;
-            }
-            self.pending_quit_confirm = false;
-            if matches!(key.code, KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter) {
-                self.do_save();
-                self.running = false;
-            } else {
-                self.narrator.say("Quit cancelled.");
-            }
             return;
         }
 
@@ -2111,9 +2093,8 @@ impl App {
                 self.running = false;
             }
             "q" => {
-                self.pending_quit_confirm = true;
-                self.narrator
-                    .say("Quit and save? Y to confirm, anything else to cancel.");
+                self.do_save();
+                self.running = false;
             }
             "t" | "tasks" => {
                 self.scene = Scene::Quests { cursor: 0 };
