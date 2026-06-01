@@ -852,7 +852,22 @@ impl World {
             _ => {}
         }
         match self.get(x, y) {
-            Tile::Wall => perimeter_glyph(x, y).unwrap_or_else(|| wall_glyph(x, y)),
+            Tile::Wall => {
+                // Player can't see inside walls — buried wall cells go
+                // pitch-black regardless of dim. Only the outer surface
+                // of any wall mass is rendered.
+                if wall_buried(self, x, y) {
+                    return (' ', Style::default());
+                }
+                match self.dim {
+                    Dimension::Pyramid => sandstone_wall_glyph(x, y),
+                    Dimension::Wreckage => wood_hull_glyph(x, y),
+                    Dimension::Colosseum => roman_wall_glyph(x, y),
+                    Dimension::BogCathedral => gothic_wall_glyph(x, y),
+                    Dimension::Sewer => sewer_brick_glyph(x, y),
+                    _ => perimeter_glyph(x, y).unwrap_or_else(|| wall_glyph(x, y)),
+                }
+            }
             Tile::Roof => roof_glyph(x, y),
             Tile::DoorRod => (
                 'D',
@@ -885,16 +900,24 @@ impl World {
                 }
             }
             Tile::Sand => {
-                let shore = matches!(self.get(x, y + 1), Tile::Water);
-                if shore {
-                    shore_anim(x, 0, tick)
-                } else {
-                    let g = match hash2(x, y, 0x5A1D_5A1D) % 3 {
-                        0 => ',',
-                        1 => '.',
-                        _ => '`',
-                    };
-                    (g, Style::default().fg(shade((198, 182, 132), x, y, 0x5A1D_5A1D, 14)))
+                // Repurposed per dim: iceshelf = white snow, pyramid = gold
+                // sand, colosseum = pale stone, others = beach sand.
+                match self.dim {
+                    Dimension::Iceshelf => snow_glyph(x, y),
+                    Dimension::Pyramid => pyramid_sand_glyph(x, y),
+                    _ => {
+                        let shore = matches!(self.get(x, y + 1), Tile::Water);
+                        if shore {
+                            shore_anim(x, 0, tick)
+                        } else {
+                            let g = match hash2(x, y, 0x5A1D_5A1D) % 3 {
+                                0 => ',',
+                                1 => '.',
+                                _ => '`',
+                            };
+                            (g, Style::default().fg(shade((198, 182, 132), x, y, 0x5A1D_5A1D, 14)))
+                        }
+                    }
                 }
             }
             Tile::TreeTrunk | Tile::TreeCanopy => {
@@ -918,12 +941,19 @@ impl World {
                     .add_modifier(Modifier::BOLD),
             ),
             Tile::Path => {
-                let g = match hash2(x, y, 0xDADA_BABE) % 3 {
-                    0 => '.',
-                    1 => ',',
-                    _ => '.',
-                };
-                (g, Style::default().fg(Color::Rgb(150, 135, 105)))
+                match self.dim {
+                    Dimension::Colosseum => roman_floor_glyph(x, y),
+                    Dimension::Sewer => sewer_walk_glyph(x, y),
+                    Dimension::BogCathedral => cathedral_floor_glyph(x, y),
+                    _ => {
+                        let g = match hash2(x, y, 0xDADA_BABE) % 3 {
+                            0 => '.',
+                            1 => ',',
+                            _ => '.',
+                        };
+                        (g, Style::default().fg(Color::Rgb(150, 135, 105)))
+                    }
+                }
             }
             Tile::Lamppost => (
                 'i',
@@ -3330,4 +3360,94 @@ fn all_blue_get(x: i32, y: i32, seed: u32) -> Tile {
     Tile::DeepWater
 }
 
+// ---- specialty-dim wall/floor glyphs --------------------------------------
+// Per-dim variants of the generic Wall / Sand / Path renders. Each uses a
+// distinct palette so the dim reads at a glance even when sharing the
+// underlying tile enum.
+
+fn sandstone_wall_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0x5A04_57E0);
+    let g = match h % 4 { 0 => '#', 1 => '%', 2 => '8', _ => 'H' };
+    let shade = 175 + (h % 30) as u8;
+    (g, Style::default().fg(Color::Rgb(shade, shade - 35, shade - 80)).add_modifier(Modifier::BOLD))
+}
+
+fn wood_hull_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0x80D_517E1);
+    let g = match h % 3 { 0 => '|', 1 => '#', _ => '=' };
+    let shade = 95 + (h % 25) as u8;
+    (g, Style::default().fg(Color::Rgb(shade + 10, shade - 25, shade.saturating_sub(60))).add_modifier(Modifier::BOLD))
+}
+
+fn roman_wall_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0x0070_5A11);
+    let g = match h % 4 { 0 => '#', 1 => 'H', 2 => '%', _ => '8' };
+    let shade = 220 + (h % 25) as u8;
+    (g, Style::default().fg(Color::Rgb(shade, shade, shade.saturating_sub(20))).add_modifier(Modifier::BOLD))
+}
+
+fn gothic_wall_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0x6074_1C00);
+    let g = match h % 4 { 0 => '#', 1 => '%', 2 => '|', _ => '+' };
+    let shade = 95 + (h % 25) as u8;
+    (g, Style::default().fg(Color::Rgb(shade, shade - 10, shade + 5)).add_modifier(Modifier::BOLD))
+}
+
+fn sewer_brick_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0x5E_EB_4_C00);
+    let g = match h % 3 { 0 => '#', 1 => '%', _ => '=' };
+    let shade = 75 + (h % 22) as u8;
+    (g, Style::default().fg(Color::Rgb(shade - 20, shade, shade.saturating_sub(35))).add_modifier(Modifier::BOLD))
+}
+
+fn snow_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0x5_001_5_001);
+    let g = match h % 4 { 0 => '.', 1 => ',', 2 => '`', _ => ' ' };
+    let shade = 215 + (h % 35) as u8;
+    (g, Style::default().fg(Color::Rgb(shade, shade, 255)))
+}
+
+fn pyramid_sand_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0x5A04_FA90);
+    let g = match h % 3 { 0 => ',', 1 => '.', _ => '`' };
+    let shade = 210 + (h % 30) as u8;
+    (g, Style::default().fg(Color::Rgb(shade, shade - 30, shade.saturating_sub(110))))
+}
+
+fn roman_floor_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0x0070_5F10);
+    let g = match h % 4 { 0 => '.', 1 => ',', 2 => '_', _ => ':' };
+    let shade = 200 + (h % 30) as u8;
+    (g, Style::default().fg(Color::Rgb(shade, shade - 5, shade.saturating_sub(40))))
+}
+
+fn sewer_walk_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0x5E_EB_5_EE7);
+    let g = match h % 4 { 0 => '.', 1 => ',', 2 => ':', _ => '`' };
+    let shade = 90 + (h % 25) as u8;
+    (g, Style::default().fg(Color::Rgb(shade - 15, shade - 10, shade.saturating_sub(40))))
+}
+
+fn cathedral_floor_glyph(x: i32, y: i32) -> (char, Style) {
+    let h = hash2(x, y, 0x6074_F100);
+    let g = match h % 4 { 0 => '.', 1 => ',', 2 => '_', _ => ':' };
+    let shade = 130 + (h % 25) as u8;
+    (g, Style::default().fg(Color::Rgb(shade, shade - 5, shade + 10)))
+}
+
+/// Generic buried-wall check: a wall cell with no walkable 4-neighbor is
+/// "inside the wall" and renders pitch black. Applied to any Tile::Wall
+/// in dims that use rectangular wall masses.
+pub fn wall_buried(world: &World, x: i32, y: i32) -> bool {
+    if !matches!(world.get(x, y), Tile::Wall) {
+        return false;
+    }
+    for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+        let n = world.get(x + dx, y + dy);
+        if n.walkable() || matches!(n, Tile::Water | Tile::MineralWater | Tile::DeepWater | Tile::Lava) {
+            return false;
+        }
+    }
+    true
+}
 
