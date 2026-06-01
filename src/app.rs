@@ -764,6 +764,12 @@ impl App {
                 self.cast = None;
                 self.narrator
                     .say("Something hits the line!".to_string());
+                let w_mods = crate::weather::weather_modifiers(self.current_weather());
+                let dim_bonus_pct = if matches!(
+                    self.world.dim,
+                    crate::world::Dimension::AllBlue
+                ) { 0.10 } else { 0.0 };
+                let extra_speed = w_mods.catch_speed_pct + dim_bonus_pct;
                 self.scene = Scene::Fishing(Fishing::new_with_skills(
                     fish,
                     self.rng_state,
@@ -771,6 +777,7 @@ impl App {
                     self.player.rods.equipped,
                     cast_strength,
                     &self.skill_tree,
+                    extra_speed,
                 ));
             }
             CastPhase::Waiting => {}
@@ -1938,10 +1945,12 @@ impl App {
                         Some((e, m)) if e == "xp_mult" => 1.0 + *m,
                         _ => 1.0,
                     };
+                    let dim_bonus = self.dim_bonus_mult();
                     let gained = ((base_xp as f32)
                         * self.skill_tree.global_xp_mult()
                         * tackle_xp
-                        * bait_xp) as u64;
+                        * bait_xp
+                        * dim_bonus) as u64;
                     let gained = gained.max(1);
                     // Bait valu_mult: pay a one-time bonus equal to the fish's
                     // sell price * magnitude, right now (so the player doesn't
@@ -2199,6 +2208,25 @@ impl App {
             Tile::DoorSchool => {
                 self.narrator.say("You step into the fishing school.");
                 self.scene = Scene::FishingSchool { cursor: 0 };
+            }
+            Tile::DimPortal => {
+                if let Some(dest) =
+                    crate::world::dim_portal_for(nx, ny, self.world.seed)
+                {
+                    let gate = dest.min_rod_tier();
+                    if self.player.rods.max_owned < gate {
+                        self.narrator.say(format!(
+                            "{}: rod tier {gate} required. (You have tier {}.)",
+                            dest.label(),
+                            self.player.rods.max_owned
+                        ));
+                    } else {
+                        self.world.dim = dest;
+                        self.quest_progress("visit_dim", dest.label());
+                        self.narrator
+                            .say(format!("You arrive at: {}.", dest.label()));
+                    }
+                }
             }
             Tile::MineEntrance => {
                 const MINES_ROD_GATE: u32 = 3;
@@ -2740,10 +2768,12 @@ impl App {
                 let mbonus = self.mastery_value_bonus(f);
                 let lvl_decay = self.level_value_mult(f);
                 let wmods = crate::weather::weather_modifiers(self.current_weather());
+                let dim_bonus = self.dim_bonus_mult();
                 let price = ((f.sell_price() as f32)
                     * mult
                     * (1.0 + mbonus + wmods.valu_pct)
-                    * lvl_decay)
+                    * lvl_decay
+                    * dim_bonus)
                     .round() as u64;
                 total = total.saturating_add(price);
                 sold += 1;
@@ -2760,6 +2790,16 @@ impl App {
             .and_then(|i| self.mastery.get(i).copied())
             .unwrap_or(0) as f32;
         ((m / 5.0) * 0.02).min(0.5)
+    }
+
+    /// All Blue grants a permanent +10% to every multiplier (valu, xp,
+    /// rare-chance) just for being in the dim. Other dims = 1.0.
+    fn dim_bonus_mult(&self) -> f32 {
+        if matches!(self.world.dim, crate::world::Dimension::AllBlue) {
+            1.10
+        } else {
+            1.0
+        }
     }
 
     /// Over-level decay: when the player's fishing level greatly exceeds
@@ -2812,10 +2852,12 @@ impl App {
                 let mbonus = self.mastery_value_bonus(f);
                 let lvl_decay = self.level_value_mult(f);
                 let wmods = crate::weather::weather_modifiers(self.current_weather());
+                let dim_bonus = self.dim_bonus_mult();
                 let price = ((f.sell_price() as f32)
                     * mult
                     * (1.0 + mbonus + wmods.valu_pct)
-                    * lvl_decay)
+                    * lvl_decay
+                    * dim_bonus)
                     .round() as u64;
                 total = total.saturating_add(price);
                 sold += 1;
@@ -3499,6 +3541,7 @@ fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
         Tile::Roof => ('#', Color::Rgb(200, 100, 70)),
         Tile::DoorRod | Tile::DoorSchool => ('D', Color::Rgb(245, 215, 90)),
         Tile::DoorHouse => ('D', Color::Rgb(180, 150, 110)),
+        Tile::DimPortal => ('?', Color::Rgb(230, 200, 255)),
         Tile::TreeCanopy | Tile::TreeTrunk => ('T', Color::Rgb(110, 200, 95)),
         Tile::BigRock | Tile::MediumRock | Tile::Rock => ('#', Color::Rgb(170, 170, 170)),
         Tile::Path => ('.', Color::Rgb(195, 170, 130)),

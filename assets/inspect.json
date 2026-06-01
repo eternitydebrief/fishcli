@@ -43,6 +43,7 @@
   "tile:LandmarkWall": "A wall of the landmark before you.",
   "tile:LandmarkDoor": "An open archway. Step through.",
   "tile:Tombstone":    "A weathered tombstone. Names worn off. You feel watched.",
+  "tile:DimPortal":    "Some kind of passage. Step onto it and press f to take it.",
 
   "furn:Floor":   "Bare floorboards.",
   "furn:Wall":    "An inside wall.",

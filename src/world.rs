@@ -367,6 +367,9 @@ pub enum Tile {
     /// Plain dwelling door — leads to a procedural one-room interior keyed
     /// on the door's world position.
     DoorHouse,
+    /// Specialty dim portal (sparse). The destination is recomputed from
+    /// the cell's (x, y, seed) hash at interact time — no extra state.
+    DimPortal,
     Water,
     Dock,
     Sand,
@@ -440,6 +443,7 @@ impl Tile {
                 | Tile::Kelp
                 | Tile::InfernoFloor
                 | Tile::LandmarkDoor
+                | Tile::DimPortal
         )
     }
 
@@ -487,6 +491,7 @@ impl Tile {
             Tile::LandmarkWall => "LandmarkWall",
             Tile::LandmarkDoor => "LandmarkDoor",
             Tile::Tombstone => "Tombstone",
+            Tile::DimPortal => "DimPortal",
         }
     }
 
@@ -614,6 +619,9 @@ impl World {
     fn surface_get(&self, x: i32, y: i32) -> Tile {
         if let Some(t) = village_tile(x, y) {
             return t;
+        }
+        if dim_portal_for(x, y, self.seed).is_some() {
+            return Tile::DimPortal;
         }
         if pier_cell(x, y) {
             return Tile::Dock;
@@ -1012,6 +1020,24 @@ impl World {
                     _ => '+',
                 };
                 (g, Style::default().fg(Color::Rgb(170, 170, 180)).add_modifier(Modifier::BOLD))
+            }
+            Tile::DimPortal => {
+                // Glyph + tint hints at the destination dim so portals
+                // are distinguishable across biomes.
+                let dest = dim_portal_for(x, y, self.seed)
+                    .unwrap_or(Dimension::Surface);
+                let (g, c) = match dest {
+                    Dimension::Pyramid => ('Δ', Color::Rgb(230, 200, 120)),
+                    Dimension::HotSpring => ('§', Color::Rgb(220, 180, 200)),
+                    Dimension::Iceshelf => ('*', Color::Rgb(200, 230, 255)),
+                    Dimension::SwampCave => ('Ω', Color::Rgb(110, 180, 110)),
+                    Dimension::BogCathedral => ('†', Color::Rgb(150, 140, 170)),
+                    Dimension::MirrorLake => ('O', Color::Rgb(220, 230, 255)),
+                    Dimension::Crater => ('@', Color::Rgb(200, 170, 255)),
+                    Dimension::Colosseum => ('∞', Color::Rgb(240, 240, 230)),
+                    _ => ('?', Color::Rgb(220, 200, 200)),
+                };
+                (g, Style::default().fg(c).add_modifier(Modifier::BOLD))
             }
         }
     }
@@ -3067,6 +3093,51 @@ fn shore_splash(x: i32, row: i32, tick: u64) -> Option<(char, Style)> {
         _ => Color::Rgb(lum, lum.saturating_sub(4), lum.saturating_sub(10)),
     };
     Some((glyph, Style::default().fg(color).add_modifier(Modifier::BOLD)))
+}
+
+/// Returns the destination dim if this surface cell is a portal anchor.
+/// Sparse hash-gated per dim, with biome filters where it makes sense.
+/// None for cells that aren't a portal.
+pub fn dim_portal_for(x: i32, y: i32, seed: u32) -> Option<Dimension> {
+    if in_village_zone(x, y) {
+        return None;
+    }
+    if y >= 4 {
+        return None;
+    }
+    if cached_water_body_at(x, y, seed) {
+        return None;
+    }
+    let b = cached_biome_at(x, y, seed);
+    let h = hash2(x, y, seed.wrapping_add(0xD17F_02A1));
+    if h % 5000 == 13 && matches!(b, Biome::Desert) {
+        return Some(Dimension::Pyramid);
+    }
+    if h % 6000 == 23 && matches!(b, Biome::Desert | Biome::Scrub) {
+        return Some(Dimension::HotSpring);
+    }
+    if h % 5000 == 17 && matches!(b, Biome::Tundra) {
+        return Some(Dimension::Iceshelf);
+    }
+    if h % 5500 == 19 && matches!(b, Biome::Swamp) {
+        return Some(Dimension::SwampCave);
+    }
+    if h % 7000 == 7 && matches!(b, Biome::Swamp) {
+        return Some(Dimension::BogCathedral);
+    }
+    if h % 6000 == 31 && matches!(b, Biome::Meadow | Biome::Forest) {
+        return Some(Dimension::MirrorLake);
+    }
+    // Crater and Colosseum can spawn anywhere on land, very rare.
+    if h % 9000 == 41 {
+        return Some(Dimension::Crater);
+    }
+    if h % 12000 == 51 {
+        return Some(Dimension::Colosseum);
+    }
+    // Sewer + Wreckage need special placement (village / dockside) — handled
+    // by the existing village layouts in a follow-up. AllBlue stays travel-only.
+    None
 }
 
 // ---- specialty dim generators ---------------------------------------------

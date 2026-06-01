@@ -285,20 +285,26 @@ fn three_tier(day: u64, salt: u32, seed: u32, opts: [Weather; 3]) -> Weather {
 pub struct WeatherMods {
     pub valu_pct: f32,
     pub rare_pct: f32,
+    /// Catch-progress speed bonus during the fishing minigame (additive).
+    pub catch_speed_pct: f32,
     pub pool_override: Option<&'static str>,
 }
 
 pub fn weather_modifiers(w: Weather) -> WeatherMods {
     use Weather::*;
-    let mut m = WeatherMods { valu_pct: 0.0, rare_pct: 0.0, pool_override: None };
+    let mut m = WeatherMods {
+        valu_pct: 0.0,
+        rare_pct: 0.0,
+        catch_speed_pct: 0.0,
+        pool_override: None,
+    };
     match w {
-        DrainHigh => { /* +catch speed wired in fishing minigame later */ }
+        DrainHigh | SoundHigh => m.catch_speed_pct = 0.30,
         HeatHigh | SulphurHigh | LightHigh => m.rare_pct = 0.30,
         SandstormActHigh | ColdHigh => m.valu_pct = 0.25,
         SupernaturalHigh => m.pool_override = Some("divine"),
         StardustHigh => m.pool_override = Some("cosmic"),
-        CreakingHigh => m.pool_override = Some("wreckage"), // existing pool, jokey
-        SoundHigh => { /* +catch speed wired later */ }
+        CreakingHigh => m.pool_override = Some("wreckage"),
         _ => {}
     }
     m
