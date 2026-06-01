@@ -83,10 +83,6 @@ pub enum Scene {
         return_xy: (i32, i32),
         /// Seed for procedural furniture layout (derived from door coords).
         seed: u32,
-        /// Vertical-move pacing flag: terminal cells are ~2:1 tall, so
-        /// vertical moves only commit every *second* up/down keypress to
-        /// match overworld pacing.
-        v_phase: bool,
     },
 }
 
@@ -1068,8 +1064,8 @@ impl App {
             }
         }
 
-        let movement_allowed =
-            matches!(self.mode, Mode::Insert) && matches!(self.scene, Scene::Overworld);
+        let movement_allowed = matches!(self.mode, Mode::Insert)
+            && matches!(self.scene, Scene::Overworld | Scene::HouseInterior { .. });
         if movement_allowed {
             if let Some(dir) = self.held_dir {
                 if self.anim_tick > self.held_until_tick {
@@ -1087,7 +1083,7 @@ impl App {
                         .round()
                         .max(1.0) as u64;
                     if self.anim_tick.saturating_sub(self.last_step_tick) >= interval {
-                        self.step(dir.0, dir.1);
+                        self.step_dispatch(dir.0, dir.1);
                         self.last_step_tick = self.anim_tick;
                     }
                 }
@@ -1208,7 +1204,7 @@ impl App {
                     _ => {}
                 }
             }
-            if matches!(self.scene, Scene::Overworld) {
+            if matches!(self.scene, Scene::Overworld | Scene::HouseInterior { .. }) {
                 if let Some(dir) = direction_for(key.code) {
                     self.handle_movement(dir, key.kind);
                     return;
@@ -1262,7 +1258,7 @@ impl App {
                 // os-repeat presses just extend the hold without re-stepping
                 let fresh = self.held_dir != Some(dir);
                 if fresh {
-                    self.step(dir.0, dir.1);
+                    self.step_dispatch(dir.0, dir.1);
                     self.last_step_tick = self.anim_tick;
                 }
                 self.held_dir = Some(dir);
@@ -1278,6 +1274,33 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Single entry point for "the player wants to step one cell in (dx, dy)".
+    /// Routes to the overworld step or to the house-interior step depending
+    /// on the current scene.
+    fn step_dispatch(&mut self, dx: i32, dy: i32) {
+        match &self.scene {
+            Scene::Overworld => self.step(dx, dy),
+            Scene::HouseInterior { .. } => self.step_house(dx, dy),
+            _ => {}
+        }
+    }
+
+    fn step_house(&mut self, dx: i32, dy: i32) {
+        let Scene::HouseInterior { px, py, seed, .. } = &mut self.scene else { return };
+        self.player.facing = (dx, dy);
+        let nx = *px + dx;
+        let ny = *py + dy;
+        let f = crate::house::tile_at(nx, ny, *seed);
+        if !f.walkable() {
+            return;
+        }
+        // Don't auto-exit on stepping onto the door tile — the player must
+        // press f while facing it. Otherwise it's too easy to slide out by
+        // accident.
+        *px = nx;
+        *py = ny;
     }
 
     fn insert_key(&mut self, key: KeyEvent) {
@@ -1867,55 +1890,34 @@ impl App {
     }
 
     fn handle_house_key(&mut self, code: KeyCode) {
-        let Scene::HouseInterior { px, py, return_xy, seed, v_phase } = &mut self.scene else { return };
-        let (dx, dy) = match code {
+        let Scene::HouseInterior { px, py, return_xy, seed, .. } = self.scene else { return };
+        let (fx, fy) = self.player.facing;
+        match code {
             KeyCode::Esc | KeyCode::Char('q') => {
-                let r = *return_xy;
-                self.player.x = r.0;
-                self.player.y = r.1;
+                self.player.x = return_xy.0;
+                self.player.y = return_xy.1;
                 self.scene = Scene::Overworld;
                 self.narrator.say("You step back outside.");
-                return;
             }
-            KeyCode::Char('h') | KeyCode::Left => (-1, 0),
-            KeyCode::Char('l') | KeyCode::Right => (1, 0),
-            KeyCode::Char('k') | KeyCode::Up => (0, -1),
-            KeyCode::Char('j') | KeyCode::Down => (0, 1),
             KeyCode::Char('x') => {
-                let f = crate::house::tile_at(*px, *py, *seed);
-                self.narrator.say(f.describe());
-                return;
+                // Inspect what you're facing, just like the overworld.
+                let target = crate::house::tile_at(px + fx, py + fy, seed);
+                self.narrator.say(target.describe());
             }
-            _ => return,
-        };
-        // Set facing immediately so the player glyph (^v<>) rotates the
-        // moment the player hits a direction key, even when the actual
-        // move is held back by the vertical-phase parity.
-        self.player.facing = (dx, dy);
-        // Vertical moves take two presses (cells are ~2:1 tall, so
-        // committing every keypress feels twice as fast vertically as
-        // horizontally — the phase flag enforces parity).
-        if dy != 0 {
-            if !*v_phase {
-                *v_phase = true;
-                return;
+            KeyCode::Char('f') => {
+                // Interact with the tile you're facing. The Exit door is
+                // the only interactable furniture for now.
+                let target = crate::house::tile_at(px + fx, py + fy, seed);
+                if matches!(target, crate::house::Furn::Exit) {
+                    self.player.x = return_xy.0;
+                    self.player.y = return_xy.1;
+                    self.scene = Scene::Overworld;
+                    self.narrator.say("You step back outside.");
+                } else {
+                    self.narrator.say("Nothing to do here.");
+                }
             }
-            *v_phase = false;
-        }
-        let nx = *px + dx;
-        let ny = *py + dy;
-        let f = crate::house::tile_at(nx, ny, *seed);
-        if matches!(f, crate::house::Furn::Exit) {
-            let r = *return_xy;
-            self.player.x = r.0;
-            self.player.y = r.1;
-            self.scene = Scene::Overworld;
-            self.narrator.say("You step back outside.");
-            return;
-        }
-        if f.walkable() {
-            *px = nx;
-            *py = ny;
+            _ => {}
         }
     }
 
@@ -2723,7 +2725,6 @@ impl App {
                     py: crate::house::EXIT_Y - 1,
                     return_xy: (self.player.x, self.player.y + 1),
                     seed,
-                    v_phase: false,
                 };
             }
             Tile::OreRock => {
