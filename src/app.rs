@@ -324,6 +324,10 @@ pub struct App {
     pub settings: Settings,
     /// Cursor for the settings menu.
     pub settings_cursor: usize,
+    /// Currently active rolled bounty (None = no quest accepted). Player
+    /// can hold at most one bounty at a time; complete or abandon to roll
+    /// a fresh one.
+    pub bounty: Option<crate::procedural_quests::ProceduralQuest>,
 }
 
 /// Baseline maximum stamina before Iron Lungs ranks.
@@ -428,6 +432,7 @@ impl App {
             pending_quit_confirm: false,
             settings: Settings::default(),
             settings_cursor: 0,
+            bounty: None,
         }
     }
 
@@ -606,6 +611,7 @@ impl App {
         self.mining_boost_until = data.mining_boost_until;
         self.stamina = data.stamina.clamp(0.0, self.stamina_max());
         self.settings = data.settings.clone();
+        self.bounty = data.bounty.clone();
         self.veins = data
             .veins
             .iter()
@@ -694,6 +700,36 @@ impl App {
                 .collect(),
             stamina: self.stamina,
             settings: self.settings.clone(),
+            bounty: self.bounty.clone(),
+        }
+    }
+
+    fn tick_bounty(&mut self, fish_name: &str) {
+        let done = if let Some(b) = self.bounty.as_mut() {
+            if b.fish_name == fish_name {
+                b.progress = b.progress.saturating_add(1);
+                b.progress >= b.count
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if done {
+            if let Some(b) = self.bounty.take() {
+                self.player.valu = self.player.valu.saturating_add(b.reward_valu);
+                self.lifetime_valu = self.lifetime_valu.saturating_add(b.reward_valu);
+                self.stats.valu_earned = self.stats.valu_earned.saturating_add(b.reward_valu);
+                self.challenge_bonus_points = self
+                    .challenge_bonus_points
+                    .saturating_add(b.reward_points);
+                self.narrator.say(format!(
+                    "*** Bounty complete: {}! +{}$V, +{} skill point(s). ***",
+                    b.title(),
+                    b.reward_valu,
+                    b.reward_points
+                ));
+            }
         }
     }
 
@@ -1900,6 +1936,37 @@ impl App {
                 self.scene = Scene::Stats;
                 self.mode = Mode::Insert;
             }
+            "bounty" => {
+                if let Some(b) = &self.bounty {
+                    self.narrator.say(format!(
+                        "Active bounty: {} ({}/{}).",
+                        b.title(),
+                        b.progress,
+                        b.count
+                    ));
+                } else if let Some(b) = crate::procedural_quests::roll(
+                    &self.caught,
+                    &mut self.rng_state,
+                ) {
+                    self.narrator.say(format!(
+                        "New bounty: {}. Reward: +{}$V, +{} skill point(s).",
+                        b.title(),
+                        b.reward_valu,
+                        b.reward_points
+                    ));
+                    self.bounty = Some(b);
+                } else {
+                    self.narrator
+                        .say("Catch at least one non-unique fish first.");
+                }
+            }
+            "abandon" => {
+                if self.bounty.take().is_some() {
+                    self.narrator.say("Bounty abandoned.");
+                } else {
+                    self.narrator.say("No bounty to abandon.");
+                }
+            }
             "saves" => {
                 let metas = save::list_saves_meta();
                 if metas.is_empty() {
@@ -2232,6 +2299,7 @@ impl App {
                     // also tick the generic "catch any fish" counter so
                     // quests like Shipwright's Hull (1250 catches) work
                     self.quest_progress_silent("catch", "any");
+                    self.tick_bounty(&fish_ref.name);
                 } else if escaped {
                     self.narrator
                         .say("It slipped the line. You'll never know what.".to_string());

@@ -29,6 +29,7 @@ mod mining;
 mod notes;
 mod npc;
 mod player;
+mod procedural_quests;
 mod quest;
 mod rod;
 mod save;
