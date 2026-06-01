@@ -1062,9 +1062,9 @@ impl App {
                     } else {
                         MOVE_INTERVAL_V
                     };
-                    // Exhausted: each step interval is 1.67x longer (40%
+                    // Exhausted: each step interval is ~1.43x longer (30%
                     // slower). Doesn't block movement — just drags it.
-                    let stam_mult = if self.stamina <= 0.0 { 1.0 / 0.6 } else { 1.0 };
+                    let stam_mult = if self.stamina <= 0.0 { 1.0 / 0.7 } else { 1.0 };
                     let interval = ((base as f32) * self.buffs.walk_mult() * stam_mult)
                         .round()
                         .max(1.0) as u64;
@@ -6223,8 +6223,10 @@ fn render_stamina_bar(frame: &mut Frame, area: Rect, current: f32, max: f32) {
     } else {
         Color::DarkGray
     };
-    // Account for the "[ ]" framing and a 9-char numeric tail: " 045/100"
-    let total_cells = area.width.saturating_sub(11) as usize;
+    // Reserve "[" + "]" + " 045/100" = 10 chars; the rest is the bar
+    // body. Off-by-one would leave the trailing cell uncolored and the
+    // world tile underneath would bleed through.
+    let total_cells = area.width.saturating_sub(10) as usize;
     let filled = ((total_cells as f32) * pct).round() as usize;
     let bar: String = std::iter::repeat('#').take(filled)
         .chain(std::iter::repeat('-').take(total_cells.saturating_sub(filled)))
