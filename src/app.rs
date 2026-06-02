@@ -22,6 +22,36 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
+/// Reward awarded once when an encyclopedia's running counter crosses
+/// `threshold`. Stacks with achievement chain rewards.
+struct EncyclopediaMilestone {
+    threshold: u32,
+    label: &'static str,
+    valu: u64,
+    skill_points: u32,
+    /// Persistent buff string (see `buffs::apply_effect`). None = no buff.
+    permanent_effect: Option<&'static str>,
+}
+
+const FISHDEX_MILES: &[EncyclopediaMilestone] = &[
+    EncyclopediaMilestone { threshold:  25, label: "Apprentice Naturalist", valu:    500, skill_points: 1, permanent_effect: None },
+    EncyclopediaMilestone { threshold:  50, label: "Field Cataloguer",      valu:   2_000, skill_points: 1, permanent_effect: Some("luck:0.01") },
+    EncyclopediaMilestone { threshold: 100, label: "Hundred Hands",         valu:   5_000, skill_points: 2, permanent_effect: Some("price_mult:0.02") },
+    EncyclopediaMilestone { threshold: 200, label: "Bestiary Keeper",       valu:  15_000, skill_points: 3, permanent_effect: Some("luck:0.03") },
+    EncyclopediaMilestone { threshold: 350, label: "Living Library",        valu:  50_000, skill_points: 5, permanent_effect: Some("price_mult:0.05") },
+    EncyclopediaMilestone { threshold: 500, label: "World Compendium",      valu: 200_000, skill_points: 8, permanent_effect: Some("price_mult:0.08") },
+    EncyclopediaMilestone { threshold: 700, label: "All Things That Swim",  valu: 1_000_000, skill_points: 15, permanent_effect: Some("price_mult:0.15") },
+];
+
+const COOKBOOK_MILES: &[EncyclopediaMilestone] = &[
+    EncyclopediaMilestone { threshold:  1, label: "First Mastery",     valu:    500, skill_points: 1, permanent_effect: None },
+    EncyclopediaMilestone { threshold:  3, label: "Apprentice Cook",   valu:  2_000, skill_points: 1, permanent_effect: Some("price_mult:0.01") },
+    EncyclopediaMilestone { threshold:  6, label: "Journeyman Cook",   valu:  8_000, skill_points: 2, permanent_effect: Some("wait_mult:-0.01") },
+    EncyclopediaMilestone { threshold: 10, label: "Master Cook",       valu: 30_000, skill_points: 3, permanent_effect: Some("price_mult:0.03") },
+    EncyclopediaMilestone { threshold: 15, label: "Grand Chef",        valu: 100_000, skill_points: 5, permanent_effect: Some("walk_speed:0.02") },
+    EncyclopediaMilestone { threshold: 20, label: "Pantheon Palate",   valu: 500_000, skill_points: 10, permanent_effect: Some("price_mult:0.10") },
+];
+
 pub enum Scene {
     Overworld,
     RodShop { cursor: u32 },
@@ -66,12 +96,55 @@ pub enum Scene {
     /// Bait shop: list of baits with current stock; enter buys 1, B equips
     /// the active bait. q/esc leaves.
     BaitShop { cursor: usize },
+    /// Shipwright hull-upgrade menu: cursor over the next available tier.
+    /// Enter pays valu + wood, bumps `hull_tier` (and grants `has_boat` on
+    /// the first build). q/esc leaves.
+    Shipwright { cursor: usize },
+    /// Lumberjacking minigame: type the displayed F/G/H/J sequence to
+    /// chop the tree. Wrong key locks input for 3s and halves the yield.
+    Chopping(crate::chop::Chopping),
+    /// Cooking menu: scrollable recipe list. Rows are dimmed when the
+    /// player is missing ingredients; enter cooks the highlighted dish
+    /// (consumes ingredients, applies stamina + effect).
+    Cooking { cursor: usize },
     /// Achievements menu: shows active (next-unmet) tier per chain plus
     /// completed-tier history at the bottom. q/esc leaves.
     Achievements { cursor: usize },
     /// Boss fishing fight: two fish and two bars, F/V drive the left bar
     /// and J/N drive the right.
     Boss(crate::boss::Boss),
+    /// Blacksmith menu. Reached by pressing `f` on a Blacksmith NPC.
+    /// Branches to Smelt / Forge / sell-ore / sell-gear / leave.
+    Blacksmith {
+        cursor: u8,
+    },
+    /// Forged-gear sell picker. Lists every piece in `owned`; Enter sells
+    /// the cursor row at (sum of ingot value in its recipe) * 1.10.
+    SellGear {
+        cursor: usize,
+    },
+    /// Gear-slot manager. `slot_idx` tabs the slot (Feet / Neck / Ring /
+    /// Pickaxe — Cape is auto-managed and not editable). `item_idx` picks
+    /// from the owned items eligible for that slot. Enter equips, `u`
+    /// unequips.
+    Gear {
+        slot_idx: usize,
+        item_idx: usize,
+    },
+    /// Blacksmith smelt UI. Lists every ore the player has at least
+    /// `ore_per_ingot` of; cursor picks which row. Typing "smelt" once
+    /// consumes that ore stack and produces one ingot of the same type.
+    Smelt {
+        cursor: usize,
+        typed: String,
+    },
+    /// Blacksmith forge UI. Lists every gear def the player meets the
+    /// blacksmithing-level + ingot + valu requirements for. Cursor picks
+    /// a row; typing the gear's name forges it (consumes ingots + valu).
+    Forge {
+        cursor: usize,
+        typed: String,
+    },
     /// Inside someone's house. Procedural one-room interior keyed by the
     /// world-coords of the door used to enter. Player moves with hjkl in
     /// a small grid; stepping back onto the interior door tile exits.
@@ -239,6 +312,11 @@ pub struct App {
     pub lifetime_valu: u64,
     /// time when this session started (for play-time stat)
     pub session_start: std::time::Instant,
+    /// instant of the last accepted step in Overworld/HouseInterior. Used
+    /// to cap movement rate so mashing arrows + WASD (or holding them under
+    /// keyboard autorepeat) doesn't let the player zip across the map
+    /// faster than intended.
+    pub last_step_at: std::time::Instant,
     /// play time loaded from save (excluding this session)
     pub saved_play_secs: u64,
     /// id of the quest currently pinned to the top-left tracker
@@ -258,6 +336,16 @@ pub struct App {
     /// at 1/5/10/25/50/100 each grant a skill point and a small permanent
     /// sale-value bonus for that species.
     pub mastery: Vec<u32>,
+    /// Per-recipe cook count, parallel to `recipes::recipes()`. Mastery
+    /// milestones at 5/25/100 boost the dish's effect magnitude (additive
+    /// to the buff's `magnitude` param). Length is auto-extended on load.
+    pub cooking_mastery: Vec<u32>,
+    /// Highest fishdex milestone index already paid out (so the same
+    /// reward isn't re-granted across saves). Indexes into FISHDEX_MILES.
+    pub fishdex_milestones_granted: u32,
+    /// Highest cookbook milestone index already paid out — indexes into
+    /// COOKBOOK_MILES.
+    pub cookbook_milestones_granted: u32,
     /// Total mastery milestones earned across all species (sum, not per-fish).
     /// Used to track skill-point granting so we never double-count.
     pub mastery_milestones: u32,
@@ -327,6 +415,13 @@ pub struct App {
     /// Tutorial progress index. Each step fires a one-time hint then
     /// advances. Stops contributing chatter past TUTORIAL_STEPS.
     pub tutorial_step: u32,
+    /// In-game month-id at which the cape last paid out. Updated by
+    /// `tick_cape_payout` once per month rollover. Persisted.
+    pub last_cape_payout_month: u64,
+    /// Daily merchant counters. Reset when `last_market_day` changes.
+    pub fish_sold_today: u32,
+    pub ore_sold_today: u32,
+    pub last_market_day: u64,
     /// Random countdown of steps before the next stamina drain event.
     /// Rerolled to 5..=20 every time it fires. NOT persisted (ephemeral
     /// per session is fine — at worst you get a slightly easy first walk).
@@ -407,6 +502,9 @@ impl App {
             caught_at: vec![None; fishlist::fish().len()],
             caught_context: vec![None; fishlist::fish().len()],
             mastery: vec![0; fishlist::fish().len()],
+            cooking_mastery: vec![0; crate::recipes::recipes().len()],
+            fishdex_milestones_granted: 0,
+            cookbook_milestones_granted: 0,
             mastery_milestones: 0,
             achievements: crate::achievements::AchievementProgress::default(),
             visited_mines: false,
@@ -422,6 +520,8 @@ impl App {
             xp_popup: None,
             lifetime_valu: 0,
             session_start: std::time::Instant::now(),
+            last_step_at: std::time::Instant::now()
+                - std::time::Duration::from_secs(1),
             saved_play_secs: 0,
             pinned_quest: None,
             seen_cells: std::collections::HashMap::new(),
@@ -456,6 +556,10 @@ impl App {
             settings_cursor: 0,
             bounty: None,
             tutorial_step: 0,
+            last_cape_payout_month: 0,
+            fish_sold_today: 0,
+            ore_sold_today: 0,
+            last_market_day: 0,
             steps_until_drain: 10,
         }
     }
@@ -623,6 +727,29 @@ impl App {
         self.visited_inferno = data.visited_inferno;
         self.player.tackle = data.tackle.clone();
         self.player.bait = data.bait.clone();
+        self.player.gear = data.gear.clone();
+        self.player.ingots = data.ingots.clone();
+        self.last_cape_payout_month = data.last_cape_payout_month;
+        self.fish_sold_today = data.fish_sold_today;
+        self.ore_sold_today = data.ore_sold_today;
+        self.last_market_day = data.last_market_day;
+        self.player.hull_tier = data.hull_tier;
+        self.player.crew_hunger = data.crew_hunger;
+        self.player.biofuel = data.biofuel;
+        self.player.wood = data.wood;
+        // Cooking mastery array: zero-extend or truncate to match the
+        // current recipe count so JSON additions don't break old saves.
+        let n = crate::recipes::recipes().len();
+        self.cooking_mastery = data.cooking_mastery.clone();
+        self.cooking_mastery.resize(n, 0);
+        self.fishdex_milestones_granted = data.fishdex_milestones_granted;
+        self.cookbook_milestones_granted = data.cookbook_milestones_granted;
+        // Legacy save with `has_boat=true` but no hull tier? Treat it as
+        // tier 1 with a fresh tank so the player keeps the boat they paid for.
+        if self.player.has_boat && self.player.hull_tier == 0 {
+            self.player.hull_tier = 1;
+            self.player.biofuel = self.player.biofuel.max(50);
+        }
         self.daily_day_id = data.daily_day_id.clone();
         self.daily_progress = data.daily_progress;
         self.daily_completed = data.daily_completed;
@@ -727,6 +854,19 @@ impl App {
             settings: self.settings.clone(),
             bounty: self.bounty.clone(),
             tutorial_step: self.tutorial_step,
+            gear: self.player.gear.clone(),
+            ingots: self.player.ingots.clone(),
+            last_cape_payout_month: self.last_cape_payout_month,
+            fish_sold_today: self.fish_sold_today,
+            ore_sold_today: self.ore_sold_today,
+            last_market_day: self.last_market_day,
+            hull_tier: self.player.hull_tier,
+            crew_hunger: self.player.crew_hunger,
+            biofuel: self.player.biofuel,
+            wood: self.player.wood,
+            cooking_mastery: self.cooking_mastery.clone(),
+            fishdex_milestones_granted: self.fishdex_milestones_granted,
+            cookbook_milestones_granted: self.cookbook_milestones_granted,
         }
     }
 
@@ -734,6 +874,386 @@ impl App {
     /// stamina (difficulty * 5), and grant a small permanent buff scaled
     /// to the species's difficulty. Unique fish (Fish, Five Elders) can't
     /// be cooked.
+    /// Feed `n` fish from the basket to the crew. Each fish drops crew
+    /// hunger by 3 (saturating at 0). Pulls from the front of the basket
+    /// so the player can chain feedings without picking a species. Unique
+    /// fish are skipped — sacrificing the deity is a war crime.
+    fn do_feed_crew(&mut self, n: u32) {
+        if self.player.hull_tier == 0 {
+            self.narrator.say("No boat. The Shipwright builds the first hull.");
+            return;
+        }
+        if self.player.crew_hunger == 0 {
+            self.narrator.say("The crew isn't hungry.");
+            return;
+        }
+        let mut fed = 0u32;
+        while fed < n && self.player.crew_hunger > 0 {
+            let idx = self.player.inventory.iter().position(|f| !f.unique);
+            let Some(i) = idx else {
+                break;
+            };
+            let f = self.player.inventory.remove(i);
+            self.player.crew_hunger = self.player.crew_hunger.saturating_sub(3);
+            fed += 1;
+            self.narrator
+                .say(format!("The crew rips into the {}. (-3 hunger)", f.name));
+        }
+        if fed == 0 {
+            self.narrator
+                .say("No non-unique fish in the basket to feed them.");
+        } else {
+            self.narrator.say(format!(
+                "Fed {fed} fish to the crew. Hunger: {}/100.",
+                self.player.crew_hunger
+            ));
+        }
+    }
+
+    /// Burn `n` fish to fill the biofuel tank. Each fish contributes
+    /// `5 * difficulty` units (bigger catch = more oil). Cap at 200.
+    fn do_burn_biofuel(&mut self, n: u32) {
+        if self.player.hull_tier == 0 {
+            self.narrator.say("No boat. The Shipwright builds the first hull.");
+            return;
+        }
+        let mut burned = 0u32;
+        let mut gained = 0u32;
+        while burned < n {
+            let idx = self.player.inventory.iter().position(|f| !f.unique);
+            let Some(i) = idx else { break };
+            let f = self.player.inventory.remove(i);
+            let units = (5u32).saturating_mul(f.difficulty as u32).max(5);
+            self.player.biofuel = (self.player.biofuel.saturating_add(units)).min(200);
+            self.narrator.say(format!(
+                "Rendered the {} into oil. +{units} biofuel.",
+                f.name
+            ));
+            burned += 1;
+            gained += units;
+        }
+        if burned == 0 {
+            self.narrator
+                .say("No non-unique fish in the basket to burn.");
+        } else {
+            self.narrator.say(format!(
+                "Burned {burned} fish for {gained} biofuel. Tank: {}/200.",
+                self.player.biofuel
+            ));
+        }
+    }
+
+    /// Begin the chopping minigame on the tree the player is facing.
+    /// The actual yield + xp grant happens inside the Chopping scene's
+    /// completion path.
+    fn do_chop(&mut self) {
+        let (dx, dy) = self.player.facing;
+        let tx = self.player.x + dx;
+        let ty = self.player.y + dy;
+        let t = self.world.get(tx, ty);
+        if !matches!(
+            t,
+            crate::world::Tile::TreeTrunk | crate::world::Tile::TreeCanopy
+        ) {
+            self.narrator
+                .say("Nothing to chop. Face a tree and `:chop` again.");
+            return;
+        }
+        if self.stamina <= 0.0 && !self.skill_tree.stamina_second_wind() {
+            self.narrator.say("Too tired to swing. Fish first.");
+            return;
+        }
+        let lvl = self.skills.woodcutting_level();
+        let c = crate::chop::Chopping::new(lvl, &mut self.rng_state);
+        self.scene = Scene::Chopping(c);
+        self.mode = Mode::Insert;
+        self.narrator.say(
+            "Chopping. Type the F/G/H/J sequence. Wrong key → 3s lockout.".to_string(),
+        );
+    }
+
+    fn handle_chop_key(&mut self, code: KeyCode) {
+        let tick = self.anim_tick;
+        let completed = match (&mut self.scene, code) {
+            (_, KeyCode::Esc) => {
+                self.scene = Scene::Overworld;
+                return;
+            }
+            (Scene::Chopping(c), KeyCode::Char(ch)) => c.type_char(ch, tick),
+            _ => false,
+        };
+        if completed {
+            // Pull yield first; the borrow ends before we mutate xp/stamina.
+            let yield_ = match &self.scene {
+                Scene::Chopping(c) => c.wood_yield,
+                _ => 0,
+            };
+            self.spend_stamina(2.0);
+            self.player.wood = self.player.wood.saturating_add(yield_);
+            let lvl = self.skills.woodcutting_level();
+            let xp = 5 + (lvl as u64) / 3;
+            self.skills.woodcutting_xp += xp;
+            let after = self.skills.woodcutting_level();
+            self.show_xp_gain("Woodcutting", xp, self.skills.woodcutting_xp, after);
+            self.narrator.say(format!(
+                "*thunk* +{yield_} wood. (Stash: {})",
+                self.player.wood
+            ));
+            if after > lvl {
+                self.narrator
+                    .say(format!("Woodcutting level up! Now level {after}."));
+            }
+            self.scene = Scene::Overworld;
+        }
+    }
+
+    /// Open the shipwright upgrade menu — switches to Scene::Shipwright
+    /// with the cursor on the cheapest available hull upgrade.
+    fn do_open_shipwright(&mut self) {
+        self.scene = Scene::Shipwright { cursor: 0 };
+        self.mode = Mode::Insert;
+    }
+
+    fn handle_shipwright_key(&mut self, code: KeyCode) {
+        let Scene::Shipwright { cursor } = &mut self.scene else { return };
+        match code {
+            KeyCode::Esc | KeyCode::Char('q') => self.scene = Scene::Overworld,
+            KeyCode::Char('j') | KeyCode::Down => *cursor = (*cursor + 1).min(5),
+            KeyCode::Char('k') | KeyCode::Up => *cursor = cursor.saturating_sub(1),
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                let target_from = *cursor as u32;
+                // Only allow buying the *next* tier — older tiers are
+                // already owned, deeper tiers are out of reach.
+                if target_from != self.player.hull_tier {
+                    self.narrator.say(format!(
+                        "That's not the next tier. You're at hull {}.",
+                        self.player.hull_tier
+                    ));
+                    return;
+                }
+                let Some((valu, wood)) =
+                    crate::player::hull_upgrade_cost(self.player.hull_tier)
+                else {
+                    self.narrator.say("Hull is already at max tier.");
+                    return;
+                };
+                if self.player.valu < valu {
+                    self.narrator.say(format!(
+                        "Need {valu} valu. You have {}.",
+                        self.player.valu
+                    ));
+                    return;
+                }
+                if self.player.wood < wood {
+                    self.narrator.say(format!(
+                        "Need {wood} wood. You have {}.",
+                        self.player.wood
+                    ));
+                    return;
+                }
+                self.player.valu -= valu;
+                self.player.wood -= wood;
+                self.player.hull_tier += 1;
+                // First build also grants the legacy `has_boat` flag and
+                // tops off the biofuel tank so the player can sail away.
+                if !self.player.has_boat {
+                    self.player.has_boat = true;
+                    self.player.biofuel = self.player.biofuel.max(50);
+                }
+                let new_tier = self.player.hull_tier;
+                self.narrator.say(format!(
+                    "*** Shipwright completes the {}. Hull tier {}. ***",
+                    crate::player::hull_label(new_tier),
+                    new_tier
+                ));
+            }
+            _ => {}
+        }
+    }
+
+    /// Run after every catch + after every cook: pays out fishdex/cookbook
+    /// milestone rewards as the running totals cross each threshold.
+    fn check_encyclopedia_milestones(&mut self) {
+        let unique_caught = self.caught.iter().filter(|c| **c).count() as u32;
+        while (self.fishdex_milestones_granted as usize) < FISHDEX_MILES.len() {
+            let next = &FISHDEX_MILES[self.fishdex_milestones_granted as usize];
+            if unique_caught < next.threshold {
+                break;
+            }
+            self.grant_milestone_reward("Fishdex", next);
+            self.fishdex_milestones_granted += 1;
+        }
+        let mastered_recipes = self
+            .cooking_mastery
+            .iter()
+            .filter(|m| **m >= 5)
+            .count() as u32;
+        while (self.cookbook_milestones_granted as usize) < COOKBOOK_MILES.len() {
+            let next = &COOKBOOK_MILES[self.cookbook_milestones_granted as usize];
+            if mastered_recipes < next.threshold {
+                break;
+            }
+            self.grant_milestone_reward("Cookbook", next);
+            self.cookbook_milestones_granted += 1;
+        }
+    }
+
+    fn grant_milestone_reward(&mut self, label: &str, m: &EncyclopediaMilestone) {
+        self.player.valu = self.player.valu.saturating_add(m.valu);
+        self.lifetime_valu = self.lifetime_valu.saturating_add(m.valu);
+        if m.skill_points > 0 {
+            self.mastery_milestones = self
+                .mastery_milestones
+                .saturating_add(m.skill_points);
+        }
+        if let Some(eff) = m.permanent_effect {
+            if let Some((msg, _)) = crate::buffs::apply_effect(&mut self.buffs, eff) {
+                self.narrator.say(format!("*** {msg} ***"));
+            }
+        }
+        self.narrator.say(format!(
+            "*** {label} milestone: {} ({} unique). +{}$V{}{} ***",
+            m.label,
+            m.threshold,
+            m.valu,
+            if m.skill_points > 0 {
+                format!(", +{} skill point(s)", m.skill_points)
+            } else {
+                String::new()
+            },
+            if m.permanent_effect.is_some() {
+                ", permanent buff"
+            } else {
+                ""
+            },
+        ));
+    }
+
+    fn handle_cooking_key(&mut self, code: KeyCode) {
+        let n = crate::recipes::recipes().len();
+        let Scene::Cooking { cursor } = &mut self.scene else { return };
+        match code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.scene = Scene::Overworld;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if n > 0 {
+                    *cursor = (*cursor + 1).min(n - 1);
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                *cursor = cursor.saturating_sub(1);
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                let idx = *cursor;
+                self.cook_recipe_at(idx);
+            }
+            _ => {}
+        }
+    }
+
+    /// Cook the recipe at index `idx` in `recipes::recipes()`. Validates
+    /// level + ingredients, consumes ingredients, applies stamina + the
+    /// buff effect, bumps mastery, grants cooking xp. Mastery multiplies
+    /// stamina + effect: +5% per 5 cooks, capped at +50%.
+    fn cook_recipe_at(&mut self, idx: usize) {
+        let recs = crate::recipes::recipes();
+        let Some(r) = recs.get(idx) else { return };
+        let lvl = self.skills.cooking_level();
+        if lvl < r.min_cooking_level {
+            self.narrator.say(format!(
+                "{} requires cooking level {}. You're at {}.",
+                r.name, r.min_cooking_level, lvl
+            ));
+            return;
+        }
+        if !crate::recipes::can_cook(r, &self.player.inventory) {
+            self.narrator.say(format!(
+                "Missing ingredients for {}. Check the basket (:i).",
+                r.name
+            ));
+            return;
+        }
+        // Consume ingredients — first match wins per (name, qty) entry.
+        for (name, qty) in &r.ingredients {
+            let mut left = *qty;
+            while left > 0 {
+                if let Some(pos) = self
+                    .player
+                    .inventory
+                    .iter()
+                    .position(|f| f.name.eq_ignore_ascii_case(name))
+                {
+                    self.player.inventory.remove(pos);
+                    left -= 1;
+                } else {
+                    break;
+                }
+            }
+        }
+        // Apply mastery scaling: every 5 cooks adds 5%, cap +50%.
+        let m = self.cooking_mastery.get(idx).copied().unwrap_or(0) as f32;
+        let scale = 1.0 + ((m / 5.0).floor() * 0.05).min(0.50);
+        let stamina_grant = (r.stamina as f32 * scale).round();
+        if stamina_grant > 0.0 {
+            self.grant_stamina(stamina_grant);
+        }
+        if let Some(eff) = &r.effect {
+            // Parse and scale the magnitude before applying. Reuses the
+            // buff syntax from fish effects so a scaled "price_mult:0.005"
+            // becomes "price_mult:0.0075" at +50% mastery, etc.
+            if let Some((k, v)) = eff.split_once(':') {
+                if let Ok(mag) = v.trim().parse::<f32>() {
+                    let scaled = format!("{}:{}", k.trim(), mag * scale);
+                    if let Some((msg, _)) =
+                        crate::buffs::apply_effect(&mut self.buffs, &scaled)
+                    {
+                        self.narrator.say(format!("*** {msg} ***"));
+                    }
+                }
+            } else if let Some((msg, _)) =
+                crate::buffs::apply_effect(&mut self.buffs, eff)
+            {
+                self.narrator.say(format!("*** {msg} ***"));
+            }
+        }
+        // Mastery + cooking xp. Cooking xp scales with the recipe's
+        // min_cooking_level so high-tier dishes give more.
+        if let Some(slot) = self.cooking_mastery.get_mut(idx) {
+            *slot = slot.saturating_add(1);
+            let after_m = *slot;
+            const NARRATE_AT: &[u32] = &[1, 5, 10, 25, 50, 100, 250];
+            if NARRATE_AT.contains(&after_m) {
+                self.narrator.say(format!(
+                    "*** Recipe mastery {after_m} on {}! ***",
+                    r.name
+                ));
+            }
+        }
+        let xp = (20 + r.min_cooking_level as u64 * 4)
+            .saturating_mul((scale * 100.0) as u64)
+            / 100;
+        let before = self.skills.cooking_level();
+        self.skills.cooking_xp += xp.max(10);
+        let after = self.skills.cooking_level();
+        self.show_xp_gain("Cooking", xp.max(10), self.skills.cooking_xp, after);
+        self.narrator.say(format!(
+            "Cooked {}. +{} stamina.{}",
+            r.name,
+            stamina_grant as i32,
+            if scale > 1.0 {
+                format!(" (mastery x{:.2})", scale)
+            } else {
+                String::new()
+            }
+        ));
+        if after > before {
+            self.narrator
+                .say(format!("Cooking level up! Now level {after}."));
+        }
+        self.check_encyclopedia_milestones();
+    }
+
     fn do_cook(&mut self, name: &str) {
         let key = name.to_ascii_lowercase();
         let idx = self
@@ -870,6 +1390,8 @@ impl App {
         if self.skill_tree.stamina_second_wind() && self.stamina < max * 0.10 {
             return;
         }
+        // Boots can shrink the per-action drain (diamond boots = ~30% less).
+        let cost = cost * self.player.gear.combined_perks().stamina_loss_mult;
         self.stamina = (self.stamina - cost).max(0.0);
         if self.stamina <= 0.1 && self.anim_tick % 40 == 0 {
             self.narrator.say("You are exhausted. Sit down and fish.");
@@ -1033,7 +1555,14 @@ impl App {
                 f.gear_tackle_label = tackle_label;
                 self.scene = Scene::Fishing(f);
             }
-            CastPhase::Waiting => {}
+            CastPhase::Waiting => {
+                // No '!' on the bobber yet — pressing space here aborts the
+                // cast instead of doing nothing. Saves the player a separate
+                // Esc keystroke.
+                self.cast = None;
+                self.narrator
+                    .say("Reeled in early. Whatever was nibbling, you'll never know.");
+            }
         }
     }
 
@@ -1099,6 +1628,9 @@ impl App {
             self.check_achievements();
             self.refresh_daily();
             self.tick_faceless();
+            self.sync_cape();
+            self.tick_cape_payout();
+            self.tick_market_day_rollover();
         }
         if let Some(t) = self.pending_quit_at {
             if self.anim_tick >= t {
@@ -1108,7 +1640,8 @@ impl App {
         }
 
         let movement_allowed = matches!(self.mode, Mode::Insert)
-            && matches!(self.scene, Scene::Overworld | Scene::HouseInterior { .. });
+            && matches!(self.scene, Scene::Overworld | Scene::HouseInterior { .. })
+            && self.cast.is_none();
         if movement_allowed {
             if let Some(dir) = self.held_dir {
                 if self.anim_tick > self.held_until_tick {
@@ -1122,7 +1655,8 @@ impl App {
                     // Exhausted: each step interval is ~1.43x longer (30%
                     // slower). Doesn't block movement — just drags it.
                     let stam_mult = if self.stamina <= 0.0 { 1.0 / 0.7 } else { 1.0 };
-                    let interval = ((base as f32) * self.buffs.walk_mult() * stam_mult)
+                    let gear_mult = self.player.gear.combined_perks().move_speed_mult.max(0.2);
+                    let interval = ((base as f32) * self.buffs.walk_mult() * stam_mult * gear_mult)
                         .round()
                         .max(1.0) as u64;
                     if self.anim_tick.saturating_sub(self.last_step_tick) >= interval {
@@ -1313,13 +1847,33 @@ impl App {
 
     /// Single entry point for "the player wants to step one cell in (dx, dy)".
     /// Routes to the overworld step or to the house-interior step depending
-    /// on the current scene.
+    /// on the current scene. Throttled: keyboard autorepeat + mashing two
+    /// axes simultaneously (e.g. Down + Right + S + D) would otherwise let
+    /// the player blur across the map at 30+ cells/sec. The cooldown is
+    /// axis-aware to match the 2:1 cell aspect (vertical cells are twice
+    /// as tall as horizontal cells are wide, so a vertical step covers ~2x
+    /// the visual distance and needs ~2x the cooldown to feel even) and is
+    /// scaled by boot perks via move_speed_mult.
     fn step_dispatch(&mut self, dx: i32, dy: i32) {
+        // Lines and feet stay where you cast them: no walking while a cast
+        // is live (waiting for bite or hooked).
+        if self.cast.is_some() {
+            return;
+        }
+        const BASE_COOLDOWN_H_MS: f32 = 69.0;
+        const BASE_COOLDOWN_V_MS: f32 = 126.0;
+        let mult = self.player.gear.combined_perks().move_speed_mult.max(0.2);
+        let base = if dy != 0 { BASE_COOLDOWN_V_MS } else { BASE_COOLDOWN_H_MS };
+        let cd = std::time::Duration::from_millis((base * mult) as u64);
+        if self.last_step_at.elapsed() < cd {
+            return;
+        }
         match &self.scene {
             Scene::Overworld => self.step(dx, dy),
             Scene::HouseInterior { .. } => self.step_house(dx, dy),
-            _ => {}
+            _ => return,
         }
+        self.last_step_at = std::time::Instant::now();
     }
 
     fn step_house(&mut self, dx: i32, dy: i32) {
@@ -1361,7 +1915,7 @@ impl App {
         let cmd_shortcut_blocked = matches!(
             self.scene,
             Scene::Notes(_) | Scene::NamePrompt(_) | Scene::Dialogue { .. }
-            | Scene::Mining(_) | Scene::Fishing(_) | Scene::Boss(_)
+            | Scene::Mining(_) | Scene::Chopping(_) | Scene::Fishing(_) | Scene::Boss(_)
         ) || fishdex_filtering;
         if code == KeyCode::Char(':') && !cmd_shortcut_blocked {
             self.mode = Mode::Command(String::new());
@@ -1798,9 +2352,17 @@ impl App {
             }
             Scene::NamePrompt(_) => {}
             Scene::Mining(_) => self.handle_mining_key(code),
+            Scene::Blacksmith { .. } => self.handle_blacksmith_key(code),
+            Scene::SellGear { .. } => self.handle_sell_gear_key(code),
+            Scene::Gear { .. } => self.handle_gear_key(code),
+            Scene::Smelt { .. } => self.handle_smelt_key(code),
+            Scene::Forge { .. } => self.handle_forge_key(code),
             Scene::HouseInterior { .. } => self.handle_house_key(code),
             Scene::TackleShop { .. } => self.handle_tackle_key(code),
             Scene::BaitShop { .. } => self.handle_bait_key(code),
+            Scene::Shipwright { .. } => self.handle_shipwright_key(code),
+            Scene::Chopping(_) => self.handle_chop_key(code),
+            Scene::Cooking { .. } => self.handle_cooking_key(code),
             Scene::Achievements { cursor } => match code {
                 KeyCode::Esc | KeyCode::Char('q') => self.scene = Scene::Overworld,
                 KeyCode::Char('j') | KeyCode::Down => {
@@ -1977,9 +2539,372 @@ impl App {
         }
     }
 
-    fn handle_mining_key(&mut self, code: KeyCode) {
+    fn handle_blacksmith_key(&mut self, code: KeyCode) {
+        const OPTIONS: usize = 3;
         match code {
             KeyCode::Esc | KeyCode::Char('q') => {
+                self.scene = Scene::Overworld;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if let Scene::Blacksmith { cursor } = &mut self.scene {
+                    *cursor = ((*cursor as usize + 1) % OPTIONS) as u8;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if let Scene::Blacksmith { cursor } = &mut self.scene {
+                    *cursor = ((*cursor as usize + OPTIONS - 1) % OPTIONS) as u8;
+                }
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                let pick = if let Scene::Blacksmith { cursor } = self.scene {
+                    cursor
+                } else {
+                    return;
+                };
+                match pick {
+                    0 => {
+                        self.sell_ore_and_ingots();
+                        self.scene = Scene::Overworld;
+                    }
+                    1 => {
+                        if self.player.gear.owned.is_empty() {
+                            self.narrator.say("You haven't forged anything yet.");
+                        } else {
+                            self.scene = Scene::SellGear { cursor: 0 };
+                        }
+                    }
+                    _ => {
+                        self.scene = Scene::Overworld;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Slots editable in the Gear scene. Cape is omitted — auto-managed.
+    const GEAR_SLOTS: [crate::gear::Slot; 4] = [
+        crate::gear::Slot::Feet,
+        crate::gear::Slot::Neck,
+        crate::gear::Slot::Ring,
+        crate::gear::Slot::Pickaxe,
+    ];
+
+    fn handle_gear_key(&mut self, code: KeyCode) {
+        let n_slots = Self::GEAR_SLOTS.len();
+        let cur_slot = if let Scene::Gear { slot_idx, .. } = self.scene {
+            Self::GEAR_SLOTS[slot_idx.min(n_slots - 1)]
+        } else {
+            return;
+        };
+        let owned_in_slot: Vec<String> = self
+            .player
+            .gear
+            .owned
+            .iter()
+            .filter(|id| {
+                crate::gear::def_by_id(id)
+                    .and_then(|d| d.slot_enum())
+                    .map(|s| s == cur_slot)
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect();
+        match code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.scene = Scene::Overworld;
+            }
+            KeyCode::Char('h') | KeyCode::Left => {
+                if let Scene::Gear { slot_idx, item_idx } = &mut self.scene {
+                    *slot_idx = (*slot_idx + n_slots - 1) % n_slots;
+                    *item_idx = 0;
+                }
+            }
+            KeyCode::Char('l') | KeyCode::Right => {
+                if let Scene::Gear { slot_idx, item_idx } = &mut self.scene {
+                    *slot_idx = (*slot_idx + 1) % n_slots;
+                    *item_idx = 0;
+                }
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if let Scene::Gear { item_idx, .. } = &mut self.scene {
+                    if !owned_in_slot.is_empty() {
+                        *item_idx = (*item_idx + 1).min(owned_in_slot.len() - 1);
+                    }
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if let Scene::Gear { item_idx, .. } = &mut self.scene {
+                    *item_idx = item_idx.saturating_sub(1);
+                }
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                let idx = if let Scene::Gear { item_idx, .. } = self.scene {
+                    item_idx
+                } else {
+                    return;
+                };
+                if let Some(id) = owned_in_slot.get(idx).cloned() {
+                    self.player.gear.equip(cur_slot, Some(id.clone()));
+                    if let Some(def) = crate::gear::def_by_id(&id) {
+                        self.narrator.say(format!("Equipped {}.", def.name));
+                    }
+                }
+            }
+            KeyCode::Char('u') => {
+                self.player.gear.equip(cur_slot, None);
+                self.narrator
+                    .say(format!("Unequipped {} slot.", cur_slot.label()));
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_sell_gear_key(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.scene = Scene::Blacksmith { cursor: 1 };
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                let n = self.player.gear.owned.len();
+                if let Scene::SellGear { cursor } = &mut self.scene {
+                    if n > 0 {
+                        *cursor = (*cursor + 1).min(n - 1);
+                    }
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if let Scene::SellGear { cursor } = &mut self.scene {
+                    *cursor = cursor.saturating_sub(1);
+                }
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                let idx = if let Scene::SellGear { cursor } = self.scene {
+                    cursor
+                } else {
+                    return;
+                };
+                if self.sell_forged_gear_at(idx) && self.player.gear.owned.is_empty() {
+                    self.scene = Scene::Blacksmith { cursor: 1 };
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Sell the gear at `idx` in `player.gear.owned`. Price = sum of
+    /// the recipe's ingot values × 1.10. Counts as 1 against today's
+    /// blacksmith cap. Removes from owned + unequips if currently worn.
+    /// Returns true if a sale completed (so caller can clamp the cursor).
+    fn sell_forged_gear_at(&mut self, idx: usize) -> bool {
+        self.tick_market_day_rollover();
+        let cap = self.blacksmith_daily_cap();
+        if self.ore_sold_today >= cap {
+            self.narrator.say(format!(
+                "Blacksmith: \"Books are closed for today. (cap {cap}/day.)\""
+            ));
+            return false;
+        }
+        let id = match self.player.gear.owned.get(idx).cloned() {
+            Some(id) => id,
+            None => return false,
+        };
+        let Some(def) = crate::gear::def_by_id(&id) else { return false };
+        let ingot_total: u64 = def
+            .recipe
+            .ingots
+            .iter()
+            .map(|(name, qty)| {
+                crate::mining::ore_by_name(name)
+                    .map(|o| o.ingot_value() * (*qty as u64))
+                    .unwrap_or(0)
+            })
+            .sum();
+        let mult = self.buffs.price_mult() * self.skill_tree.valu_mult();
+        let price = ((ingot_total as f32) * 1.10 * mult).round() as u64;
+        // remove from owned + unequip if currently worn
+        self.player.gear.owned.remove(idx);
+        for slot in crate::gear::Slot::ALL {
+            if self.player.gear.equipped(slot) == Some(&id) {
+                self.player.gear.equip(slot, None);
+            }
+        }
+        self.player.valu = self.player.valu.saturating_add(price);
+        self.lifetime_valu = self.lifetime_valu.saturating_add(price);
+        self.stats.valu_earned = self.stats.valu_earned.saturating_add(price);
+        self.ore_sold_today = self.ore_sold_today.saturating_add(1);
+        self.narrator.say(format!(
+            "Sold {} for {}$V. ({}/{} today)",
+            def.name, price, self.ore_sold_today, cap,
+        ));
+        true
+    }
+
+    fn handle_smelt_key(&mut self, code: KeyCode) {
+        match code {
+            // Only Esc quits — 'q' is a valid character in ore names
+            // (turquoise) and must remain typeable.
+            KeyCode::Esc => {
+                self.scene = Scene::Overworld;
+                return;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                let n = self.smeltable_ores().len();
+                if let Scene::Smelt { cursor, typed } = &mut self.scene {
+                    if n > 0 {
+                        *cursor = (*cursor + 1).min(n.saturating_sub(1));
+                    }
+                    typed.clear();
+                }
+                return;
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if let Scene::Smelt { cursor, typed } = &mut self.scene {
+                    *cursor = cursor.saturating_sub(1);
+                    typed.clear();
+                }
+                return;
+            }
+            KeyCode::Backspace => {
+                if let Scene::Smelt { typed, .. } = &mut self.scene {
+                    typed.pop();
+                }
+                return;
+            }
+            KeyCode::Char(c) => {
+                // Type the ORE NAME (one per row) — same flavor as the
+                // mining minigame, so smelting copper feels different from
+                // smelting diamond.
+                let ore_picked: Option<&'static crate::mining::OreDef> = {
+                    let avail = self.smeltable_ores();
+                    if let Scene::Smelt { cursor, typed } = &mut self.scene {
+                        let idx = (*cursor).min(avail.len().saturating_sub(1));
+                        let target: Option<&'static str> =
+                            avail.get(idx).map(|(o, _)| o.name);
+                        if let Some(target) = target {
+                            let next_idx = typed.chars().count();
+                            if let Some(exp) = target.chars().nth(next_idx) {
+                                if c.eq_ignore_ascii_case(&exp) {
+                                    typed.push(exp);
+                                }
+                            }
+                            if typed.len() >= target.len() {
+                                typed.clear();
+                                avail.get(idx).map(|(o, _)| *o)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                };
+                if let Some(ore) = ore_picked {
+                    self.perform_smelt(ore);
+                    // If that drained the row, clamp the cursor.
+                    let n = self.smeltable_ores().len();
+                    if let Scene::Smelt { cursor, .. } = &mut self.scene {
+                        if n == 0 {
+                            self.scene = Scene::Overworld;
+                            return;
+                        }
+                        *cursor = (*cursor).min(n - 1);
+                    }
+                }
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_forge_key(&mut self, code: KeyCode) {
+        match code {
+            // Only Esc quits — 'q' is needed in some forged-piece names.
+            KeyCode::Esc => {
+                self.scene = Scene::Overworld;
+                return;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                let n = self.forgeable_gear().len();
+                if let Scene::Forge { cursor, typed } = &mut self.scene {
+                    if n > 0 {
+                        *cursor = (*cursor + 1).min(n.saturating_sub(1));
+                    }
+                    typed.clear();
+                }
+                return;
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if let Scene::Forge { cursor, typed } = &mut self.scene {
+                    *cursor = cursor.saturating_sub(1);
+                    typed.clear();
+                }
+                return;
+            }
+            KeyCode::Backspace => {
+                if let Scene::Forge { typed, .. } = &mut self.scene {
+                    typed.pop();
+                }
+                return;
+            }
+            KeyCode::Char(c) => {
+                let picked: Option<&'static crate::gear::GearDef> = {
+                    let avail = self.forgeable_gear();
+                    if let Scene::Forge { cursor, typed } = &mut self.scene {
+                        let idx = (*cursor).min(avail.len().saturating_sub(1));
+                        let target = avail.get(idx).map(|d| d.name.to_ascii_lowercase());
+                        if let Some(t) = target.as_deref() {
+                            let next_idx = typed.chars().count();
+                            if let Some(exp) = t.chars().nth(next_idx) {
+                                // skip spaces transparently — typing fluid
+                                if exp == ' ' {
+                                    typed.push(' ');
+                                    if let Some(exp2) = t.chars().nth(typed.chars().count()) {
+                                        if c.eq_ignore_ascii_case(&exp2) {
+                                            typed.push(exp2);
+                                        }
+                                    }
+                                } else if c.eq_ignore_ascii_case(&exp) {
+                                    typed.push(exp);
+                                }
+                            }
+                            if typed.len() >= t.len() {
+                                typed.clear();
+                                avail.get(idx).copied()
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                };
+                if let Some(def) = picked {
+                    self.perform_forge(def);
+                    let n = self.forgeable_gear().len();
+                    if let Scene::Forge { cursor, .. } = &mut self.scene {
+                        if n == 0 {
+                            self.scene = Scene::Overworld;
+                            return;
+                        }
+                        *cursor = (*cursor).min(n - 1);
+                    }
+                }
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_mining_key(&mut self, code: KeyCode) {
+        match code {
+            // Only Esc quits — 'q' is a valid character in ore names
+            // (turquoise) and must be available to type.
+            KeyCode::Esc => {
                 self.scene = Scene::Overworld;
             }
             KeyCode::Char(c) => {
@@ -2132,10 +3057,34 @@ impl App {
             cmd if cmd.starts_with("cook ") || cmd == "cook" => {
                 let name = cmd.strip_prefix("cook").unwrap_or("").trim();
                 if name.is_empty() {
-                    self.narrator.say("Usage: :cook <fish name>. Try :i to browse.");
+                    // Open the recipe menu instead of the old usage hint.
+                    // `:cook <fish name>` still works for the legacy
+                    // single-fish stamina restore.
+                    self.scene = Scene::Cooking { cursor: 0 };
+                    self.mode = Mode::Insert;
                 } else {
                     self.do_cook(name);
                 }
+            }
+            "recipes" | "cookbook" | "rb" => {
+                self.scene = Scene::Cooking { cursor: 0 };
+                self.mode = Mode::Insert;
+            }
+            cmd if cmd.starts_with("feed") => {
+                let arg = cmd.strip_prefix("feed").unwrap_or("").trim();
+                let n: u32 = arg.parse().unwrap_or(1).max(1);
+                self.do_feed_crew(n);
+            }
+            cmd if cmd.starts_with("burn") => {
+                let arg = cmd.strip_prefix("burn").unwrap_or("").trim();
+                let n: u32 = arg.parse().unwrap_or(1).max(1);
+                self.do_burn_biofuel(n);
+            }
+            "chop" => {
+                self.do_chop();
+            }
+            "shipwright" | "yard" => {
+                self.do_open_shipwright();
             }
             "boss" => {
                 // Trigger a boss fight against two random caught fish.
@@ -2275,8 +3224,160 @@ impl App {
                         .say(format!("Unknown destination: '{name}'."));
                 }
             }
+            "gear" | "eq" => {
+                self.scene = Scene::Gear { slot_idx: 0, item_idx: 0 };
+                self.mode = Mode::Insert;
+            }
+            "smelt" => {
+                if !self.is_near_blacksmith() {
+                    self.narrator
+                        .say("You'd need a blacksmith nearby. Find one in any village.");
+                } else if self.smeltable_ores().is_empty() {
+                    self.narrator
+                        .say("Nothing smeltable. Mine some ore first.");
+                } else {
+                    self.scene = Scene::Smelt { cursor: 0, typed: String::new() };
+                    self.mode = Mode::Insert;
+                }
+            }
+            "sellore" | "sell-ore" | "smelt-sell" => {
+                if !self.is_near_blacksmith() {
+                    self.narrator
+                        .say("You'd need a blacksmith nearby. Find one in any village.");
+                } else {
+                    self.sell_ore_and_ingots();
+                }
+            }
+            "forge" => {
+                if !self.is_near_blacksmith() {
+                    self.narrator
+                        .say("You'd need a blacksmith nearby. Find one in any village.");
+                } else if self.forgeable_gear().is_empty() {
+                    self.narrator
+                        .say("Nothing to forge. Smelt some ingots, level up Blacksmithing, or save up valu.");
+                } else {
+                    self.scene = Scene::Forge { cursor: 0, typed: String::new() };
+                    self.mode = Mode::Insert;
+                }
+            }
             other => self.narrator.say(format!("Unknown command: :{other}")),
         }
+    }
+
+    /// (ore, raw_count) pairs for every ore the player has at least
+    /// `ore.ore_per_ingot` raw chunks of. Used by the smelt UI.
+    fn smeltable_ores(&self) -> Vec<(&'static crate::mining::OreDef, u32)> {
+        let mut counts: std::collections::BTreeMap<&'static str, u32> = Default::default();
+        for it in &self.player.items {
+            if matches!(it.category, crate::item::Category::Mineral) {
+                *counts.entry(canonical_ore_name(&it.name)).or_default() += 1;
+            }
+        }
+        let mut out = Vec::new();
+        for ore in crate::mining::ORES.iter() {
+            let c = counts.get(ore.name).copied().unwrap_or(0);
+            if c >= ore.ore_per_ingot {
+                out.push((ore, c));
+            }
+        }
+        out
+    }
+
+    /// Consume `ore.ore_per_ingot` raw ore items of this type from the
+    /// player's inventory and produce one ingot. Returns true if performed.
+    fn perform_smelt(&mut self, ore: &'static crate::mining::OreDef) -> bool {
+        let need = ore.ore_per_ingot as usize;
+        let mut indices: Vec<usize> = Vec::new();
+        for (i, it) in self.player.items.iter().enumerate() {
+            if matches!(it.category, crate::item::Category::Mineral)
+                && canonical_ore_name(&it.name) == ore.name
+            {
+                indices.push(i);
+                if indices.len() == need {
+                    break;
+                }
+            }
+        }
+        if indices.len() < need {
+            return false;
+        }
+        // Drain in reverse so indices stay valid.
+        for &i in indices.iter().rev() {
+            self.player.items.remove(i);
+        }
+        *self.player.ingots.entry(ore.name.to_string()).or_insert(0) += 1;
+        let xp = (ore.tier as u64).pow(2) * 6 + 8;
+        let before = self.skills.blacksmithing_level();
+        self.skills.blacksmithing_xp += xp;
+        let after = self.skills.blacksmithing_level();
+        self.show_xp_gain("Blacksmithing", xp, self.skills.blacksmithing_xp, after);
+        if after > before {
+            self.narrator
+                .say(format!("Blacksmithing level up! Now level {after}."));
+        }
+        self.narrator
+            .say(format!("You smelt {} {} into a {} ingot.", need, ore.name, ore.name));
+        true
+    }
+
+    /// Every GearDef the player currently meets the requirements for
+    /// (skill level + ingot stockpile + valu). Used by the forge UI.
+    fn forgeable_gear(&self) -> Vec<&'static crate::gear::GearDef> {
+        crate::gear::defs()
+            .iter()
+            .filter(|d| self.can_forge(d))
+            .collect()
+    }
+
+    fn can_forge(&self, def: &crate::gear::GearDef) -> bool {
+        if self.skills.blacksmithing_level() < def.min_blacksmithing_level {
+            return false;
+        }
+        if self.skills.mining_level() < def.min_mining_level {
+            return false;
+        }
+        if self.player.valu < def.recipe.valu {
+            return false;
+        }
+        for (id, qty) in &def.recipe.ingots {
+            if self.player.ingots.get(id).copied().unwrap_or(0) < *qty {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn perform_forge(&mut self, def: &'static crate::gear::GearDef) -> bool {
+        if !self.can_forge(def) {
+            return false;
+        }
+        // Pay costs.
+        self.player.valu -= def.recipe.valu;
+        for (id, qty) in &def.recipe.ingots {
+            let entry = self.player.ingots.entry(id.clone()).or_insert(0);
+            *entry = entry.saturating_sub(*qty);
+        }
+        // Bank the gear. Auto-equip *only* if the slot is currently empty
+        // — never clobber a deliberately-worn piece. Use `:gear` to swap.
+        self.player.gear.add_owned(&def.id);
+        if let Some(slot) = def.slot_enum() {
+            if self.player.gear.equipped(slot).is_none() {
+                self.player.gear.equip(slot, Some(def.id.clone()));
+            }
+        }
+        // BS XP scales with tier.
+        let xp = (def.tier as u64).pow(2) * 25 + 50;
+        let before = self.skills.blacksmithing_level();
+        self.skills.blacksmithing_xp += xp;
+        let after = self.skills.blacksmithing_level();
+        self.show_xp_gain("Blacksmithing", xp, self.skills.blacksmithing_xp, after);
+        if after > before {
+            self.narrator
+                .say(format!("Blacksmithing level up! Now level {after}."));
+        }
+        self.narrator
+            .say(format!("You forge a {}.", def.name));
+        true
     }
 
     /// Compute the current weather honouring season-filter rules. Used
@@ -2410,10 +3511,24 @@ impl App {
                             crate::weather::Weather::PopHigh => 3,
                             _ => 1,
                         };
+                        // Necklace perk: roll for a bonus copy (uniques excluded).
+                        let dbl_chance = self.player.gear.combined_perks().double_fish_chance;
+                        let bonus = if !fish_ref.unique
+                            && dbl_chance > 0.0
+                            && crate::fish::next_rand_f32(&mut self.rng_state) < dbl_chance
+                        {
+                            1
+                        } else {
+                            0
+                        };
                         // unique fish never duplicate
-                        let actual_copies = if fish_ref.unique { 1 } else { copies };
+                        let actual_copies = if fish_ref.unique { 1 } else { copies + bonus };
                         for _ in 0..actual_copies {
                             self.player.inventory.push(fish_ref);
+                        }
+                        if bonus > 0 {
+                            self.narrator
+                                .say("Your necklace hums — a second fish slides into the basket.");
                         }
                         let name = fish_ref.name.clone();
                         if fish_ref.unique {
@@ -2465,6 +3580,19 @@ impl App {
                     let relax = (5.0 + r * 5.0) * self.skill_tree.stamina_fish_regen_mult();
                     self.grant_stamina(relax);
                     self.stats.fish_caught += 1;
+                    // Crew hunger ticks up on every catch made while aboard
+                    // the boat. Saturating at 100; the cast-block kicks in
+                    // when it hits 100 so the player must :feed before the
+                    // next cast.
+                    if self.player.on_boat {
+                        self.player.crew_hunger = (self.player.crew_hunger + 1).min(100);
+                        if self.player.crew_hunger == 100 {
+                            self.narrator.say(
+                                "The crew is starving. Feed them (:feed <n>) before casting again."
+                                    .to_string(),
+                            );
+                        }
+                    }
                     // Roll a size class and apply mastery-challenge progress.
                     let size = crate::mastery_challenges::roll_size(
                         crate::fish::next_rand_f32(&mut self.rng_state),
@@ -2481,21 +3609,35 @@ impl App {
                     }
                     self.tick_streak(&fish_ref.name);
                     self.tick_mastery_challenges_catch(&fish_ref.name, size);
-                    // Fish mastery: bump per-species counter; if we crossed a
-                    // milestone (1/5/10/25/50/100), bonus skill point + chat.
+                    // Fish mastery: bump per-species counter. The narrator
+                    // celebrates the soft milestones (1/5/10/25/50/100), but
+                    // only the deeper ones (50, 250) grant a skill point —
+                    // otherwise 600+ species × 6 free points each drowns
+                    // the tree in income and it self-completes from a single
+                    // "catch one of everything" sweep.
                     if let Some(i) = fishlist::fish().iter().position(|f| std::ptr::eq(f, fish_ref)) {
                         let before_m = self.mastery.get(i).copied().unwrap_or(0);
                         if let Some(slot) = self.mastery.get_mut(i) {
                             *slot = slot.saturating_add(1);
                         }
                         let after_m = before_m + 1;
-                        const MILESTONES: &[u32] = &[1, 5, 10, 25, 50, 100];
-                        if MILESTONES.contains(&after_m) {
-                            self.mastery_milestones = self.mastery_milestones.saturating_add(1);
-                            self.narrator.say(format!(
-                                "*** Mastery {after_m} on {}! +1 skill point. ***",
-                                fish_ref.name
-                            ));
+                        const NARRATE_AT: &[u32] = &[1, 5, 10, 25, 50, 100, 250];
+                        const POINT_AT: &[u32] = &[50, 250];
+                        if NARRATE_AT.contains(&after_m) {
+                            let grants_point = POINT_AT.contains(&after_m);
+                            if grants_point {
+                                self.mastery_milestones =
+                                    self.mastery_milestones.saturating_add(1);
+                                self.narrator.say(format!(
+                                    "*** Mastery {after_m} on {}! +1 skill point. ***",
+                                    fish_ref.name
+                                ));
+                            } else {
+                                self.narrator.say(format!(
+                                    "*** Mastery {after_m} on {}! ***",
+                                    fish_ref.name
+                                ));
+                            }
                         }
                     }
                     let before = self.skills.fishing_level();
@@ -2506,6 +3648,7 @@ impl App {
                         self.narrator
                             .say(format!("Fishing level up! Now level {after}."));
                     }
+                    self.check_encyclopedia_milestones();
                     if let Some(eff) = &fish_ref.effect {
                         if let Some((msg, kind)) = crate::buffs::apply_effect(&mut self.buffs, eff)
                         {
@@ -2580,7 +3723,7 @@ impl App {
                 .say(crate::inspect_text::get("faceless:inspect"));
             return;
         }
-        if let Some(npc) = npc::npc_at_dim(tx, ty, self.world.dim) {
+        if let Some(npc) = npc::npc_at_dim(tx, ty, self.world.dim, self.world.seed) {
             self.narrator
                 .say(format!("{}: press f to talk.", npc.name));
             return;
@@ -2598,6 +3741,13 @@ impl App {
             self.mark_seen_around_player();
             return;
         }
+        if matches!(t, Tile::Curio) {
+            if let Some((entry, _idx)) = crate::world::curio_at(tx, ty, self.world.dim, self.world.seed) {
+                let key = format!("curio:{}", entry.0);
+                self.narrator.say(crate::inspect_text::get(&key));
+                return;
+            }
+        }
         self.narrator.say(t.describe());
     }
 
@@ -2608,7 +3758,7 @@ impl App {
         if self.faceless.iter().any(|&(x, y)| x == nx && y == ny) {
             return; // faceless block; talk with f to engage
         }
-        if npc::npc_at_dim(nx, ny, self.world.dim).is_some() {
+        if npc::npc_at_dim(nx, ny, self.world.dim, self.world.seed).is_some() {
             return; // blocked by NPC; press f to interact
         }
         let t = self.world.get(nx, ny);
@@ -2616,12 +3766,48 @@ impl App {
         if !walkable {
             return;
         }
+        // Hull-tier depth gate: the boat won't push past the depth your
+        // hull is rated for. Each tier opens deeper water; tier 6 reaches
+        // the Fog Sea. Stepping back toward shore is always allowed.
+        if self.player.on_boat
+            && matches!(self.world.dim, crate::world::Dimension::Surface)
+            && is_boatable(t)
+            && !matches!(t, Tile::Dock)
+        {
+            let depth = ocean_depth_at(&self.world, nx, ny);
+            let limit = crate::player::ocean_depth_max(self.player.hull_tier);
+            if depth > limit {
+                self.narrator.say(format!(
+                    "The {} won't take open water this deep ({} > {}). Upgrade the hull.",
+                    crate::player::hull_label(self.player.hull_tier),
+                    depth,
+                    limit,
+                ));
+                return;
+            }
+        }
         self.player.x = nx;
         self.player.y = ny;
         // Stepping onto a non-water tile dismounts the boat.
         if self.player.on_boat && !is_boatable(t) {
             self.player.on_boat = false;
             self.narrator.say("You step ashore, leaving the boat behind.");
+        }
+        // Biofuel drains 1 per step while aboard. Hitting empty dumps the
+        // player back at the home pier — single-coord teleport (0, 5) at
+        // the top of the dock — and disembarks. The crew's hunger stays as
+        // is, so a long run back to land is still a punishment.
+        if self.player.on_boat && self.player.hull_tier > 0 {
+            self.player.biofuel = self.player.biofuel.saturating_sub(1);
+            if self.player.biofuel == 0 {
+                self.player.x = 0;
+                self.player.y = 5;
+                self.player.on_boat = false;
+                self.narrator.say(
+                    "*** Engine sputters dry. The boat drifts home empty. You wake on the pier. ***"
+                        .to_string(),
+                );
+            }
         }
         self.check_biome_change();
         self.mark_seen_around_player();
@@ -2693,7 +3879,7 @@ impl App {
         if self.try_interact_faceless(nx, ny) {
             return;
         }
-        if let Some(npc) = npc::npc_at_dim(nx, ny, self.world.dim) {
+        if let Some(npc) = npc::npc_at_dim(nx, ny, self.world.dim, self.world.seed) {
             if npc.id == "sailor" {
                 self.interact_sailor();
                 return;
@@ -2712,6 +3898,19 @@ impl App {
             }
             if npc.id == "miner" {
                 self.interact_miner();
+                return;
+            }
+            if npc.id == "blacksmith" || npc.id == "blacksmith-template" {
+                self.scene = Scene::Blacksmith { cursor: 0 };
+                self.mode = Mode::Insert;
+                return;
+            }
+            if npc.id == "fishmonger-template" {
+                self.scene = Scene::Fishmonger {
+                    cursor: 0,
+                    step: FishmongerStep::PickFish,
+                };
+                self.mode = Mode::Insert;
                 return;
             }
             self.narrator.say(format!("You greet {}.", npc.name));
@@ -2754,17 +3953,39 @@ impl App {
                 }
             }
             Tile::MineEntrance => {
-                const MINES_ROD_GATE: u32 = 3;
-                if self.player.rods.max_owned < MINES_ROD_GATE {
-                    self.narrator.say(format!(
-                        "The shaft groans. You need rod tier {MINES_ROD_GATE} to risk going down."
-                    ));
-                    return;
+                // Two flavours of entrance share the MineEntrance tile:
+                // dry mineshafts (-> Mines, rod gate 3) and lakebed A-frames
+                // on lake islands (-> Lakebed, rod gate 25). The lakebed
+                // anchor check tells them apart.
+                let is_lakebed = crate::world::is_lakebed_entrance_anchor(
+                    nx, ny, self.world.seed,
+                );
+                if is_lakebed {
+                    let gate = crate::world::Dimension::Lakebed.min_rod_tier();
+                    if self.player.rods.max_owned < gate {
+                        self.narrator.say(format!(
+                            "The flooded shaft swallows the line. You need rod tier {gate} to descend safely."
+                        ));
+                        return;
+                    }
+                    self.world.dim = crate::world::Dimension::Lakebed;
+                    self.quest_progress("visit_dim", "Lakebed Caves");
+                    self.narrator
+                        .say("You drop through the A-frame. The world goes blue and still.");
+                } else {
+                    const MINES_ROD_GATE: u32 = 3;
+                    if self.player.rods.max_owned < MINES_ROD_GATE {
+                        self.narrator.say(format!(
+                            "The shaft groans. You need rod tier {MINES_ROD_GATE} to risk going down."
+                        ));
+                        return;
+                    }
+                    self.world.dim = crate::world::Dimension::Mines;
+                    self.visited_mines = true;
+                    self.quest_progress("visit_dim", "Mines");
+                    self.narrator
+                        .say("You descend the mineshaft. The light dies behind you.");
                 }
-                self.world.dim = crate::world::Dimension::Mines;
-                self.visited_mines = true;
-                self.quest_progress("visit_dim", "Mines");
-                self.narrator.say("You descend the mineshaft. The light dies behind you.");
             }
             Tile::MineExit => {
                 self.world.dim = crate::world::Dimension::Surface;
@@ -2784,6 +4005,24 @@ impl App {
                     seed,
                 };
             }
+            Tile::Smelter => {
+                if self.smeltable_ores().is_empty() {
+                    self.narrator
+                        .say("The smelter's hot, but you have nothing to smelt.");
+                } else {
+                    self.scene = Scene::Smelt { cursor: 0, typed: String::new() };
+                    self.mode = Mode::Insert;
+                }
+            }
+            Tile::Forge => {
+                if self.forgeable_gear().is_empty() {
+                    self.narrator
+                        .say("The forge is warm, but you have no recipe you can complete.");
+                } else {
+                    self.scene = Scene::Forge { cursor: 0, typed: String::new() };
+                    self.mode = Mode::Insert;
+                }
+            }
             Tile::OreRock => {
                 if !self.player.has_pickaxe {
                     self.narrator
@@ -2791,6 +4030,24 @@ impl App {
                     return;
                 }
                 let key = (self.world.dim, nx, ny);
+                let ore = crate::mining::ore_at_vein(nx, ny, self.world.dim, self.world.seed);
+                let pt = self.player.pickaxe_tier();
+                if pt < ore.min_pickaxe_tier {
+                    let needed = crate::gear::defs()
+                        .iter()
+                        .filter(|d| {
+                            d.slot_enum() == Some(crate::gear::Slot::Pickaxe)
+                                && d.perks.pickaxe_tier == ore.min_pickaxe_tier
+                        })
+                        .map(|d| d.name.clone())
+                        .next()
+                        .unwrap_or_else(|| format!("tier-{}", ore.min_pickaxe_tier));
+                    self.narrator.say(format!(
+                        "This {} vein needs a {} (you have tier {}). Forge one at the blacksmith.",
+                        ore.name, needed, pt,
+                    ));
+                    return;
+                }
                 match crate::mining::vein_status(&self.veins, key) {
                     crate::mining::VeinStatus::OnCooldown(secs_left) => {
                         let mins = (secs_left + 59) / 60;
@@ -2800,13 +4057,16 @@ impl App {
                     }
                     crate::mining::VeinStatus::Ready => {}
                 }
-                let ore = crate::mining::ore_at_vein(nx, ny, self.world.dim, self.world.seed);
-                self.scene = Scene::Mining(crate::mining::Mining::new(
-                    nx,
-                    ny,
-                    self.world.dim,
-                    ore,
-                ));
+                let mut m = crate::mining::Mining::new(nx, ny, self.world.dim, ore);
+                // Ring perk: prewrite N letters of the ore's name so the
+                // typing minigame starts partially done.
+                let prewrite = self.player.gear.combined_perks().ore_prewrite_letters as usize;
+                if prewrite > 0 {
+                    for c in ore.name.chars().take(prewrite) {
+                        m.typed.push(c);
+                    }
+                }
+                self.scene = Scene::Mining(m);
             }
             Tile::Dock
             | Tile::Water
@@ -2814,6 +4074,16 @@ impl App {
             | Tile::MineralWater
             | Tile::DeepWater
             | Tile::Lava => {
+                // Crew won't haul a line while they're starving. Cast is
+                // blocked until the player feeds them (-3 hunger per fish
+                // via `:feed`). Land fishing is unaffected.
+                if self.player.on_boat && self.player.crew_hunger >= 100 {
+                    self.narrator.say(
+                        "The crew refuses to row. They need feeding (:feed <n>) first."
+                            .to_string(),
+                    );
+                    return;
+                }
                 // Wells unlock the inferno: at 100 lifetime well casts, the
                 // next interaction with a well drops you into the inferno
                 // instead of fishing.
@@ -2855,12 +4125,46 @@ impl App {
                     (nx, ny),
                     self.world.seed,
                 );
+                // Fog Sea is a fishing_context-derived label, not a dim,
+                // so it bypasses dim_default_pool. Route it explicitly to
+                // the ghost-fish pool here.
+                let fog_pool = if biome == "Fog Sea" {
+                    Some("ghost".to_string())
+                } else {
+                    None
+                };
                 let pool_override = self
                     .current_pool_override
                     .clone()
+                    .or(fog_pool)
                     .or_else(|| dim_pool.map(|s| s.to_string()));
-                let bait_used = self.player.bait.consume_active();
-                let bait_effect = bait_used.map(|b| (b.effect.clone(), b.magnitude));
+                // Necklace perk: chance the bait is *not* consumed this cast.
+                // Resolve before we touch the stock so the active bait still
+                // applies its effect this cast.
+                let nb_chance = self.player.gear.combined_perks().no_bait_consume_chance;
+                let skip_bait = nb_chance > 0.0
+                    && crate::fish::next_rand_f32(&mut self.rng_state) < nb_chance;
+                let bait_effect_peek = self
+                    .player
+                    .bait
+                    .active
+                    .as_ref()
+                    .and_then(|id| crate::bait::def_by_id(id))
+                    .map(|b| (b.effect.clone(), b.magnitude, b.name.clone()));
+                let (bait_used, bait_effect) = if skip_bait {
+                    if let Some((_, _, name)) = &bait_effect_peek {
+                        self.narrator
+                            .say(format!("Necklace pulses — your {name} survives the cast."));
+                    }
+                    let eff = bait_effect_peek
+                        .as_ref()
+                        .map(|(eff, mag, _)| (eff.clone(), *mag));
+                    (None, eff)
+                } else {
+                    let used = self.player.bait.consume_active();
+                    let eff = used.map(|b| (b.effect.clone(), b.magnitude));
+                    (used, eff)
+                };
                 if let Some(b) = bait_used {
                     self.narrator.say(format!("Bait: {} consumed.", b.name));
                 }
@@ -2876,6 +4180,11 @@ impl App {
                         || rare_boost
                         || weather_rare;
                 let weather_name = weather.value();
+                let depth = if water_kind == "ocean" {
+                    ocean_depth_at(&self.world, nx, ny)
+                } else {
+                    0
+                };
                 let f = crate::fish::pick_fish_full(
                     &mut self.rng_state,
                     fishlist::fish(),
@@ -2887,6 +4196,7 @@ impl App {
                     self.stats.fish_caught,
                     self.skills.fishing_level(),
                     self.player.rods.max_owned,
+                    depth,
                 );
                 self.narrator.say("Casting line - aim for the green!");
                 self.stats.casts += 1;
@@ -2923,6 +4233,7 @@ impl App {
                         self.stats.fish_caught,
                         self.skills.fishing_level(),
                         self.player.rods.max_owned,
+                        0,
                     );
                     self.narrator
                         .say(format!("THE ROD pierces reality. Pool: {}.", pool_override.as_deref().unwrap_or("?")));
@@ -3240,6 +4551,200 @@ impl App {
         }
     }
 
+    /// Valu granted per unlocked achievement on each in-game month rollover.
+    /// Tunable. With ~50 achievements you'd get 12,500$V/month at full
+    /// unlock — meaningful stipend at endgame, modest reward early.
+    const CAPE_VALU_PER_ACHIEVEMENT: u64 = 250;
+
+    /// Synthetic cape "id" tracks the unlocked-achievement count. The cape
+    /// is auto-equipped and unforgeable; the EquippedGear.cape slot stores
+    /// this id so the inventory panel can render "Cape of N Memories".
+    /// def_by_id lookups return None for capes — they don't compose with
+    /// the standard gear perks.
+    fn sync_cape(&mut self) {
+        let n = self.achievements.unlocked.len();
+        if n == 0 {
+            self.player.gear.cape = None;
+            return;
+        }
+        let id = format!("cape-of-{n}-memories");
+        if self.player.gear.cape.as_deref() != Some(id.as_str()) {
+            self.player.gear.cape = Some(id);
+        }
+    }
+
+    /// Current in-game month id (monotonic across years).
+    fn current_month_id(&self) -> u64 {
+        let secs = self.total_play_secs();
+        let m = crate::gametime::month_of_year(secs) as u64;
+        let y = crate::gametime::year(secs);
+        y * crate::gametime::MONTHS_PER_YEAR + m
+    }
+
+    fn current_day_id(&self) -> u64 {
+        crate::gametime::game_days(self.total_play_secs())
+    }
+
+    /// Pay the cape stipend on the 1st of every in-game month. Skips the
+    /// first observed month (sets baseline) so loading an old save doesn't
+    /// retroactively dump a fat lump-sum.
+    fn tick_cape_payout(&mut self) {
+        let cur = self.current_month_id();
+        if self.last_cape_payout_month == 0 {
+            // Baseline: bump to (cur + 1) so the *next* month rollover triggers
+            // the first payout — players get a clean monthly cadence.
+            self.last_cape_payout_month = cur + 1;
+            return;
+        }
+        if cur >= self.last_cape_payout_month {
+            let cape_lv = self.achievements.unlocked.len() as u64;
+            let pay = cape_lv.saturating_mul(Self::CAPE_VALU_PER_ACHIEVEMENT);
+            if pay > 0 {
+                self.player.valu = self.player.valu.saturating_add(pay);
+                self.lifetime_valu = self.lifetime_valu.saturating_add(pay);
+                self.narrator.say(format!(
+                    "*** The month turns. Your cape stirs; {pay}$V flutter from its hem. ({cape_lv} memories.) ***"
+                ));
+            }
+            self.last_cape_payout_month = cur + 1;
+        }
+    }
+
+    /// Reset per-day merchant counters when the in-game day flips.
+    fn tick_market_day_rollover(&mut self) {
+        let cur = self.current_day_id();
+        if cur != self.last_market_day {
+            self.fish_sold_today = 0;
+            self.ore_sold_today = 0;
+            self.last_market_day = cur;
+        }
+    }
+
+    /// Per-day quantity a fishmonger will buy. Roughly calibrated against
+    /// the fishing loop: ~25s per catch, 2/3 of an in-game day continuous
+    /// is ~64 fish at peak. Scaled by Fishing level so newer players are
+    /// rate-bounded and endgame players can dump big hauls.
+    ///
+    /// Curve: `base + level^0.85 * scale`
+    ///   lv  1 →  22
+    ///   lv 10 →  38
+    ///   lv 25 →  60
+    ///   lv 50 →  90
+    ///   lv100 → 145
+    pub fn fishmonger_daily_cap(&self) -> u32 {
+        let lv = self.skills.fishing_level() as f32;
+        (20.0 + lv.powf(0.85) * 2.5) as u32
+    }
+
+    /// Per-day quantity a blacksmith merchant will buy (raw ore + ingots
+    /// combined). Mining loop is ~4s/ore so a 2/3-day grind tops ~400 raw
+    /// per peak day. Scaled by Blacksmithing level.
+    ///
+    /// Curve: `60 + level^0.85 * 7`
+    ///   lv  1 →  67
+    ///   lv 10 → 109
+    ///   lv 25 → 174
+    ///   lv 50 → 261
+    ///   lv100 → 422
+    pub fn blacksmith_daily_cap(&self) -> u32 {
+        let lv = self.skills.blacksmithing_level() as f32;
+        (60.0 + lv.powf(0.85) * 7.0) as u32
+    }
+
+    /// Dump every raw ore + ingot to the blacksmith merchant, up to today's
+    /// quantity cap. Raw ore sells at `ore.value`, ingots at `ore.ingot_value()`.
+    /// Each item counts as 1 against the cap regardless of value, so the cap
+    /// represents merchant attention/throughput rather than wallet size.
+    fn sell_ore_and_ingots(&mut self) {
+        self.tick_market_day_rollover();
+        let cap = self.blacksmith_daily_cap();
+        let mut remaining = cap.saturating_sub(self.ore_sold_today);
+        if remaining == 0 {
+            self.narrator.say(format!(
+                "Blacksmith: \"Cart's full for today — bring more tomorrow. (cap {cap}/day at your Blacksmithing level.)\""
+            ));
+            return;
+        }
+        let mult = self.buffs.price_mult() * self.skill_tree.valu_mult();
+        let mut total = 0u64;
+        let mut sold_count = 0u32;
+        // Raw ore first (lower value per unit so player gets best burn rate)
+        let mut keep: Vec<crate::item::Item> = Vec::with_capacity(self.player.items.len());
+        for it in self.player.items.drain(..).collect::<Vec<_>>() {
+            if remaining == 0 {
+                keep.push(it);
+                continue;
+            }
+            if matches!(it.category, crate::item::Category::Mineral) {
+                if let Some(ore) = crate::mining::ore_by_name(&it.name) {
+                    let price = (ore.value as f32 * mult).round() as u64;
+                    total = total.saturating_add(price);
+                    sold_count += 1;
+                    remaining -= 1;
+                    continue;
+                }
+            }
+            keep.push(it);
+        }
+        self.player.items = keep;
+        // Then ingots.
+        let ingot_keys: Vec<String> = self.player.ingots.keys().cloned().collect();
+        for k in ingot_keys {
+            if remaining == 0 {
+                break;
+            }
+            let Some(ore) = crate::mining::ore_by_name(&k) else { continue };
+            let have = self.player.ingots.get(&k).copied().unwrap_or(0);
+            let n = have.min(remaining);
+            if n == 0 {
+                continue;
+            }
+            let per = (ore.ingot_value() as f32 * mult).round() as u64;
+            total = total.saturating_add(per.saturating_mul(n as u64));
+            sold_count = sold_count.saturating_add(n);
+            remaining -= n;
+            if let Some(e) = self.player.ingots.get_mut(&k) {
+                *e -= n;
+            }
+        }
+        self.player.ingots.retain(|_, v| *v > 0);
+        if sold_count == 0 {
+            self.narrator
+                .say("Blacksmith: \"You haven't got a chip of ore. Come back when you do.\"");
+            return;
+        }
+        self.player.valu = self.player.valu.saturating_add(total);
+        self.lifetime_valu = self.lifetime_valu.saturating_add(total);
+        self.stats.valu_earned = self.stats.valu_earned.saturating_add(total);
+        self.ore_sold_today = self.ore_sold_today.saturating_add(sold_count);
+        self.narrator.say(format!(
+            "Sold {} ore/ingots to the smith for {}$V. ({}/{} today)",
+            sold_count, total, self.ore_sold_today, cap,
+        ));
+    }
+
+    /// True if any of the 8 cells around the player (Chebyshev distance 1)
+    /// holds a Blacksmith NPC. Used to gate `:smelt`/`:forge`/`:sellore`
+    /// commands so the loop happens at the forge, not anywhere.
+    fn is_near_blacksmith(&self) -> bool {
+        let (px, py) = (self.player.x, self.player.y);
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                if let Some(n) =
+                    crate::npc::npc_at_dim(px + dx, py + dy, self.world.dim, self.world.seed)
+                {
+                    if n.id == "blacksmith" || n.id == "blacksmith-template" {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     fn check_achievements(&mut self) {
         let snap = crate::achievements::Snapshot {
             catch_total: self.stats.fish_caught,
@@ -3382,6 +4887,18 @@ impl App {
         if count == 0 {
             return;
         }
+        // Daily fishmonger cap: only as many fish as the village's
+        // remaining headroom for today.
+        self.tick_market_day_rollover();
+        let cap = self.fishmonger_daily_cap();
+        let remaining = cap.saturating_sub(self.fish_sold_today) as u64;
+        if remaining == 0 {
+            self.narrator.say(format!(
+                "Fishmonger: \"Stall's full for today — bring 'em back tomorrow. (cap {cap}/day at your Fishing level.)\""
+            ));
+            return;
+        }
+        let count = count.min(remaining);
         let biome_label = self
             .current_biome
             .map(|b| b.label())
@@ -3424,9 +4941,11 @@ impl App {
         self.lifetime_valu = self.lifetime_valu.saturating_add(total);
         self.stats.valu_earned = self.stats.valu_earned.saturating_add(total);
         self.stats.fish_sold = self.stats.fish_sold.saturating_add(sold);
+        self.fish_sold_today = self.fish_sold_today.saturating_add(sold as u32);
+        let cap = self.fishmonger_daily_cap();
         self.narrator.say(format!(
-            "Sold {} {} for {}$V.",
-            sold, name, total
+            "Sold {} {} for {}$V. ({}/{} today)",
+            sold, name, total, self.fish_sold_today, cap,
         ));
         self.tick_mastery_challenges_sale(name, sold);
     }
@@ -3513,32 +5032,12 @@ impl App {
     }
 
     fn interact_shipwright(&mut self) {
-        const GATE: u64 = 1250;
-        const BOAT_ROD_GATE: u32 = 30;
-        let Some(npc) = npc::npcs().iter().find(|n| n.id == "shipwright") else { return };
-        if self.player.has_boat {
-            self.narrator.say(npc.response("owns_boat", &[]));
-            return;
-        }
-        if self.player.rods.max_owned < BOAT_ROD_GATE {
-            self.narrator.say(format!(
-                "Shipwright: \"A hull's no use if your rod can't hook the deep stuff. Tier-{BOAT_ROD_GATE} rod first.\""
-            ));
-            return;
-        }
-        if self.stats.fish_caught < GATE {
-            self.narrator.say(npc.response(
-                "not_enough",
-                &[
-                    ("count", self.stats.fish_caught.to_string()),
-                    ("need", GATE.to_string()),
-                ],
-            ));
-            return;
-        }
-        self.player.has_boat = true;
-        self.narrator.say(npc.response("built", &[]));
-        self.narrator.say(npc.response("built_tip", &[]));
+        // Now opens the hull-upgrade menu directly. Tier 0 → 1 (the first
+        // boat) costs 1k valu + 10 wood and replaces the old "1250 lifetime
+        // fish caught" gate that the original gameplay had buried behind
+        // an undocumented stat. Subsequent tiers (Coastal Cutter, etc.)
+        // gate ocean depth zones up through the Fog Sea.
+        self.do_open_shipwright();
     }
 
     fn interact_sailor(&mut self) {
@@ -3694,12 +5193,23 @@ impl App {
             Scene::Boss(b) => {
                 b.render(frame, viewport(frame));
             }
-            Scene::Fishdex(d) => d.render(
-                frame,
-                &caught_snapshot,
-                &caught_at_snapshot,
-                &caught_context_snapshot,
-            ),
+            Scene::Fishdex(d) => {
+                let unique = caught_snapshot.iter().filter(|c| **c).count() as u32;
+                let blurb = match FISHDEX_MILES.iter().find(|m| unique < m.threshold) {
+                    Some(m) => format!(
+                        "  next: {} @ {} ({}/{})",
+                        m.label, m.threshold, unique, m.threshold
+                    ),
+                    None => "  all milestones earned".to_string(),
+                };
+                d.render(
+                    frame,
+                    &caught_snapshot,
+                    &caught_at_snapshot,
+                    &caught_context_snapshot,
+                    &blurb,
+                );
+            }
             Scene::NamePrompt(buf) => render_name_prompt(frame, buf),
             Scene::Dialogue { npc, line } => render_dialogue(frame, npc, *line),
             Scene::Notes(buf) => render_notes(frame, buf),
@@ -3724,6 +5234,12 @@ impl App {
                 &self.stats,
                 &self.skills,
                 &self.buffs,
+                &self.player.gear,
+                self.player.ingots.values().sum::<u32>(),
+                self.fish_sold_today,
+                self.fishmonger_daily_cap(),
+                self.ore_sold_today,
+                self.blacksmith_daily_cap(),
             ),
             Scene::Settings => render_settings(frame, self.settings_cursor, &self.settings),
             Scene::Quests { cursor } => render_quests(
@@ -3752,6 +5268,7 @@ impl App {
                 &self.stats,
                 &self.skills,
                 &self.buffs,
+                (self.player.x, self.player.y),
             ),
             Scene::LootPool { cursor } => render_loot_pool(
                 frame,
@@ -3789,6 +5306,11 @@ impl App {
                 render_fishmonger(frame, cursor, &step_snap, &listing, self.player.valu);
             }
             Scene::Mining(m) => render_mining(frame, m),
+            Scene::Smelt { .. } | Scene::Forge { .. } | Scene::Blacksmith { .. } | Scene::SellGear { .. } | Scene::Gear { .. } => {
+                // Handled below: these renderers need read access to
+                // `self` for inventory/skill data which the `&mut self.scene`
+                // borrow above forbids.
+            }
             Scene::HouseInterior { px, py, seed, .. } => {
                 render_house(frame, *px, *py, *seed, self.player.facing);
             }
@@ -3804,10 +5326,89 @@ impl App {
             Scene::BaitShop { cursor } => {
                 render_bait_shop(frame, *cursor, &self.player.bait, self.player.valu);
             }
+            Scene::Shipwright { cursor } => {
+                render_shipwright(
+                    frame,
+                    *cursor,
+                    self.player.hull_tier,
+                    self.player.valu,
+                    self.player.wood,
+                );
+            }
+            Scene::Chopping(c) => {
+                render_chopping(frame, c, self.anim_tick);
+            }
+            Scene::Cooking { cursor } => {
+                render_cookbook(
+                    frame,
+                    *cursor,
+                    self.skills.cooking_level(),
+                    &self.cooking_mastery,
+                    &self.player.inventory,
+                );
+            }
             Scene::Achievements { .. } => {
                 // Handled below to side-step the &mut self.scene borrow that
                 // prevents reading other fields of self.
             }
+        }
+
+        if let Scene::Gear { slot_idx, item_idx } = &self.scene {
+            let slot_idx = *slot_idx;
+            let item_idx = *item_idx;
+            render_gear_panel(
+                frame,
+                slot_idx,
+                item_idx,
+                &Self::GEAR_SLOTS,
+                &self.player.gear,
+            );
+        }
+        if let Scene::SellGear { cursor } = &self.scene {
+            let cursor = *cursor;
+            let owned = self.player.gear.owned.clone();
+            let equipped: std::collections::HashSet<String> = crate::gear::Slot::ALL
+                .iter()
+                .filter_map(|s| self.player.gear.equipped(*s).map(|x| x.to_string()))
+                .collect();
+            let mult = self.buffs.price_mult() * self.skill_tree.valu_mult();
+            render_sell_gear(frame, cursor, &owned, &equipped, mult, self.ore_sold_today, self.blacksmith_daily_cap());
+        }
+        if let Scene::Blacksmith { cursor } = &self.scene {
+            render_blacksmith_menu(
+                frame,
+                *cursor,
+                self.smeltable_ores().len(),
+                self.forgeable_gear().len(),
+                self.player.items.iter().filter(|it| matches!(it.category, crate::item::Category::Mineral)).count() as u32,
+                self.player.ingots.values().sum::<u32>(),
+                self.ore_sold_today,
+                self.blacksmith_daily_cap(),
+            );
+        }
+        if let Scene::Smelt { cursor, typed } = &self.scene {
+            let typed = typed.clone();
+            let cursor = *cursor;
+            render_smelt(
+                frame,
+                cursor,
+                &typed,
+                self.smeltable_ores(),
+                &self.player.ingots,
+            );
+        }
+        if let Scene::Forge { cursor, typed } = &self.scene {
+            let typed = typed.clone();
+            let cursor = *cursor;
+            render_forge(
+                frame,
+                cursor,
+                &typed,
+                self.forgeable_gear(),
+                &self.player.ingots,
+                self.player.valu,
+                self.skills.blacksmithing_level(),
+            );
         }
 
         if let Scene::Achievements { cursor } = self.scene {
@@ -3899,6 +5500,29 @@ impl App {
                 height: stam_h,
             };
             render_stamina_bar(frame, stam_area, self.stamina, self.stamina_max());
+        }
+
+        // Boat HUD strip: shows hull tier, crew hunger, biofuel. Only
+        // rendered while aboard so land play stays uncluttered.
+        let boat_h = 1u16;
+        if self.player.on_boat
+            && log_w > 4
+            && effective_h > log_h + stam_h + boat_h
+        {
+            let boat_area = Rect {
+                x: full.x,
+                y: full.y + effective_h - log_h - stam_h - boat_h,
+                width: log_w,
+                height: boat_h,
+            };
+            render_boat_hud(
+                frame,
+                boat_area,
+                self.player.hull_tier,
+                self.player.crew_hunger,
+                self.player.biofuel,
+                self.player.wood,
+            );
         }
 
         if cmdline_h > 0 && full.height >= cmdline_h {
@@ -4163,6 +5787,10 @@ fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
         Tile::LandmarkWall => ('H', Color::Rgb(220, 220, 220)),
         Tile::LandmarkDoor => ('D', Color::LightYellow),
         Tile::Tombstone => ('T', Color::Rgb(180, 180, 190)),
+        Tile::Smelter => ('S', Color::Rgb(255, 140, 60)),
+        Tile::Forge => ('F', Color::Rgb(255, 90, 60)),
+        Tile::Curio => ('*', Color::Rgb(220, 200, 160)),
+        Tile::PortalFrame => ('#', Color::Rgb(190, 175, 200)),
     };
     // water cells override the biome bg with deep blue
     let final_bg = if matches!(t, Tile::Water) {
@@ -5016,6 +6644,9 @@ fn debug_command_matches(input: &str) -> bool {
 #[derive(Clone, Copy)]
 enum DebugEntry {
     DimCycle,
+    PlayerX,
+    PlayerY,
+    SnapToWalkable,
     Valu,
     LifetimeValu,
     FishCaught,
@@ -5030,6 +6661,7 @@ enum DebugEntry {
     NegotiationXp,
     MiningXp,
     WoodcuttingXp,
+    BlacksmithingXp,
     Stamina,
     RodTier,
     MasteryMilestones,
@@ -5057,6 +6689,9 @@ enum DebugEntry {
 fn debug_entries() -> &'static [DebugEntry] {
     &[
         DebugEntry::DimCycle,
+        DebugEntry::PlayerX,
+        DebugEntry::PlayerY,
+        DebugEntry::SnapToWalkable,
         DebugEntry::Valu,
         DebugEntry::LifetimeValu,
         DebugEntry::RodTier,
@@ -5077,6 +6712,7 @@ fn debug_entries() -> &'static [DebugEntry] {
         DebugEntry::NegotiationXp,
         DebugEntry::MiningXp,
         DebugEntry::WoodcuttingXp,
+        DebugEntry::BlacksmithingXp,
         DebugEntry::GrantPickaxe,
         DebugEntry::GrantBoat,
         DebugEntry::GrantUniqueFish,
@@ -5123,6 +6759,12 @@ impl App {
                     self.snap_player_to_walkable();
                 }
             }
+            PlayerX => {
+                self.player.x = self.player.x.saturating_add(step as i32);
+            }
+            PlayerY => {
+                self.player.y = self.player.y.saturating_add(step as i32);
+            }
             Valu => bump(&mut self.player.valu, step, 10_000),
             LifetimeValu => bump(&mut self.lifetime_valu, step, 10_000),
             FishCaught => bump(&mut self.stats.fish_caught, step, 1),
@@ -5137,6 +6779,7 @@ impl App {
             NegotiationXp => bump(&mut self.skills.negotiation_xp, step, 100),
             MiningXp => bump(&mut self.skills.mining_xp, step, 100),
             WoodcuttingXp => bump(&mut self.skills.woodcutting_xp, step, 100),
+            BlacksmithingXp => bump(&mut self.skills.blacksmithing_xp, step, 100),
             Stamina => {
                 let delta = (step as f32) * 10.0;
                 let max = self.stamina_max();
@@ -5201,6 +6844,15 @@ impl App {
             DimCycle => {
                 self.world.dim = cycle_dim(self.world.dim, 1);
                 self.snap_player_to_walkable();
+            }
+            SnapToWalkable => {
+                self.snap_player_to_walkable();
+                self.narrator
+                    .say(format!("Debug: snapped to ({}, {}).", self.player.x, self.player.y));
+            }
+            PlayerX | PlayerY => {
+                // adjust-only rows; Enter is a no-op so the user can dial in
+                // coords without surprises. (SnapToWalkable handles unstucking.)
             }
             UnlockAllAchievements => {
                 for chain in crate::achievements::chains() {
@@ -5303,6 +6955,7 @@ fn render_debug_console(
     stats: &Stats,
     skills: &Skills,
     _buffs: &crate::buffs::Buffs,
+    player_xy: (i32, i32),
 ) {
     use ratatui::widgets::Paragraph;
     let area = viewport(frame);
@@ -5318,6 +6971,11 @@ fn render_debug_console(
         .iter()
         .map(|e| match e {
             DebugEntry::DimCycle => ("Dimension (h/l/enter cycles)".to_string(), dim_label.to_string()),
+            DebugEntry::PlayerX => ("Player X (h/l \u{00B1}1, H/L \u{00B1}100)".to_string(), player_xy.0.to_string()),
+            DebugEntry::PlayerY => ("Player Y (h/l \u{00B1}1, H/L \u{00B1}100)".to_string(), player_xy.1.to_string()),
+            DebugEntry::SnapToWalkable => {
+                ("[enter] Snap to nearest walkable".to_string(), String::new())
+            }
             DebugEntry::Valu => ("Valu".to_string(), valu.to_string()),
             DebugEntry::LifetimeValu => {
                 ("Lifetime valu earned".to_string(), stats.valu_earned.to_string())
@@ -5339,6 +6997,9 @@ fn render_debug_console(
             DebugEntry::MiningXp => ("Mining XP".to_string(), skills.mining_xp.to_string()),
             DebugEntry::WoodcuttingXp => {
                 ("Woodcutting XP".to_string(), skills.woodcutting_xp.to_string())
+            }
+            DebugEntry::BlacksmithingXp => {
+                ("Blacksmithing XP".to_string(), skills.blacksmithing_xp.to_string())
             }
             DebugEntry::GrantUniqueFish => ("[enter] Grant Fish".to_string(), String::new()),
             DebugEntry::GrantUniqueIsh => ("[enter] Grant Ish".to_string(), String::new()),
@@ -5401,13 +7062,79 @@ fn render_debug_console(
             ])
         })
         .collect();
-    frame.render_widget(Paragraph::new(lines), inner);
+    // Slide the visible window so the cursor row stays on screen. Without
+    // this, the bottom rows clip off any terminal shorter than ~40 lines.
+    let total = lines.len();
+    let visible = inner.height as usize;
+    let scroll: u16 = if visible == 0 || total <= visible {
+        0
+    } else if cursor < visible / 2 {
+        0
+    } else if cursor + (visible - visible / 2) >= total {
+        (total - visible) as u16
+    } else {
+        (cursor - visible / 2) as u16
+    };
+    frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), inner);
 }
 
 /// True if the player can ride a boat onto this tile. (Swimming isn't a
 /// thing — fish are dangerous. Only a boat lets you cross water.)
+/// Normalize an item-name string into the canonical ore name used in
+/// `mining::ORES`. Ore items are pushed with `ore.name` already, so this
+/// just lowercases and trims as a defensive measure against case drift.
+fn canonical_ore_name(s: &str) -> &'static str {
+    let lower = s.trim().to_ascii_lowercase();
+    for ore in crate::mining::ORES.iter() {
+        if ore.name == lower {
+            return ore.name;
+        }
+    }
+    ""
+}
+
 fn is_boatable(t: Tile) -> bool {
     matches!(t, Tile::Water | Tile::DeepWater | Tile::Seabed | Tile::Kelp | Tile::Anemone)
+}
+
+/// Manhattan distance from (x, y) to the nearest non-water tile (any shore
+/// or island), capped at 24. Used by the fish picker to reward casts far
+/// offshore with rarer / meaner bites. Cheap enough to run once per cast:
+/// expanding-ring scan over noise-driven tile lookups, exits the moment
+/// it hits land.
+fn ocean_depth_at(world: &World, x: i32, y: i32) -> u32 {
+    let cap: i32 = 24;
+    let is_water = |t: Tile| {
+        matches!(
+            t,
+            Tile::Water
+                | Tile::DeepWater
+                | Tile::MineralWater
+                | Tile::Seabed
+                | Tile::Kelp
+                | Tile::Anemone
+                | Tile::Dock
+        )
+    };
+    for r in 1..=cap {
+        for dx in -r..=r {
+            if !is_water(world.get(x + dx, y - r)) {
+                return r as u32;
+            }
+            if !is_water(world.get(x + dx, y + r)) {
+                return r as u32;
+            }
+        }
+        for dy in (-r + 1)..r {
+            if !is_water(world.get(x - r, y + dy)) {
+                return r as u32;
+            }
+            if !is_water(world.get(x + r, y + dy)) {
+                return r as u32;
+            }
+        }
+    }
+    cap as u32
 }
 
 fn water_kind_at(world: &World, x: i32, y: i32) -> &'static str {
@@ -5500,6 +7227,7 @@ fn dim_default_pool(
         crate::world::Dimension::Wreckage => Some(crate::weather::weather_modifiers(weather).pool_override.unwrap_or("wreckage")),
         crate::world::Dimension::Crater => Some(crate::weather::weather_modifiers(weather).pool_override.unwrap_or("crater")),
         crate::world::Dimension::Colosseum => Some(crate::weather::weather_modifiers(weather).pool_override.unwrap_or("colosseum")),
+        crate::world::Dimension::Lakebed => Some("lakebed"),
         // All Blue is the endgame "everything" pool — we route to "allblue"
         // for the rare apex fish AND occasionally fall back to None so the
         // entire fish list is reachable (the picker handles None).
@@ -5517,7 +7245,16 @@ fn dim_default_pool(
 fn fishing_context(world: &World, x: i32, y: i32) -> (&'static str, String) {
     match world.dim {
         crate::world::Dimension::Surface => {
-            (water_kind_at(world, x, y), biome_at(x, y, world.seed).label().to_string())
+            let water = water_kind_at(world, x, y);
+            // Far-offshore casts ride the Fog Sea pseudo-biome: anything
+            // past the hull tier-5 depth limit. The picker treats this as
+            // a unique biome label so future ghost-pool routing in
+            // `dim_default_pool` can lock on.
+            if water == "ocean" && ocean_depth_at(world, x, y) > 32 {
+                (water, "Fog Sea".to_string())
+            } else {
+                (water, biome_at(x, y, world.seed).label().to_string())
+            }
         }
         crate::world::Dimension::Mines => ("mineral_pool", "Mines".to_string()),
         crate::world::Dimension::Atlantis => ("atlantis", "Atlantis".to_string()),
@@ -5553,6 +7290,10 @@ fn render_stats(
     stats: &Stats,
     skills: &Skills,
     buffs: &crate::buffs::Buffs,
+    gear: &crate::gear::EquippedGear,
+    ingot_count: u32,
+    fish_today: u32, fish_cap: u32,
+    ore_today: u32, ore_cap: u32,
 ) {
     let area = viewport(frame);
     let block = Block::default()
@@ -5609,6 +7350,7 @@ fn render_stats(
         ("Negotiation", skills.negotiation_level(), skills.negotiation_xp),
         ("Mining", skills.mining_level(), skills.mining_xp),
         ("Woodcutting", skills.woodcutting_level(), skills.woodcutting_xp),
+        ("Blacksmithing", skills.blacksmithing_level(), skills.blacksmithing_xp),
     ];
     for (label, lvl, xp) in entries {
         let next = crate::stats::level_to_xp(lvl + 1);
@@ -5633,13 +7375,77 @@ fn render_stats(
         "Wait time mult",
         format!("x{:.2}", buffs.wait_mult()),
     ));
+    // Walk-speed: combine buffs.walk_mult (skill-tree + tackle) with gear's
+    // move_speed_mult (boots), since both shorten the per-step interval.
+    let combined_walk = (buffs.walk_mult() * gear.combined_perks().move_speed_mult).max(0.01);
     lines.push(row(
-        "Walk speed mult",
-        format!("x{:.2}", 1.0 / buffs.walk_mult().max(0.01)),
+        "Walk speed (overall)",
+        format!("x{:.2} faster", 1.0 / combined_walk),
     ));
     lines.push(row(
         "Luck bonus",
         format!("+{:.0}%", buffs.luck_bonus * 100.0),
+    ));
+
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(section("EQUIPPED GEAR"));
+    let slots = [
+        ("Feet", gear.feet.as_deref()),
+        ("Neck", gear.neck.as_deref()),
+        ("Ring", gear.ring.as_deref()),
+        ("Pickaxe", gear.pickaxe.as_deref()),
+        ("Cape", gear.cape.as_deref()),
+    ];
+    for (label, id_opt) in slots {
+        let val = match id_opt {
+            None => "(empty)".to_string(),
+            Some(id) if id.starts_with("cape-of-") => {
+                // synthetic cape id format: cape-of-{N}-memories
+                let n = id
+                    .strip_prefix("cape-of-")
+                    .and_then(|r| r.strip_suffix("-memories"))
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .unwrap_or(0);
+                format!("Cape of {n} Memories")
+            }
+            Some(id) => crate::gear::def_by_id(id)
+                .map(|d| d.name.clone())
+                .unwrap_or_else(|| id.to_string()),
+        };
+        lines.push(row(label, val));
+    }
+    let perks = gear.combined_perks();
+    // (combined walk-speed already shown in BUFFS — gear's component is folded in there)
+    lines.push(row(
+        "Stamina drain mult",
+        format!("x{:.2}", perks.stamina_loss_mult),
+    ));
+    lines.push(row(
+        "Double-fish chance",
+        format!("{:.1}%", perks.double_fish_chance * 100.0),
+    ));
+    lines.push(row(
+        "Bait-skip chance",
+        format!("{:.0}%", perks.no_bait_consume_chance * 100.0),
+    ));
+    lines.push(row(
+        "Ore letters prewritten",
+        perks.ore_prewrite_letters.to_string(),
+    ));
+    lines.push(row(
+        "Owned ingots",
+        ingot_count.to_string(),
+    ));
+
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(section("MERCHANT CAPS (today)"));
+    lines.push(row(
+        "Fishmonger",
+        format!("{fish_today}/{fish_cap} sold"),
+    ));
+    lines.push(row(
+        "Blacksmith",
+        format!("{ore_today}/{ore_cap} sold"),
     ));
 
     frame.render_widget(
@@ -5719,7 +7525,8 @@ fn render_help(frame: &mut Frame, topic: HelpTopic) {
                 ("g", "pick up nearby flower / pebble"),
                 ("x", "inspect the tile you're facing"),
                 ("e", "open fishdex"),
-                ("Esc", "switch from Insert -> Normal mode"),
+                ("space", "cast / set strength / hook on ! / cancel while waiting"),
+                ("Esc", "switch from Insert -> Normal mode (also cancels a cast)"),
                 ("i / a", "switch from Normal -> Insert mode"),
                 (":", "in Normal mode, open command line"),
             ],
@@ -5740,6 +7547,16 @@ fn render_help(frame: &mut Frame, topic: HelpTopic) {
                 (":s  / :stats", "stats screen"),
                 (":m  / :map", "open the explored world map"),
                 (":o  / :options", "settings"),
+                (":gear / :eq", "manage equipped feet/neck/ring/pickaxe gear"),
+                (":smelt", "blacksmith: smelt ore → ingots (must be near a smith)"),
+                (":forge", "blacksmith: forge equipment (must be near a smith)"),
+                (":sellore / :sell-ore", "dump ore + ingots to the smith (capped per day)"),
+                (":chop", "chop the tree you're facing (woodcutting)"),
+                (":feed [n]", "feed n fish to the crew (-3 hunger each)"),
+                (":burn [n]", "burn n fish for biofuel (+5 × difficulty each)"),
+                (":shipwright", "open the hull-upgrade menu"),
+                (":cook / :cookbook", "open the recipe encyclopedia"),
+                (":cook <fish>", "quick: cook one fish for stamina + tiny price buff"),
             ],
         ),
     };
@@ -6097,6 +7914,92 @@ fn render_achievements(
     );
 }
 
+fn render_shipwright(
+    frame: &mut Frame,
+    cursor: usize,
+    hull_tier: u32,
+    valu: u64,
+    wood: u32,
+) {
+    use ratatui::widgets::Paragraph;
+    let area = viewport(frame);
+    let title = format!(
+        " shipwright  j/k pick  enter buy  q close  |  {valu}$V  {wood}wood "
+    );
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(Color::LightYellow));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        format!(
+            "  Current hull: tier {hull_tier} — {}",
+            crate::player::hull_label(hull_tier)
+        ),
+        Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        format!(
+            "  Ocean depth limit: {}  |  Wood stash: {wood}  |  Valu: {valu}",
+            match crate::player::ocean_depth_max(hull_tier) {
+                u32::MAX => "unlimited (Fog Sea)".to_string(),
+                v => format!("{v} tiles"),
+            }
+        ),
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(ratatui::text::Line::from(""));
+    // Tier rows 0..=6 — show all upgrades + their state. cursor index is
+    // the *from* tier, so cursor==hull_tier is the next buyable row.
+    for from in 0u32..=5 {
+        let selected = (from as usize) == cursor;
+        let prefix = if selected { "> " } else { "  " };
+        let (state, fg) = if from < hull_tier {
+            ("[owned]   ", Color::DarkGray)
+        } else if from == hull_tier {
+            ("[next]    ", Color::LightGreen)
+        } else {
+            ("[locked]  ", Color::Rgb(80, 80, 80))
+        };
+        let (cv, cw) = crate::player::hull_upgrade_cost(from).unwrap_or((0, 0));
+        let to = from + 1;
+        let line_str = format!(
+            "{prefix}{state}tier {from} -> {to}  {}  ({cv}$V  + {cw}wood)",
+            crate::player::hull_label(to)
+        );
+        let style = if selected {
+            Style::default()
+                .fg(fg)
+                .bg(Color::Rgb(40, 40, 40))
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(fg)
+        };
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+            line_str, style,
+        )));
+    }
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        "  Crew Hunger ticks up 1 per catch made on the boat. :feed <n> drops 3 each.".to_string(),
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        "  Biofuel drains 1 per boat-step. :burn <n> yields 5 × difficulty per fish.".to_string(),
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        "  Empty tank = dumped back at the home pier.".to_string(),
+        Style::default().fg(Color::DarkGray),
+    )));
+    frame.render_widget(
+        Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }),
+        inner,
+    );
+}
+
 fn render_bait_shop(
     frame: &mut Frame,
     cursor: usize,
@@ -6290,6 +8193,550 @@ fn render_mining(frame: &mut Frame, m: &crate::mining::Mining) {
     frame.render_widget(p, inner);
 }
 
+fn render_cookbook(
+    frame: &mut Frame,
+    cursor: usize,
+    cooking_level: u32,
+    mastery: &[u32],
+    basket: &[&'static crate::fish::FishDef],
+) {
+    use ratatui::widgets::Paragraph;
+    let area = viewport(frame);
+    frame.render_widget(Clear, area);
+    let recs = crate::recipes::recipes();
+    let unlocked = recs
+        .iter()
+        .filter(|r| cooking_level >= r.min_cooking_level)
+        .count();
+    let mastered = mastery.iter().filter(|m| **m >= 5).count() as u32;
+    // Next milestone for the header
+    let next_mile = COOKBOOK_MILES
+        .iter()
+        .find(|m| mastered < m.threshold);
+    let mile_blurb = match next_mile {
+        Some(m) => format!(
+            " | next milestone: {} @ {} mastered ({}/{})",
+            m.label, m.threshold, mastered, m.threshold
+        ),
+        None => " | all milestones earned".to_string(),
+    };
+    let title = format!(
+        " cookbook  cooking lv {cooking_level}  |  unlocked {unlocked}/{}  |  mastered {mastered}{mile_blurb}  j/k pick  enter cook  q close ",
+        recs.len(),
+    );
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(Color::LightYellow));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    for (i, r) in recs.iter().enumerate() {
+        let selected = i == cursor;
+        let prefix = if selected { "> " } else { "  " };
+        let unlocked = cooking_level >= r.min_cooking_level;
+        let cookable = unlocked && crate::recipes::can_cook(r, basket);
+        let m = mastery.get(i).copied().unwrap_or(0);
+        let scale = 1.0 + ((m as f32 / 5.0).floor() * 0.05).min(0.50);
+        let mastery_tag = if m >= 5 {
+            format!(" m{m}  ×{:.2}", scale)
+        } else if m > 0 {
+            format!(" m{m}")
+        } else {
+            String::new()
+        };
+
+        let status = if !unlocked {
+            format!("[lvl {}]", r.min_cooking_level)
+        } else if cookable {
+            "[cook]".to_string()
+        } else {
+            "[need]".to_string()
+        };
+
+        let row_fg = if !unlocked {
+            Color::Rgb(70, 70, 70)
+        } else if cookable {
+            Color::White
+        } else {
+            Color::DarkGray
+        };
+        let row_style = if selected {
+            Style::default()
+                .fg(row_fg)
+                .bg(Color::Rgb(40, 40, 40))
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(row_fg)
+        };
+        let ing: Vec<String> = r
+            .ingredients
+            .iter()
+            .map(|(n, q)| format!("{q}× {n}"))
+            .collect();
+        let eff = r
+            .effect
+            .as_deref()
+            .map(|e| format!(" +{e}"))
+            .unwrap_or_default();
+        let row = format!(
+            "{prefix}{status}  {:<28}  +{}st{eff}  ({}){mastery_tag}",
+            r.name,
+            r.stamina,
+            ing.join(", ")
+        );
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+            row, row_style,
+        )));
+        if selected && unlocked {
+            lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+                format!("    {}", r.description),
+                Style::default().fg(Color::Rgb(120, 120, 120)),
+            )));
+        }
+    }
+    frame.render_widget(
+        Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }),
+        inner,
+    );
+}
+
+fn render_chopping(frame: &mut Frame, c: &crate::chop::Chopping, tick: u64) {
+    let area = viewport(frame);
+    frame.render_widget(Clear, area);
+    let lockout_secs = if c.is_locked(tick) {
+        ((c.lockout_until_tick - tick) as f32 / 20.0).ceil() as u32
+    } else {
+        0
+    };
+    let title_color = if lockout_secs > 0 {
+        Color::Red
+    } else {
+        Color::LightGreen
+    };
+    let title = if lockout_secs > 0 {
+        format!(" chopping — LOCKED OUT {lockout_secs}s — Esc to leave ")
+    } else {
+        " chopping — type the F/G/H/J sequence — Esc to leave ".to_string()
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(title_color));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    // Sequence row: typed prefix bright green, current letter highlighted,
+    // remaining dim gray.
+    let mut spans: Vec<ratatui::text::Span> = Vec::with_capacity(c.sequence.len() * 2);
+    for (i, ch) in c.sequence.iter().enumerate() {
+        let label = format!(" {} ", ch.to_ascii_uppercase());
+        let style = if i < c.typed {
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::LightGreen)
+                .add_modifier(Modifier::BOLD)
+        } else if i == c.typed {
+            if lockout_secs > 0 {
+                Style::default()
+                    .fg(Color::White)
+                    .bg(Color::Red)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            }
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        spans.push(ratatui::text::Span::styled(label, style));
+    }
+    let seq_line = ratatui::text::Line::from(spans).alignment(Alignment::Center);
+
+    let progress = format!(
+        " {}/{}  (yield: +{} wood) ",
+        c.typed,
+        c.sequence.len(),
+        c.wood_yield
+    );
+
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(seq_line);
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(
+        ratatui::text::Line::from(ratatui::text::Span::styled(
+            progress,
+            Style::default().fg(Color::DarkGray),
+        ))
+        .alignment(Alignment::Center),
+    );
+    if lockout_secs > 0 {
+        lines.push(ratatui::text::Line::from(""));
+        lines.push(
+            ratatui::text::Line::from(ratatui::text::Span::styled(
+                format!("wrong key. keys ignored for {lockout_secs}s."),
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ))
+            .alignment(Alignment::Center),
+        );
+    }
+    let p = Paragraph::new(lines);
+    frame.render_widget(p, inner);
+}
+
+fn render_gear_panel(
+    frame: &mut Frame,
+    slot_idx: usize,
+    item_idx: usize,
+    slots: &[crate::gear::Slot],
+    gear: &crate::gear::EquippedGear,
+) {
+    let area = viewport(frame);
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" gear — h/l switch slot, j/k pick, Enter equip, u unequip, q leave ")
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let cur_slot = slots[slot_idx.min(slots.len() - 1)];
+
+    // Slot tab row
+    let mut tab_spans: Vec<ratatui::text::Span> = Vec::new();
+    for (i, s) in slots.iter().enumerate() {
+        let style = if i == slot_idx {
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        tab_spans.push(ratatui::text::Span::styled(
+            format!(" {} ", s.label()),
+            style,
+        ));
+        tab_spans.push(ratatui::text::Span::raw(" "));
+    }
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    lines.push(ratatui::text::Line::from(tab_spans));
+    lines.push(ratatui::text::Line::from(""));
+    // Equipped header
+    let equipped_id = gear.equipped(cur_slot);
+    let equipped_name = equipped_id
+        .and_then(crate::gear::def_by_id)
+        .map(|d| d.name.clone())
+        .unwrap_or_else(|| "(empty)".to_string());
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        format!("  equipped: {equipped_name}"),
+        Style::default().fg(Color::LightYellow),
+    )));
+    lines.push(ratatui::text::Line::from(""));
+    // Owned list for this slot
+    let owned: Vec<&String> = gear
+        .owned
+        .iter()
+        .filter(|id| {
+            crate::gear::def_by_id(id)
+                .and_then(|d| d.slot_enum())
+                .map(|s| s == cur_slot)
+                .unwrap_or(false)
+        })
+        .collect();
+    if owned.is_empty() {
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+            "  (none owned — forge one at the blacksmith)",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        for (i, id) in owned.iter().enumerate() {
+            let def = crate::gear::def_by_id(id);
+            let name = def.map(|d| d.name.clone()).unwrap_or_else(|| (*id).clone());
+            let is_equipped = Some(id.as_str()) == equipped_id;
+            let tier = def.map(|d| d.tier).unwrap_or(0);
+            let prefix = if i == item_idx { "> " } else { "  " };
+            let style = if i == item_idx {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else if is_equipped {
+                Style::default().fg(Color::LightYellow)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let mark = if is_equipped { " *" } else { "" };
+            lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+                format!("{prefix}{name:<28} t{tier}{mark}"),
+                style,
+            )));
+        }
+    }
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn render_sell_gear(
+    frame: &mut Frame,
+    cursor: usize,
+    owned: &[String],
+    equipped: &std::collections::HashSet<String>,
+    valu_mult: f32,
+    ore_sold_today: u32,
+    cap: u32,
+) {
+    let area = viewport(frame);
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!(" sell forged gear — j/k pick, Enter sell, q back · today {ore_sold_today}/{cap} "))
+        .border_style(Style::default().fg(Color::LightRed));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    if owned.is_empty() {
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+            "you haven't forged anything yet",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        for (i, id) in owned.iter().enumerate() {
+            let def = crate::gear::def_by_id(id);
+            let name = def.map(|d| d.name.clone()).unwrap_or_else(|| id.clone());
+            let ingot_total: u64 = def
+                .map(|d| {
+                    d.recipe
+                        .ingots
+                        .iter()
+                        .map(|(n, q)| {
+                            crate::mining::ore_by_name(n)
+                                .map(|o| o.ingot_value() * (*q as u64))
+                                .unwrap_or(0)
+                        })
+                        .sum::<u64>()
+                })
+                .unwrap_or(0);
+            let price = ((ingot_total as f32) * 1.10 * valu_mult).round() as u64;
+            let worn = if equipped.contains(id) { " (equipped — will unequip)" } else { "" };
+            let prefix = if i == cursor { "> " } else { "  " };
+            let style = if i == cursor {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::LightRed)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+                format!("{prefix}{:<28} {price}$V{}", name, worn),
+                style,
+            )));
+        }
+    }
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn render_blacksmith_menu(
+    frame: &mut Frame,
+    cursor: u8,
+    _smeltable_rows: usize,
+    _forgeable_rows: usize,
+    raw_ore: u32,
+    ingots: u32,
+    ore_sold_today: u32,
+    cap: u32,
+) {
+    let area = viewport(frame);
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" blacksmith — j/k pick, Enter select, q/esc leave ")
+        .border_style(Style::default().fg(Color::LightRed));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        format!(
+            "  raw ore: {raw_ore}    ingots: {ingots}    today's cart: {ore_sold_today}/{cap}",
+        ),
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        "  (smelt at the Smelter (S), forge at the Forge (F) — both next to the smith)",
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(ratatui::text::Line::from(""));
+    let options = [
+        ("Sell ore + ingots (up to today's cap)".to_string()),
+        ("Sell forged gear (10% over ingot value)".to_string()),
+        ("Leave".to_string()),
+    ];
+    for (i, label) in options.iter().enumerate() {
+        let prefix = if i as u8 == cursor { "> " } else { "  " };
+        let style = if i as u8 == cursor {
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::LightRed)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+            format!("{prefix}{label}"),
+            style,
+        )));
+    }
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn render_smelt(
+    frame: &mut Frame,
+    cursor: usize,
+    typed: &str,
+    avail: Vec<(&'static crate::mining::OreDef, u32)>,
+    ingots: &std::collections::BTreeMap<String, u32>,
+) {
+    let area = viewport(frame);
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" smelting — j/k pick ore · type the ore's name to smelt one ingot · esc to leave ")
+        .border_style(Style::default().fg(Color::Yellow));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    if avail.is_empty() {
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+            "no ore stacks large enough to smelt",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        for (i, (ore, raw)) in avail.iter().enumerate() {
+            let ing = ingots.get(ore.name).copied().unwrap_or(0);
+            let prefix = if i == cursor { "> " } else { "  " };
+            let style = if i == cursor {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(ore.color)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(ore.color)
+            };
+            lines.push(ratatui::text::Line::from(vec![
+                ratatui::text::Span::styled(
+                    format!(
+                        "{prefix}{:<10}  raw {:>4}  ingots {:>4}  (cost {} raw / ingot, tier {})",
+                        ore.name, raw, ing, ore.ore_per_ingot, ore.tier,
+                    ),
+                    style,
+                ),
+            ]));
+        }
+    }
+    lines.push(ratatui::text::Line::from(""));
+    // typed-progress bar for the selected ore's name
+    let target = avail
+        .get(cursor.min(avail.len().saturating_sub(1)))
+        .map(|(o, _)| o.name)
+        .unwrap_or("");
+    let typed_n = typed.chars().count();
+    let mut spans: Vec<ratatui::text::Span> = Vec::new();
+    spans.push(ratatui::text::Span::raw("type: "));
+    for (i, c) in target.chars().enumerate() {
+        let style = if i < typed_n {
+            Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        spans.push(ratatui::text::Span::styled(c.to_string(), style));
+    }
+    lines.push(ratatui::text::Line::from(spans));
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn render_forge(
+    frame: &mut Frame,
+    cursor: usize,
+    typed: &str,
+    avail: Vec<&'static crate::gear::GearDef>,
+    ingots: &std::collections::BTreeMap<String, u32>,
+    valu: u64,
+    bs_level: u32,
+) {
+    let area = viewport(frame);
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!(" forging — Blacksmithing lv {bs_level} · j/k pick · type the item name · esc to leave "))
+        .border_style(Style::default().fg(Color::Magenta));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    if avail.is_empty() {
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+            "no eligible recipes — smelt ingots, level up Blacksmithing, or save valu",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        let _ = valu;
+        let _ = ingots;
+        for (i, def) in avail.iter().enumerate() {
+            let prefix = if i == cursor { "> " } else { "  " };
+            let style = if i == cursor {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let recipe = def
+                .recipe
+                .ingots
+                .iter()
+                .map(|(id, q)| format!("{q}x {id}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+                format!(
+                    "{prefix}{:<28} t{}  bs≥{}  cost {}: {}",
+                    def.name, def.tier, def.min_blacksmithing_level, def.recipe.valu, recipe,
+                ),
+                style,
+            )));
+        }
+    }
+    lines.push(ratatui::text::Line::from(""));
+    // typed-progress bar for the selected def name
+    let target = avail
+        .get(cursor.min(avail.len().saturating_sub(1)))
+        .map(|d| d.name.to_ascii_lowercase())
+        .unwrap_or_default();
+    let typed_n = typed.chars().count();
+    let mut spans: Vec<ratatui::text::Span> = Vec::new();
+    spans.push(ratatui::text::Span::raw("type: "));
+    for (i, c) in target.chars().enumerate() {
+        let style = if i < typed_n {
+            Style::default().fg(Color::LightMagenta).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        spans.push(ratatui::text::Span::styled(c.to_string(), style));
+    }
+    lines.push(ratatui::text::Line::from(spans));
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
 fn render_dialogue(frame: &mut Frame, npc: &Npc, line: usize) {
     // Fullscreen, top-down. All previously-seen lines render above the
     // current one (waterfall style), so the player sees the full conversation.
@@ -6456,6 +8903,55 @@ fn render_valu(frame: &mut Frame, area: Rect, text: &str) {
 /// 1-row horizontal gauge: bracketed filled/empty cells and a centered
 /// numeric readout. Colors shift green -> yellow -> red as stamina drops
 /// so the player can read the bar at a glance.
+fn render_boat_hud(
+    frame: &mut Frame,
+    area: Rect,
+    hull_tier: u32,
+    crew_hunger: u32,
+    biofuel: u32,
+    wood: u32,
+) {
+    if area.width < 10 {
+        return;
+    }
+    let hull = crate::player::hull_label(hull_tier);
+    // Hunger ramps red-orange as it climbs; biofuel goes red as it drops.
+    let hunger_color = if crew_hunger >= 80 {
+        Color::Red
+    } else if crew_hunger >= 50 {
+        Color::Yellow
+    } else {
+        Color::LightGreen
+    };
+    let fuel_color = if biofuel <= 20 {
+        Color::Red
+    } else if biofuel <= 60 {
+        Color::Yellow
+    } else {
+        Color::LightCyan
+    };
+    let line = ratatui::text::Line::from(vec![
+        ratatui::text::Span::styled(
+            format!("[{hull}] "),
+            Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD),
+        ),
+        ratatui::text::Span::styled(
+            format!("hunger {crew_hunger:>3}/100 "),
+            Style::default().fg(hunger_color),
+        ),
+        ratatui::text::Span::styled(
+            format!("fuel {biofuel:>3}/200 "),
+            Style::default().fg(fuel_color),
+        ),
+        ratatui::text::Span::styled(
+            format!("wood {wood} "),
+            Style::default().fg(Color::Rgb(180, 120, 60)),
+        ),
+    ]);
+    let para = Paragraph::new(line).alignment(Alignment::Left);
+    frame.render_widget(para, area);
+}
+
 fn render_stamina_bar(frame: &mut Frame, area: Rect, current: f32, max: f32) {
     if area.width < 6 || max <= 0.0 {
         return;
