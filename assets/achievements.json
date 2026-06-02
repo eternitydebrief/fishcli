@@ -27,5 +27,18 @@
   { "id": "captain", "title": "Captain",    "kind": "boat",                 "tiers": [ { "target": 1, "reward_points": 1 } ] },
   { "id": "shadow-walker","title": "Into the Dark","kind": "visit_dim",     "tiers": [ { "target": 1, "reward_points": 1 } ] },
   { "id": "downstream","title": "Down to Atlantis","kind": "visit_dim",     "tiers": [ { "target": 2, "reward_points": 2 } ] },
-  { "id": "downwards","title": "Down Further","kind": "visit_dim",          "tiers": [ { "target": 3, "reward_points": 2 } ] }
+  { "id": "downwards","title": "Down Further","kind": "visit_dim",          "tiers": [ { "target": 3, "reward_points": 2 } ] },
+
+  { "id": "chef",      "title": "Chef",         "kind": "recipes_cooked",     "tiers": [ { "target": 1, "reward_points": 1 }, { "target": 10, "reward_points": 1 }, { "target": 50, "reward_points": 2 }, { "target": 250, "reward_points": 3 }, { "target": 1000, "reward_points": 5 }, { "target": 5000, "reward_points": 8 } ] },
+  { "id": "sommelier", "title": "Sommelier",    "kind": "recipes_mastered",   "tiers": [ { "target": 1, "reward_points": 1 }, { "target": 5, "reward_points": 2 }, { "target": 10, "reward_points": 3 }, { "target": 15, "reward_points": 5 }, { "target": 20, "reward_points": 8 } ] },
+  { "id": "menu-keep", "title": "Menu Keeper",  "kind": "recipes_discovered", "tiers": [ { "target": 5, "reward_points": 1 }, { "target": 10, "reward_points": 2 }, { "target": 15, "reward_points": 3 }, { "target": 20, "reward_points": 5 } ] },
+  { "id": "cook-lvl",  "title": "Apprentice → Master Cook", "kind": "cooking_level", "tiers": [ { "target": 5, "reward_points": 1 }, { "target": 20, "reward_points": 2 }, { "target": 50, "reward_points": 3 }, { "target": 100, "reward_points": 5 }, { "target": 200, "reward_points": 8 } ] },
+
+  { "id": "forester",  "title": "Forester",     "kind": "trees_felled",       "tiers": [ { "target": 1, "reward_points": 1 }, { "target": 25, "reward_points": 1 }, { "target": 100, "reward_points": 2 }, { "target": 500, "reward_points": 3 }, { "target": 2500, "reward_points": 5 } ] },
+  { "id": "stockpile", "title": "Stockpile",    "kind": "wood_chopped",       "tiers": [ { "target": 10, "reward_points": 1 }, { "target": 100, "reward_points": 1 }, { "target": 1000, "reward_points": 2 }, { "target": 10000, "reward_points": 3 }, { "target": 100000, "reward_points": 5 } ] },
+  { "id": "wc-lvl",    "title": "Woodsman",     "kind": "woodcutting_level",  "tiers": [ { "target": 5, "reward_points": 1 }, { "target": 25, "reward_points": 2 }, { "target": 75, "reward_points": 3 }, { "target": 150, "reward_points": 5 } ] },
+
+  { "id": "shipwright-rank", "title": "Hull Climb", "kind": "hull_tier",       "tiers": [ { "target": 1, "reward_points": 1 }, { "target": 2, "reward_points": 1 }, { "target": 3, "reward_points": 2 }, { "target": 4, "reward_points": 3 }, { "target": 5, "reward_points": 5 }, { "target": 6, "reward_points": 8 } ] },
+
+  { "id": "curator",   "title": "Curator",      "kind": "encyclopedia_level", "tiers": [ { "target": 1, "reward_points": 1 }, { "target": 5, "reward_points": 2 }, { "target": 10, "reward_points": 3 }, { "target": 15, "reward_points": 5 }, { "target": 20, "reward_points": 8 } ] }
 ]

@@ -16,6 +16,12 @@ pub struct Stats {
     /// player into the Inferno (one-time portal opens then stays open).
     #[serde(default)]
     pub well_casts: u64,
+    /// Total wood logs collected (sum of chop yields).
+    #[serde(default)]
+    pub wood_chopped: u64,
+    /// Number of trees the player has felled (each `:chop` minigame win).
+    #[serde(default)]
+    pub trees_felled: u64,
 }
 
 /// Skill XP totals. Levels are derived from xp via [`xp_to_level`].

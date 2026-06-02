@@ -1073,6 +1073,10 @@ impl App {
             if let Some(anchor) = self.pending_chop_anchor.take() {
                 self.world.chop_tree(anchor.0, anchor.1, 10 * 60);
             }
+            // Counters for achievement chains (forester / lumberjack-tier).
+            self.stats.wood_chopped =
+                self.stats.wood_chopped.saturating_add(yield_ as u64);
+            self.stats.trees_felled = self.stats.trees_felled.saturating_add(1);
             self.scene = Scene::Overworld;
         }
     }
@@ -4995,6 +4999,15 @@ impl App {
             visited_mines: self.visited_mines,
             visited_atlantis: self.visited_atlantis,
             visited_inferno: self.visited_inferno,
+            recipes_cooked: self.cooking_mastery.iter().map(|&m| m as u64).sum(),
+            recipes_mastered: self.cooking_mastery.iter().filter(|&&m| m >= 5).count() as u32,
+            recipes_discovered: self.recipe_discovered.iter().filter(|d| **d).count() as u32,
+            wood_chopped: self.stats.wood_chopped,
+            trees_felled: self.stats.trees_felled,
+            encyclopedia_level: self.skills.encyclopedia_level(),
+            cooking_level: self.skills.cooking_level(),
+            woodcutting_level: self.skills.woodcutting_level(),
+            hull_tier: self.player.hull_tier,
             already_unlocked: &self.achievements.unlocked,
         };
         let new_unlocks = crate::achievements::newly_unlocked(&snap);
@@ -5689,6 +5702,15 @@ impl App {
                 visited_mines: self.visited_mines,
                 visited_atlantis: self.visited_atlantis,
                 visited_inferno: self.visited_inferno,
+                recipes_cooked: self.cooking_mastery.iter().map(|&m| m as u64).sum(),
+                recipes_mastered: self.cooking_mastery.iter().filter(|&&m| m >= 5).count() as u32,
+                recipes_discovered: self.recipe_discovered.iter().filter(|d| **d).count() as u32,
+                wood_chopped: self.stats.wood_chopped,
+                trees_felled: self.stats.trees_felled,
+                encyclopedia_level: self.skills.encyclopedia_level(),
+                cooking_level: self.skills.cooking_level(),
+                woodcutting_level: self.skills.woodcutting_level(),
+                hull_tier: self.player.hull_tier,
                 already_unlocked: &self.achievements.unlocked,
             };
             render_achievements(frame, cursor, &snap, &self.achievements);

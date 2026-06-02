@@ -91,6 +91,15 @@ pub struct Snapshot<'a> {
     pub visited_mines: bool,
     pub visited_atlantis: bool,
     pub visited_inferno: bool,
+    pub recipes_cooked: u64,
+    pub recipes_mastered: u32,
+    pub recipes_discovered: u32,
+    pub wood_chopped: u64,
+    pub trees_felled: u64,
+    pub encyclopedia_level: u32,
+    pub cooking_level: u32,
+    pub woodcutting_level: u32,
+    pub hull_tier: u32,
     pub already_unlocked: &'a [String],
 }
 
@@ -142,6 +151,15 @@ pub fn counter_for(snap: &Snapshot, kind: &str) -> Option<i64> {
             if snap.visited_inferno && 3 > max { max = 3; }
             max
         }
+        "recipes_cooked" => snap.recipes_cooked as i64,
+        "recipes_mastered" => snap.recipes_mastered as i64,
+        "recipes_discovered" => snap.recipes_discovered as i64,
+        "wood_chopped" => snap.wood_chopped as i64,
+        "trees_felled" => snap.trees_felled as i64,
+        "encyclopedia_level" => snap.encyclopedia_level as i64,
+        "cooking_level" => snap.cooking_level as i64,
+        "woodcutting_level" => snap.woodcutting_level as i64,
+        "hull_tier" => snap.hull_tier as i64,
         _ => return None,
     })
 }
