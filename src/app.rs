@@ -8120,11 +8120,12 @@ fn render_help(frame: &mut Frame, topic: HelpTopic) {
     frame.render_widget(p, inner);
 }
 
-fn group_line_with_recipes(
+fn group_line_full(
     name: &str,
     desc: &str,
     n: usize,
     recipes: usize,
+    sell_price: u64,
 ) -> ratatui::text::Line<'static> {
     let label = if n > 1 {
         format!("({n}) {name}")
@@ -8133,6 +8134,11 @@ fn group_line_with_recipes(
     };
     let mut spans = vec![
         ratatui::text::Span::styled(label, Style::default().fg(Color::LightYellow)),
+        ratatui::text::Span::raw("  "),
+        ratatui::text::Span::styled(
+            format!("{sell_price}$V/ea"),
+            Style::default().fg(Color::LightGreen),
+        ),
         ratatui::text::Span::raw("  - "),
         ratatui::text::Span::raw(desc.to_string()),
     ];
@@ -8218,17 +8224,23 @@ fn render_inventory(
     };
     let lines: Vec<ratatui::text::Line> = match cat {
         Category::Fish => {
-            let mut grouped: Vec<(&str, &str, usize)> = Vec::new();
+            // Collect (name, desc, count, base_sell_price). Group like before
+            // but keep a pointer to the original FishDef so we can read
+            // sell_price() per row.
+            let mut grouped: Vec<(&'static crate::fish::FishDef, usize)> = Vec::new();
             for f in fish_inv.iter().filter(|f| !f.unique) {
-                if let Some((_, _, n)) = grouped.iter_mut().find(|(n, _, _)| *n == f.name.as_str()) {
+                if let Some((_, n)) = grouped
+                    .iter_mut()
+                    .find(|(ff, _)| ff.name == f.name)
+                {
                     *n += 1;
                 } else {
-                    grouped.push((f.name.as_str(), f.description.as_str(), 1));
+                    grouped.push((*f, 1));
                 }
             }
             grouped
                 .into_iter()
-                .map(|(name, desc, n)| {
+                .map(|(f, n)| {
                     let recipe_count = crate::recipes::recipes()
                         .iter()
                         .enumerate()
@@ -8236,10 +8248,10 @@ fn render_inventory(
                             recipe_discovered.get(*i).copied().unwrap_or(false)
                                 && r.ingredients
                                     .iter()
-                                    .any(|(in_name, _)| in_name.eq_ignore_ascii_case(name))
+                                    .any(|(in_name, _)| in_name.eq_ignore_ascii_case(&f.name))
                         })
                         .count();
-                    group_line_with_recipes(name, desc, n, recipe_count)
+                    group_line_full(&f.name, &f.description, n, recipe_count, f.sell_price())
                 })
                 .collect()
         }
