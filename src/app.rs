@@ -5481,6 +5481,22 @@ impl App {
                 self.player.hull_tier,
                 self.player.biofuel,
                 self.player.crew_hunger,
+                self.skill_tree.available(
+                    self.skills.fishing_level(),
+                    self.achievements.points_granted
+                        + self.daily_bonus_points
+                        + self.challenge_bonus_points,
+                    self.mastery_milestones,
+                    self.skills.encyclopedia_level(),
+                ),
+                crate::skill_tree::SkillTree::earned(
+                    self.skills.fishing_level(),
+                    self.achievements.points_granted
+                        + self.daily_bonus_points
+                        + self.challenge_bonus_points,
+                    self.mastery_milestones,
+                    self.skills.encyclopedia_level(),
+                ),
             ),
             Scene::Settings => render_settings(frame, self.settings_cursor, &self.settings),
             Scene::Quests { cursor } => render_quests(
@@ -5808,7 +5824,11 @@ impl App {
         // chunky yellow row so the user sees every first catch / first
         // recipe unlock distinctly from the regular xp popup.
         if let Some((label, gained, is_recipe)) = self.discovery_queue.front() {
-            render_discovery_banner(frame, label, *gained, *is_recipe);
+            // queue_extra = how many MORE banners are waiting behind this
+            // one. Useful when a single catch cascades into multiple
+            // recipe unlocks; without this the player only sees the front.
+            let queue_extra = self.discovery_queue.len().saturating_sub(1);
+            render_discovery_banner(frame, label, *gained, *is_recipe, queue_extra);
         }
 
         if let Some(id) = self.pinned_quest.as_deref() {
@@ -6453,10 +6473,24 @@ fn render_xp_popup(
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-fn render_discovery_banner(frame: &mut Frame, label: &str, xp: u64, is_recipe: bool) {
+fn render_discovery_banner(
+    frame: &mut Frame,
+    label: &str,
+    xp: u64,
+    is_recipe: bool,
+    queue_extra: usize,
+) {
     let area = viewport(frame);
     let kind = if is_recipe { "Recipe" } else { "Fish" };
-    let line = format!("★ {} discovered: {} ★   +{} encyclopedia xp", kind, label, xp);
+    let queue_tag = if queue_extra > 0 {
+        format!("   (+{queue_extra} more queued)")
+    } else {
+        String::new()
+    };
+    let line = format!(
+        "★ {} discovered: {} ★   +{} encyclopedia xp{queue_tag}",
+        kind, label, xp
+    );
     let w = (line.len() as u16 + 6).min(area.width.saturating_sub(2));
     let h = 3u16.min(area.height);
     if w < 16 || h < 3 {
@@ -7574,6 +7608,8 @@ fn render_stats(
     hull_tier: u32,
     biofuel: u32,
     crew_hunger: u32,
+    skill_points_available: u32,
+    skill_points_earned: u32,
 ) {
     let area = viewport(frame);
     let block = Block::default()
@@ -7602,6 +7638,12 @@ fn render_stats(
     lines.push(row("Play time", play));
     lines.push(row("Valu", format_valu(valu)));
     lines.push(row("Lifetime valu earned", format_valu(lifetime_valu)));
+    lines.push(row(
+        "Skill points",
+        format!(
+            "{skill_points_available} available / {skill_points_earned} earned (visit the school)"
+        ),
+    ));
 
     lines.push(ratatui::text::Line::from(""));
     lines.push(section("PROGRESS"));
@@ -7844,11 +7886,13 @@ fn render_help(frame: &mut Frame, topic: HelpTopic) {
                 ("f", "interact with what you're facing (door, npc, water)"),
                 ("g", "pick up nearby flower / pebble"),
                 ("x", "inspect the tile you're facing"),
-                ("e", "open fishdex"),
+                ("e", "open fishdex (catch list, /-filter)"),
                 ("space", "cast / set strength / hook on ! / cancel while waiting"),
                 ("Esc", "switch from Insert -> Normal mode (also cancels a cast)"),
                 ("i / a", "switch from Normal -> Insert mode"),
                 (":", "in Normal mode, open command line"),
+                ("discovery banner", "fish/recipe first-catches show top of screen (yellow / magenta)"),
+                ("lakebed entrance", "blue 'V' A-frame on a lake island. dry mineshafts are brown '#'"),
             ],
         ),
         HelpTopic::Commands => (
