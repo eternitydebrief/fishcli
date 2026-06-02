@@ -109,6 +109,7 @@ impl Fishdex {
         caught: &[bool],
         caught_at: &[Option<(String, String)>],
         caught_context: &[Option<(String, String, String)>],
+        mastery: &[u32],
         milestone_blurb: &str,
     ) {
         let area = frame.area();
@@ -274,6 +275,17 @@ impl Fishdex {
                         ),
                     ]));
                 }
+                // Mastery counter + the per-species sell bonus it grants
+                // (every 5 mastery = +2% sell, capped at +50%).
+                let m = mastery.get(sel).copied().unwrap_or(0);
+                let mbonus_pct = ((m / 5).min(25)) as f32 * 2.0;
+                lines.push(Line::from(vec![
+                    Span::raw("mastery:   "),
+                    Span::styled(
+                        format!("{m} caught  (+{:.0}% sell)", mbonus_pct),
+                        Style::default().fg(Color::LightYellow),
+                    ),
+                ]));
                 if f.unique {
                     lines.push(Line::from(Span::styled(
                         "UNIQUE - misc tab, cannot be sold or discarded",

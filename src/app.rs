@@ -5466,6 +5466,7 @@ impl App {
                     &caught_snapshot,
                     &caught_at_snapshot,
                     &caught_context_snapshot,
+                    &self.mastery,
                     &blurb,
                 );
             }
@@ -8835,6 +8836,21 @@ fn render_cookbook(
                 format!("    {}", r.description),
                 Style::default().fg(Color::Rgb(120, 120, 120)),
             )));
+            // Per-ingredient own/need breakdown so the player can see at a
+            // glance which fish they're missing. Lit-yellow if covered,
+            // red if not.
+            for (in_name, qty) in &r.ingredients {
+                let have = basket
+                    .iter()
+                    .filter(|f| f.name.eq_ignore_ascii_case(in_name))
+                    .count() as u32;
+                let met = have >= *qty;
+                let color = if met { Color::LightGreen } else { Color::LightRed };
+                lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+                    format!("      {}: {}/{}", in_name, have, qty),
+                    Style::default().fg(color),
+                )));
+            }
         }
     }
     frame.render_widget(
