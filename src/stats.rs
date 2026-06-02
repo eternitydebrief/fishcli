@@ -30,6 +30,11 @@ pub struct Skills {
     pub blacksmithing_xp: u64,
     #[serde(default)]
     pub cooking_xp: u64,
+    /// Encyclopedia xp — accumulated from first-time discoveries (a fish
+    /// you've never caught, a recipe that's just been unlocked). Levels
+    /// reward you with skill points like the other lines.
+    #[serde(default)]
+    pub encyclopedia_xp: u64,
 }
 
 impl Skills {
@@ -53,6 +58,9 @@ impl Skills {
     }
     pub fn cooking_level(&self) -> u32 {
         xp_to_level(self.cooking_xp)
+    }
+    pub fn encyclopedia_level(&self) -> u32 {
+        xp_to_level(self.encyclopedia_xp)
     }
 }
 
