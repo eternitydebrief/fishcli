@@ -1112,12 +1112,28 @@ impl World {
                     .fg(Color::Rgb(140, 95, 55))
                     .add_modifier(Modifier::BOLD),
             ),
-            Tile::MineEntrance => (
-                '#',
-                Style::default()
-                    .fg(Color::Rgb(60, 40, 25))
-                    .add_modifier(Modifier::BOLD),
-            ),
+            Tile::MineEntrance => {
+                // Lakebed entrances re-use the MineEntrance tile but live
+                // on a lake island and drop into Dimension::Lakebed.
+                // Differentiate the render so the player can tell them
+                // apart: dry shaft is rusty-brown '#', lakebed is a watery
+                // blue 'V' (A-frame seen from above).
+                if is_lakebed_entrance_anchor(x, y, self.seed) {
+                    (
+                        'V',
+                        Style::default()
+                            .fg(Color::Rgb(110, 200, 240))
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else {
+                    (
+                        '#',
+                        Style::default()
+                            .fg(Color::Rgb(60, 40, 25))
+                            .add_modifier(Modifier::BOLD),
+                    )
+                }
+            }
             Tile::MineFrame => mine_frame_glyph(x, y, self.seed),
             Tile::CaveFloor => match self.dim {
                 Dimension::HotSpring => hot_spring_floor_glyph(x, y),

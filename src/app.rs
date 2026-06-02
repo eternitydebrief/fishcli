@@ -5451,6 +5451,7 @@ impl App {
                 &self.player.inventory,
                 &self.player.items,
                 *tab,
+                &self.recipe_discovered,
             ),
             Scene::Help(topic) => render_help(frame, *topic),
             Scene::Stats => render_stats(
@@ -7905,6 +7906,33 @@ fn render_help(frame: &mut Frame, topic: HelpTopic) {
     frame.render_widget(p, inner);
 }
 
+fn group_line_with_recipes(
+    name: &str,
+    desc: &str,
+    n: usize,
+    recipes: usize,
+) -> ratatui::text::Line<'static> {
+    let label = if n > 1 {
+        format!("({n}) {name}")
+    } else {
+        name.to_string()
+    };
+    let mut spans = vec![
+        ratatui::text::Span::styled(label, Style::default().fg(Color::LightYellow)),
+        ratatui::text::Span::raw("  - "),
+        ratatui::text::Span::raw(desc.to_string()),
+    ];
+    if recipes > 0 {
+        spans.push(ratatui::text::Span::styled(
+            format!("   [in {recipes} recipe{}]", if recipes == 1 { "" } else { "s" }),
+            Style::default()
+                .fg(Color::LightMagenta)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+    ratatui::text::Line::from(spans)
+}
+
 fn group_line(name: &str, desc: &str, n: usize) -> ratatui::text::Line<'static> {
     let label = if n > 1 {
         format!("({n}) {name}")
@@ -7926,6 +7954,7 @@ fn render_inventory(
     fish_inv: &[&'static FishDef],
     items: &[Item],
     tab_idx: usize,
+    recipe_discovered: &[bool],
 ) {
     let area = viewport(frame);
     let cats = Category::all();
@@ -7985,7 +8014,19 @@ fn render_inventory(
             }
             grouped
                 .into_iter()
-                .map(|(name, desc, n)| group_line(name, desc, n))
+                .map(|(name, desc, n)| {
+                    let recipe_count = crate::recipes::recipes()
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, r)| {
+                            recipe_discovered.get(*i).copied().unwrap_or(false)
+                                && r.ingredients
+                                    .iter()
+                                    .any(|(in_name, _)| in_name.eq_ignore_ascii_case(name))
+                        })
+                        .count();
+                    group_line_with_recipes(name, desc, n, recipe_count)
+                })
                 .collect()
         }
         Category::Misc => {
