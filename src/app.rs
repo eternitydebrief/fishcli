@@ -5531,6 +5531,8 @@ impl App {
                 &self.quest_progress,
                 &self.quest_done,
                 self.pinned_quest.as_deref(),
+                self.daily_progress,
+                self.daily_completed,
             ),
             Scene::Map { offset } => {
                 let empty = std::collections::HashSet::new();
@@ -6165,6 +6167,8 @@ fn render_quests(
     progress: &HashMap<String, u32>,
     done: &[String],
     pinned: Option<&str>,
+    daily_progress: u32,
+    daily_completed: bool,
 ) {
     let area = viewport(frame);
     let block = Block::default()
@@ -6175,6 +6179,52 @@ fn render_quests(
     frame.render_widget(block, area);
 
     let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    // Daily quest at the top so the player sees today's task immediately.
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        "  TODAY",
+        Style::default()
+            .fg(Color::LightMagenta)
+            .add_modifier(Modifier::BOLD),
+    )));
+    if let Some(def) = crate::daily::today_def() {
+        let (state_label, state_color) = if daily_completed {
+            ("[done]", Color::Green)
+        } else {
+            ("[active]", Color::Yellow)
+        };
+        lines.push(ratatui::text::Line::from(vec![
+            ratatui::text::Span::styled(
+                "    ".to_string(),
+                Style::default(),
+            ),
+            ratatui::text::Span::styled(
+                state_label.to_string(),
+                Style::default().fg(state_color).add_modifier(Modifier::BOLD),
+            ),
+            ratatui::text::Span::raw("  "),
+            ratatui::text::Span::styled(
+                def.title.clone(),
+                Style::default()
+                    .fg(Color::LightYellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            ratatui::text::Span::raw(format!("  {}/{}  ", daily_progress, def.count)),
+            ratatui::text::Span::styled(
+                def.description.clone(),
+                Style::default().fg(Color::Gray),
+            ),
+            ratatui::text::Span::styled(
+                format!("   (+{}$V, +{}sp)", def.reward_valu, def.reward_points),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]));
+    } else {
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+            "    (no daily today)".to_string(),
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+    lines.push(ratatui::text::Line::from(""));
     lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
         "  ACTIVE",
         Style::default()
