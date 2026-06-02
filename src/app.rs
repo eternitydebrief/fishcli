@@ -442,7 +442,7 @@ pub struct App {
     steps_until_drain: u32,
 }
 
-pub const TUTORIAL_STEPS: u32 = 6;
+pub const TUTORIAL_STEPS: u32 = 10;
 
 /// Baseline maximum stamina before Iron Lungs ranks.
 pub const STAMINA_BASE_MAX: f32 = 100.0;
@@ -1028,6 +1028,7 @@ impl App {
         self.narrator.say(
             "Chopping. Type the F/G/H/J sequence. Wrong key → 3s lockout.".to_string(),
         );
+        self.tutorial_advance(5);
     }
 
     fn handle_chop_key(&mut self, code: KeyCode) {
@@ -1076,6 +1077,7 @@ impl App {
     fn do_open_shipwright(&mut self) {
         self.scene = Scene::Shipwright { cursor: 0 };
         self.mode = Mode::Insert;
+        self.tutorial_advance(7);
     }
 
     fn handle_shipwright_key(&mut self, code: KeyCode) {
@@ -1331,9 +1333,15 @@ impl App {
                 }
             }
         }
-        // Apply mastery scaling: every 5 cooks adds 5%, cap +50%.
+        // Apply scaling. Two stacking sources, both additive:
+        //   * recipe mastery: +5% per 5 cooks of this dish, cap +50%.
+        //   * cooking level:  +0.5% per level, cap +30%.
+        // Combined ceiling sits at +80% on stamina + effect magnitude so
+        // a fully-mastered chef gets a real edge without trivialising it.
         let m = self.cooking_mastery.get(idx).copied().unwrap_or(0) as f32;
-        let scale = 1.0 + ((m / 5.0).floor() * 0.05).min(0.50);
+        let mastery_bonus = ((m / 5.0).floor() * 0.05).min(0.50);
+        let cooking_bonus = (lvl as f32 * 0.005).min(0.30);
+        let scale = 1.0 + mastery_bonus + cooking_bonus;
         let stamina_grant = (r.stamina as f32 * scale).round();
         if stamina_grant > 0.0 {
             self.grant_stamina(stamina_grant);
@@ -1359,6 +1367,7 @@ impl App {
         }
         // Mastery + cooking xp. Cooking xp scales with the recipe's
         // min_cooking_level so high-tier dishes give more.
+        let first_cook = self.cooking_mastery.get(idx).copied().unwrap_or(0) == 0;
         if let Some(slot) = self.cooking_mastery.get_mut(idx) {
             *slot = slot.saturating_add(1);
             let after_m = *slot;
@@ -1369,6 +1378,18 @@ impl App {
                     r.name
                 ));
             }
+        }
+        if first_cook {
+            // First time the player actually plates this dish — separate
+            // event from "discovered" (which fires on the ingredient
+            // fish-catch). Encyclopedia xp + the recipe banner so the
+            // player gets a clear "you cooked something new" moment.
+            let dish_xp = 30 + r.min_cooking_level as u64 * 2;
+            self.register_discovery(
+                format!("First cook: {}", r.name),
+                dish_xp,
+                true,
+            );
         }
         let xp = (20 + r.min_cooking_level as u64 * 4)
             .saturating_mul((scale * 100.0) as u64)
@@ -1432,7 +1453,11 @@ impl App {
             2 => "Tutorial: keep the fish inside the rectangle. j/k, w/s, or arrows move you.",
             3 => "Tutorial: press i to view your basket. Find a fishmonger to sell.",
             4 => "Tutorial: try :e for the fishdex, :s for stats, :m for the map.",
-            5 => "Tutorial complete. Press :help for the full command list.",
+            5 => "Tutorial: face a tree and type :chop. The Lumberjack (west of the well) explains.",
+            6 => "Tutorial: try :cook or :cookbook. Recipes unlock as you catch their ingredients.",
+            7 => "Tutorial: when you have a boat, talk to the Shipwright (south pier) to upgrade hulls.",
+            8 => "Tutorial: aboard the boat, :feed and :burn convert fish to crew/fuel.",
+            9 => "Tutorial complete. Press :help for the full command list.",
             _ => "",
         };
         if !hint.is_empty() {
@@ -2206,7 +2231,14 @@ impl App {
                         if n == 0 { return; }
                         let node = nodes[(*cursor).min(n - 1)];
                         let lvl = self.skills.fishing_level();
-                        let available = self.skill_tree.available(lvl, self.achievements.points_granted + self.daily_bonus_points + self.challenge_bonus_points, self.mastery_milestones);
+                        let available = self.skill_tree.available(
+                            lvl,
+                            self.achievements.points_granted
+                                + self.daily_bonus_points
+                                + self.challenge_bonus_points,
+                            self.mastery_milestones,
+                            self.skills.encyclopedia_level(),
+                        );
                         if available == 0 {
                             self.narrator.say("No skill points to spend.");
                         } else if self.skill_tree.rank(&node.id) >= node.max_rank {
@@ -3210,16 +3242,19 @@ impl App {
             "recipes" | "cookbook" | "rb" => {
                 self.scene = Scene::Cooking { cursor: 0 };
                 self.mode = Mode::Insert;
+                self.tutorial_advance(6);
             }
             cmd if cmd.starts_with("feed") => {
                 let arg = cmd.strip_prefix("feed").unwrap_or("").trim();
                 let n: u32 = arg.parse().unwrap_or(1).max(1);
                 self.do_feed_crew(n);
+                self.tutorial_advance(8);
             }
             cmd if cmd.starts_with("burn") => {
                 let arg = cmd.strip_prefix("burn").unwrap_or("").trim();
                 let n: u32 = arg.parse().unwrap_or(1).max(1);
                 self.do_burn_biofuel(n);
+                self.tutorial_advance(8);
             }
             "chop" => {
                 self.do_chop();
@@ -5331,6 +5366,7 @@ impl App {
                 self.skills.fishing_level(),
                 self.achievements.points_granted + self.daily_bonus_points + self.challenge_bonus_points,
                 self.mastery_milestones,
+                self.skills.encyclopedia_level(),
             ),
             Scene::Fishing(g) => {
                 // fishing scene gets the whole frame; log is hidden during reel
@@ -6532,12 +6568,23 @@ fn render_skill_tree(
     fishing_level: u32,
     achievements: u32,
     mastery_milestones: u32,
+    encyclopedia_level: u32,
 ) {
     use crate::skill_tree::{SkillTree, TreeBranch};
     use ratatui::widgets::Paragraph;
     let area = viewport(frame);
-    let earned = SkillTree::earned(fishing_level, achievements, mastery_milestones);
-    let available = tree.available(fishing_level, achievements, mastery_milestones);
+    let earned = SkillTree::earned(
+        fishing_level,
+        achievements,
+        mastery_milestones,
+        encyclopedia_level,
+    );
+    let available = tree.available(
+        fishing_level,
+        achievements,
+        mastery_milestones,
+        encyclopedia_level,
+    );
     let branches = TreeBranch::ALL;
     let tab = tab.min(branches.len() - 1);
     let active_branch = branches[tab];
@@ -8393,8 +8440,9 @@ fn render_cookbook(
         ),
         None => " | all milestones earned".to_string(),
     };
+    let level_bonus_pct = ((cooking_level as f32 * 0.5).min(30.0)) as u32;
     let title = format!(
-        " cookbook  cooking lv {cooking_level}  |  discovered {discovered_total}/{}  |  unlocked {unlocked}  |  mastered {mastered}{mile_blurb}  j/k pick  enter cook  q close ",
+        " cookbook  cooking lv {cooking_level} (+{level_bonus_pct}% all dishes)  |  discovered {discovered_total}/{}  |  unlocked {unlocked}  |  mastered {mastered}{mile_blurb}  j/k pick  enter cook  q close ",
         recs.len(),
     );
     let block = Block::default()
