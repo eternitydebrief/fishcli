@@ -2164,6 +2164,24 @@ pub fn find_tree_anchor_pub(x: i32, y: i32, seed: u32) -> Option<(i32, i32)> {
     find_tree_anchor(x, y, seed).map(|(ax, ay, _, _)| (ax, ay))
 }
 
+/// Wood-yield multiplier for the tree at this cell. Bushes give half,
+/// round trees baseline, pines half-again, village oaks double — bigger
+/// trees, more logs.
+pub fn tree_yield_mult_at(x: i32, y: i32, seed: u32) -> f32 {
+    // Hand-placed village oaks have no procedural anchor; resolve them
+    // first via the VILLAGE_OAKS list since they're the tallest trees in
+    // the world and deserve the biggest payout.
+    if village_oak_at(x, y).is_some() {
+        return 2.0;
+    }
+    match find_tree_anchor(x, y, seed) {
+        Some((_, _, TreeSpecies::Bush, _)) => 0.5,
+        Some((_, _, TreeSpecies::Round, _)) => 1.0,
+        Some((_, _, TreeSpecies::Pine, _)) => 1.5,
+        None => 1.0,
+    }
+}
+
 fn find_tree_anchor(x: i32, y: i32, seed: u32) -> Option<(i32, i32, TreeSpecies, TreePart)> {
     for dy in 0..=2i32 {
         for dx in -1..=1i32 {

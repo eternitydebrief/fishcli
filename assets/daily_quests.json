@@ -1,5 +1,5 @@
 [
-  { "_comment": "schema: { id, title, description, kind ('catch'|'walk'|'talk'), target (fish name / biome name / npc id / 'any'), count (u32), reward_valu (u64), reward_points (u32) }. One quest from this list is selected per real-life day (hashed from the UTC date), persists for 24h, completable once. Resets at UTC midnight." },
+  { "_comment": "schema: { id, title, description, kind ('catch'|'walk'|'talk'|'chop'|'cook'), target (fish name / biome name / npc id / recipe name / 'any'), count (u32), reward_valu (u64), reward_points (u32) }. One quest from this list is selected per real-life day (hashed from the UTC date), persists for 24h, completable once. Resets at UTC midnight." },
 
   { "id": "dq-1",  "title": "Daily: Common Run",        "description": "Catch 10 common carp.",                "kind": "catch", "target": "common carp",  "count": 10,  "reward_valu": 500,   "reward_points": 1 },
   { "id": "dq-2",  "title": "Daily: Bluegill Hour",     "description": "Catch 15 bluegill.",                   "kind": "catch", "target": "bluegill",     "count": 15,  "reward_valu": 750,   "reward_points": 1 },
@@ -10,5 +10,10 @@
   { "id": "dq-7",  "title": "Daily: Pier Patrol",       "description": "Greet 3 NPCs today.",                  "kind": "talk",  "target": "any",          "count": 3,   "reward_valu": 600,   "reward_points": 1 },
   { "id": "dq-8",  "title": "Daily: Long Walk",         "description": "Take 500 steps anywhere.",             "kind": "walk",  "target": "any",          "count": 500, "reward_valu": 1000,  "reward_points": 1 },
   { "id": "dq-9",  "title": "Daily: Big Sweep",         "description": "Catch any 100 fish.",                  "kind": "catch", "target": "any",          "count": 100, "reward_valu": 4000,  "reward_points": 3 },
-  { "id": "dq-10", "title": "Daily: Specialist",        "description": "Catch 5 koi.",                         "kind": "catch", "target": "koi",          "count": 5,   "reward_valu": 1000,  "reward_points": 1 }
+  { "id": "dq-10", "title": "Daily: Specialist",        "description": "Catch 5 koi.",                         "kind": "catch", "target": "koi",          "count": 5,   "reward_valu": 1000,  "reward_points": 1 },
+  { "id": "dq-11", "title": "Daily: Woodsman",          "description": "Chop down 10 trees.",                  "kind": "chop",  "target": "any",          "count": 10,  "reward_valu": 600,   "reward_points": 1 },
+  { "id": "dq-12", "title": "Daily: Forester",          "description": "Chop down 25 trees.",                  "kind": "chop",  "target": "any",          "count": 25,  "reward_valu": 1500,  "reward_points": 2 },
+  { "id": "dq-13", "title": "Daily: Kitchen Run",        "description": "Cook 5 dishes.",                       "kind": "cook",  "target": "any",          "count": 5,   "reward_valu": 800,   "reward_points": 1 },
+  { "id": "dq-14", "title": "Daily: Soup Day",          "description": "Cook 3 servings of Carp Stew.",        "kind": "cook",  "target": "Carp Stew",    "count": 3,   "reward_valu": 600,   "reward_points": 1 },
+  { "id": "dq-15", "title": "Daily: Banquet",           "description": "Cook 15 dishes (any).",                "kind": "cook",  "target": "any",          "count": 15,  "reward_valu": 3000,  "reward_points": 3 }
 ]

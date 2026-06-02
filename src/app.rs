@@ -1048,10 +1048,19 @@ impl App {
         };
         if completed {
             // Pull yield first; the borrow ends before we mutate xp/stamina.
-            let yield_ = match &self.scene {
+            let base_yield = match &self.scene {
                 Scene::Chopping(c) => c.wood_yield,
                 _ => 0,
             };
+            // Species multiplier: pine > round > bush; village oaks = 2x.
+            let species_mult = self
+                .pending_chop_anchor
+                .map(|(ax, ay)| {
+                    crate::world::tree_yield_mult_at(ax, ay, self.world.seed)
+                })
+                .unwrap_or(1.0);
+            let yield_ =
+                ((base_yield as f32 * species_mult).round() as u32).max(1);
             self.spend_stamina(2.0);
             self.player.wood = self.player.wood.saturating_add(yield_);
             let lvl = self.skills.woodcutting_level();
@@ -1077,6 +1086,7 @@ impl App {
             self.stats.wood_chopped =
                 self.stats.wood_chopped.saturating_add(yield_ as u64);
             self.stats.trees_felled = self.stats.trees_felled.saturating_add(1);
+            self.quest_progress_silent("chop", "any");
             self.scene = Scene::Overworld;
         }
     }
@@ -1435,6 +1445,9 @@ impl App {
                 true,
             );
         }
+        let rname = r.name.clone();
+        self.quest_progress_silent("cook", "any");
+        self.quest_progress_silent("cook", &rname);
         let xp = (20 + r.min_cooking_level as u64 * 4)
             .saturating_mul((scale * 100.0) as u64)
             / 100;
