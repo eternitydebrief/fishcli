@@ -169,6 +169,34 @@
     }
   },
   {
+    "id": "lumberjack",
+    "name": "The Lumberjack",
+    "x": -22,
+    "y": 3,
+    "glyph": "L",
+    "color": "lightgreen",
+    "dialogue": [
+      "The Lumberjack leans on a long-handled axe.",
+      "\"See a tree, face it, type :chop. I'll show you the rhythm — F, G, H, J, in whatever order I shout 'em.\"",
+      "\"Get one wrong, hands lock up for three seconds. Get sloppy, the haul halves. Clean run, you walk away with logs.\"",
+      "\"Shipwright wants wood for every hull tier. So.\""
+    ]
+  },
+  {
+    "id": "chef",
+    "name": "The Chef",
+    "x": 22,
+    "y": 3,
+    "glyph": "C",
+    "color": "lightmagenta",
+    "dialogue": [
+      "The Chef wipes their hands on a stained apron.",
+      "\"You hauling fish, you should be cooking. :cook (or :cookbook) opens my book. Pick a dish, hit enter, dinner.\"",
+      "\"Every recipe gates on cooking level. Cook it more, master it — same dish at twenty cooks pays half-again.\"",
+      "\"Master twenty different recipes, the world rewards you. Pantheon Palate. I'll explain when you're there.\""
+    ]
+  },
+  {
     "id": "miner",
     "name": "The Miner",
     "x": 12,
@@ -196,14 +224,15 @@
     "color": "yellow",
     "dialogue": [
       "The Shipwright sizes you up.",
-      "\"At 1,250 fish I'll build you a hull. Until then, swim if you must.\"",
-      "\"Boat-mode: :inspect open water to push off. Step onto land to disembark.\""
+      "\"You want a hull, you bring valu and timber. I'll fit you a Skiff for 1,000 valu and 10 wood. Six tiers; tier six runs the Fog Sea.\"",
+      "\"Talk to me to open the yard. :inspect open water to push off. Step onto land to disembark.\"",
+      "\"Watch your fuel. Empty tank, the current takes you home.\""
     ],
     "responses": {
-      "owns_boat": "Shipwright: \"She's yours. :inspect the water to push off; step onto land to disembark.\"",
-      "not_enough": "Shipwright: \"You've landed {count}. Bring me {need} and I'll build you a hull.\"",
-      "built": "*** Shipwright builds you a boat. ***",
-      "built_tip": "Shipwright: \":inspect any water to push off. Step onto land to leave the boat.\""
+      "owns_boat": "Shipwright: \"She's yours. :inspect water to push off; step onto land to disembark.\"",
+      "not_enough": "Shipwright: \"You're short. Bring more valu and wood.\"",
+      "built": "*** Shipwright completes the hull. ***",
+      "built_tip": "Shipwright: \":inspect water to push off. Burn fish for fuel (:burn). Feed the crew (:feed).\""
     }
   },
   {
