@@ -1147,6 +1147,7 @@ impl World {
                 Dimension::HotSpring => hot_spring_floor_glyph(x, y),
                 Dimension::SwampCave => swamp_floor_glyph(x, y),
                 Dimension::Crater => crater_floor_glyph(x, y),
+                Dimension::Lakebed => lakebed_floor_glyph(x, y),
                 _ => cave_floor_glyph(x, y),
             },
             Tile::CaveWall => {
@@ -4613,6 +4614,10 @@ fn water_bg_for(dim: Dimension) -> Color {
         Dimension::Wreckage => Color::Rgb(4, 12, 14),
         Dimension::BogCathedral => Color::Rgb(8, 6, 14),
         Dimension::Pyramid => Color::Rgb(14, 10, 4),
+        // Lakebed water: drowned cave deep — colder and bluer than the
+        // surface ocean baseline so the flooded cavern feels submerged
+        // rather than just dark.
+        Dimension::Lakebed => Color::Rgb(2, 8, 22),
         _ => Color::Rgb(4, 6, 18),
     }
 }
@@ -4622,6 +4627,10 @@ fn mineral_bg_for(dim: Dimension) -> Color {
         Dimension::HotSpring => Color::Rgb(14, 4, 4),
         Dimension::Crater => Color::Rgb(12, 4, 14),
         Dimension::MirrorLake => Color::Rgb(10, 12, 14),
+        // Lakebed mineral water reads as deep aquamarine — the cave is
+        // mostly water, so this is the dominant tile and deserves a
+        // recognisable hue.
+        Dimension::Lakebed => Color::Rgb(2, 16, 26),
         _ => Color::Rgb(4, 14, 18),
     }
 }
@@ -4779,6 +4788,30 @@ fn crater_floor_glyph(x: i32, y: i32) -> (char, Style) {
     let g = match h % 5 { 0 => '.', 1 => ',', 2 => '`', 3 => '\'', _ => ':' };
     let shade = 30 + (h % 16) as u8;
     (g, Style::default().fg(Color::Rgb(shade + 10, shade.saturating_sub(2), shade + 25)))
+}
+
+fn lakebed_floor_glyph(x: i32, y: i32) -> (char, Style) {
+    // Pale silt + the occasional bubble. Cool blue-cyan tint over a near
+    // black bg so the flooded cave reads as submerged limestone.
+    let h = hash2(x, y, 0x1A_4E_BE_D1);
+    let g = match h % 8 {
+        0 => 'o',
+        1 => '.',
+        2 => ':',
+        3 => ',',
+        _ => '`',
+    };
+    let shade = 40 + (h % 18) as u8;
+    (
+        g,
+        Style::default()
+            .fg(Color::Rgb(
+                shade.saturating_sub(8),
+                shade + 4,
+                shade + 20,
+            ))
+            .bg(Color::Rgb(2, 8, 22)),
+    )
 }
 
 // ---- Per-dim Water tints --------------------------------------------------
