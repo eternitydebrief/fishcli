@@ -18,22 +18,49 @@ pub const MAX_CHARGES: u8 = 3;
 
 pub struct OreDef {
     pub name: &'static str,
+    /// Base sell value of a raw ore to the blacksmith.
     pub value: u64,
     pub color: Color,
+    /// Minimum pickaxe tier needed to mine this ore. Tier 1 is the
+    /// starter pickaxe granted by the Miner NPC; higher tiers come from
+    /// the blacksmith forge.
+    pub min_pickaxe_tier: u32,
+    /// Tier of the ingot produced when smelted. Drives recipe-gating in
+    /// the forge and the per-ingot sell value (ingot_value = value * 4 +
+    /// 10 — slight markup so smelting is profitable).
+    pub tier: u32,
+    /// Number of raw ores fused per ingot in the smelt minigame.
+    pub ore_per_ingot: u32,
 }
 
 pub const ORES: &[OreDef] = &[
-    OreDef { name: "copper",     value: 60,  color: Color::Rgb(220, 130, 90) },
-    OreDef { name: "iron",       value: 80,  color: Color::Rgb(180, 130, 100) },
-    OreDef { name: "silver",     value: 120, color: Color::Rgb(200, 220, 240) },
-    OreDef { name: "gold",       value: 200, color: Color::Rgb(230, 200, 90) },
-    OreDef { name: "turquoise",  value: 90,  color: Color::Rgb(100, 220, 180) },
-    OreDef { name: "amethyst",   value: 130, color: Color::Rgb(180, 160, 220) },
-    OreDef { name: "ruby",       value: 220, color: Color::Rgb(240, 100, 100) },
-    OreDef { name: "sapphire",   value: 220, color: Color::Rgb(80, 200, 240) },
-    OreDef { name: "emerald",    value: 240, color: Color::Rgb(100, 220, 130) },
-    OreDef { name: "diamond",    value: 500, color: Color::Rgb(230, 245, 255) },
+    // tier 1 — starter pickaxe can hit these
+    OreDef { name: "copper",     value: 60,  color: Color::Rgb(220, 130, 90),  min_pickaxe_tier: 1, tier: 1, ore_per_ingot: 4 },
+    OreDef { name: "iron",       value: 80,  color: Color::Rgb(180, 130, 100), min_pickaxe_tier: 1, tier: 1, ore_per_ingot: 4 },
+    OreDef { name: "turquoise",  value: 90,  color: Color::Rgb(100, 220, 180), min_pickaxe_tier: 1, tier: 1, ore_per_ingot: 4 },
+    // tier 2 — copper-forged pickaxe
+    OreDef { name: "silver",     value: 120, color: Color::Rgb(200, 220, 240), min_pickaxe_tier: 2, tier: 2, ore_per_ingot: 4 },
+    OreDef { name: "amethyst",   value: 130, color: Color::Rgb(180, 160, 220), min_pickaxe_tier: 2, tier: 2, ore_per_ingot: 4 },
+    // tier 3 — iron-forged pickaxe
+    OreDef { name: "gold",       value: 200, color: Color::Rgb(230, 200, 90),  min_pickaxe_tier: 3, tier: 3, ore_per_ingot: 4 },
+    OreDef { name: "ruby",       value: 220, color: Color::Rgb(240, 100, 100), min_pickaxe_tier: 3, tier: 3, ore_per_ingot: 4 },
+    // tier 4 — silver-forged pickaxe
+    OreDef { name: "sapphire",   value: 220, color: Color::Rgb(80, 200, 240),  min_pickaxe_tier: 4, tier: 4, ore_per_ingot: 4 },
+    OreDef { name: "emerald",    value: 240, color: Color::Rgb(100, 220, 130), min_pickaxe_tier: 4, tier: 4, ore_per_ingot: 4 },
+    // tier 5 — gold-forged pickaxe
+    OreDef { name: "diamond",    value: 500, color: Color::Rgb(230, 245, 255), min_pickaxe_tier: 5, tier: 5, ore_per_ingot: 4 },
 ];
+
+impl OreDef {
+    /// Sell value of one ingot of this ore.
+    pub fn ingot_value(&self) -> u64 {
+        self.value * (self.ore_per_ingot as u64) + 10
+    }
+}
+
+pub fn ore_by_name(name: &str) -> Option<&'static OreDef> {
+    ORES.iter().find(|o| o.name.eq_ignore_ascii_case(name))
+}
 
 fn hash3(x: i32, y: i32, dim: u32, seed: u32) -> u32 {
     let mut h = seed

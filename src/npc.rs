@@ -93,7 +93,22 @@ pub fn npcs() -> &'static [Npc] {
 }
 
 /// Dim-aware lookup. Surface NPCs only show on Surface, mines NPCs only
-/// in mines, etc.
-pub fn npc_at_dim(x: i32, y: i32, dim: Dimension) -> Option<&'static Npc> {
-    npcs().iter().find(|n| n.x == x && n.y == y && n.dim == dim)
+/// in mines, etc. Procedural villages on the Surface also get a
+/// blacksmith and a fishmonger, looked up by the world generator.
+pub fn npc_at_dim(x: i32, y: i32, dim: Dimension, seed: u32) -> Option<&'static Npc> {
+    if let Some(n) = npcs().iter().find(|n| n.x == x && n.y == y && n.dim == dim) {
+        return Some(n);
+    }
+    if matches!(dim, Dimension::Surface) {
+        if let Some(id) = crate::world::proc_village_merchant_id_at(x, y, seed) {
+            return template_by_id(id);
+        }
+    }
+    None
+}
+
+/// Look up an NPC by its id (used for the proc-village template merchants,
+/// whose static x/y are sentinel values that never match a position query).
+pub fn template_by_id(id: &str) -> Option<&'static Npc> {
+    npcs().iter().find(|n| n.id == id)
 }

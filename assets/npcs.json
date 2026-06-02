@@ -27,6 +27,50 @@
     ]
   },
   {
+    "id": "blacksmith",
+    "name": "The Blacksmith",
+    "x": -12,
+    "y": 1,
+    "glyph": "B",
+    "color": "lightred",
+    "dialogue": [
+      "TODO: blacksmith intro line — user to write."
+    ],
+    "responses": {
+      "no_business": "TODO: nothing-to-do response — user to write.",
+      "cap_full": "TODO: cap-reached response — user to write."
+    }
+  },
+  {
+    "id": "blacksmith-template",
+    "name": "The Blacksmith",
+    "x": 2147483646,
+    "y": 2147483646,
+    "glyph": "B",
+    "color": "lightred",
+    "dialogue": [
+      "TODO: procedural-village blacksmith line — user to write."
+    ],
+    "responses": {
+      "no_business": "TODO: nothing-to-do response — user to write.",
+      "cap_full": "TODO: cap-reached response — user to write."
+    }
+  },
+  {
+    "id": "fishmonger-template",
+    "name": "Fishmonger",
+    "x": 2147483645,
+    "y": 2147483645,
+    "glyph": "$",
+    "color": "yellow",
+    "dialogue": [
+      "TODO: procedural-village fishmonger line — user to write."
+    ],
+    "responses": {
+      "cap_full": "TODO: cap-reached response — user to write."
+    }
+  },
+  {
     "id": "fishmonger",
     "name": "Fishmonger",
     "x": -3,
@@ -320,6 +364,18 @@
     "dialogue": [
       "Coin eyes your basket appraisingly.",
       "\"Walk a fish over and I'll quote you a price. Rare fish, more valu. Unique fish stay yours.\""
+    ]
+  },
+  {
+    "id": "tut-blacksmith",
+    "name": "TODO: tutorial blacksmith name — user to write.",
+    "x": -10,
+    "y": 1,
+    "glyph": "?",
+    "color": "lightred",
+    "dialogue": [
+      "TODO: blacksmithing tutorial intro — user to write.",
+      "TODO: explain :gear / Smelter (S) / Forge (F) / sell flow — user to write."
     ]
   },
   {
