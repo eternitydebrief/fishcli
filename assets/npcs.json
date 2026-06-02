@@ -191,8 +191,8 @@
     "color": "lightmagenta",
     "dialogue": [
       "The Chef wipes their hands on a stained apron.",
-      "\"You hauling fish, you should be cooking. :cook (or :cookbook) opens my book. Pick a dish, hit enter, dinner.\"",
-      "\"Every recipe gates on cooking level. Cook it more, master it — same dish at twenty cooks pays half-again.\"",
+      "\"You hauling fish, you should be cooking. Stand at my pot — the orange 'O' right next to me — and press f. Or :cook from inside the cookbook range.\"",
+      "\"Pot's mine. No pot, no kitchen. Every recipe gates on cooking level. Cook it more, master it — same dish at twenty cooks pays half-again.\"",
       "\"Master twenty different recipes, the world rewards you. Pantheon Palate. I'll explain when you're there.\""
     ]
   },

@@ -1473,6 +1473,12 @@ impl App {
     }
 
     fn do_cook(&mut self, name: &str) {
+        if !self.is_near_cooking_pot() {
+            self.narrator.say(
+                "You need to be at a cooking pot. Find the Chef's pot in the village.",
+            );
+            return;
+        }
         let key = name.to_ascii_lowercase();
         let idx = self
             .player
@@ -2163,6 +2169,28 @@ impl App {
                         KeyCode::Char('j') | KeyCode::Down => d.cursor_down(&self.caught),
                         KeyCode::Char('k') | KeyCode::Up => d.cursor_up(&self.caught),
                         KeyCode::Char('/') => d.start_filter(),
+                        KeyCode::Char('c') => {
+                            // Jump from the selected fish into the
+                            // cookbook with the filter set to its name —
+                            // but only if the player is standing at a
+                            // cooking pot.
+                            let sel = d.state.selected().unwrap_or(0);
+                            let known = self.caught.get(sel).copied().unwrap_or(false);
+                            if !known {
+                                // skip silently — fish not caught yet
+                            } else if !self.is_near_cooking_pot() {
+                                self.narrator.say(
+                                    "You need to be at a cooking pot. Find the Chef's pot in the village.",
+                                );
+                            } else {
+                                let name = fishlist::fish()[sel].name.clone();
+                                self.scene = Scene::Cooking {
+                                    cursor: 0,
+                                    filter: name,
+                                    editing_filter: false,
+                                };
+                            }
+                        }
                         KeyCode::Char('q') | KeyCode::Char('e') => self.exit_subscene(),
                         _ => {}
                     }
@@ -2472,6 +2500,21 @@ impl App {
                 }
                 KeyCode::Char('h') | KeyCode::Left | KeyCode::BackTab => {
                     *tab = (*tab + Category::all().len() - 1) % Category::all().len();
+                }
+                KeyCode::Char('c') => {
+                    // Quick-cook shortcut: only works while standing next
+                    // to a cooking pot (mirror of the `:cook` rule).
+                    if !self.is_near_cooking_pot() {
+                        self.narrator.say(
+                            "You need to be at a cooking pot. Find the Chef's pot in the village.",
+                        );
+                    } else {
+                        self.scene = Scene::Cooking {
+                            cursor: 0,
+                            filter: String::new(),
+                            editing_filter: false,
+                        };
+                    }
                 }
                 _ => {}
             },
@@ -3290,27 +3333,40 @@ impl App {
             cmd if cmd.starts_with("cook ") || cmd == "cook" => {
                 let name = cmd.strip_prefix("cook").unwrap_or("").trim();
                 if name.is_empty() {
-                    // Open the recipe menu instead of the old usage hint.
-                    // `:cook <fish name>` still works for the legacy
-                    // single-fish stamina restore.
+                    // Open the recipe menu — but only if standing at a
+                    // cooking pot. Otherwise the player has to track one
+                    // down (Chef's pot at home, or a procedural village).
+                    if !self.is_near_cooking_pot() {
+                        self.narrator.say(
+                            "You need to be at a cooking pot. Find the Chef's pot in the village.",
+                        );
+                    } else {
+                        self.scene = Scene::Cooking {
+                            cursor: 0,
+                            filter: String::new(),
+                            editing_filter: false,
+                        };
+                        self.mode = Mode::Insert;
+                        self.tutorial_advance(6);
+                    }
+                } else {
+                    self.do_cook(name);
+                }
+            }
+            "recipes" | "cookbook" | "rb" => {
+                if !self.is_near_cooking_pot() {
+                    self.narrator.say(
+                        "You need to be at a cooking pot. Find the Chef's pot in the village.",
+                    );
+                } else {
                     self.scene = Scene::Cooking {
                         cursor: 0,
                         filter: String::new(),
                         editing_filter: false,
                     };
                     self.mode = Mode::Insert;
-                } else {
-                    self.do_cook(name);
+                    self.tutorial_advance(6);
                 }
-            }
-            "recipes" | "cookbook" | "rb" => {
-                self.scene = Scene::Cooking {
-                    cursor: 0,
-                    filter: String::new(),
-                    editing_filter: false,
-                };
-                self.mode = Mode::Insert;
-                self.tutorial_advance(6);
             }
             cmd if cmd.starts_with("feed") => {
                 let arg = cmd.strip_prefix("feed").unwrap_or("").trim();
@@ -4272,6 +4328,17 @@ impl App {
                     self.mode = Mode::Insert;
                 }
             }
+            Tile::CookingPot => {
+                // Same flow as `:cook` / `:cookbook`: open the recipe
+                // encyclopedia with empty filter, cursor at top.
+                self.scene = Scene::Cooking {
+                    cursor: 0,
+                    filter: String::new(),
+                    editing_filter: false,
+                };
+                self.mode = Mode::Insert;
+                self.tutorial_advance(6);
+            }
             Tile::OreRock => {
                 if !self.player.has_pickaxe {
                     self.narrator
@@ -4988,6 +5055,22 @@ impl App {
                     if n.id == "blacksmith" || n.id == "blacksmith-template" {
                         return true;
                     }
+                }
+            }
+        }
+        false
+    }
+
+    /// True when the player stands on or adjacent (8-neighbourhood) to a
+    /// CookingPot tile. Cooking requires this — you can't reduce sauce in
+    /// open air.
+    fn is_near_cooking_pot(&self) -> bool {
+        let (px, py) = (self.player.x, self.player.y);
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let t = self.world.get(px + dx, py + dy);
+                if matches!(t, crate::world::Tile::CookingPot) {
+                    return true;
                 }
             }
         }
@@ -6113,6 +6196,7 @@ fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
         Tile::Tombstone => ('T', Color::Rgb(180, 180, 190)),
         Tile::Smelter => ('S', Color::Rgb(255, 140, 60)),
         Tile::Forge => ('F', Color::Rgb(255, 90, 60)),
+        Tile::CookingPot => ('O', Color::Rgb(255, 200, 120)),
         Tile::Curio => ('*', Color::Rgb(220, 200, 160)),
         Tile::PortalFrame => ('#', Color::Rgb(190, 175, 200)),
     };
@@ -8005,8 +8089,8 @@ fn render_help(frame: &mut Frame, topic: HelpTopic) {
                 (":feed [n]", "feed n fish to the crew (-3 hunger each)"),
                 (":burn [n]", "burn n fish for biofuel (+5 × difficulty each)"),
                 (":shipwright", "open the hull-upgrade menu"),
-                (":cook / :cookbook", "open the recipe encyclopedia"),
-                (":cook <fish>", "quick: cook one fish for stamina + tiny price buff"),
+                (":cook / :cookbook", "open the recipe encyclopedia (must be at a cooking pot)"),
+                (":cook <fish>", "quick: cook one fish for stamina (must be at a cooking pot)"),
             ],
         ),
     };

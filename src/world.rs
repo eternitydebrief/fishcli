@@ -434,6 +434,10 @@ pub enum Tile {
     /// blacksmith's forge — non-walkable. `f` opens the forge minigame.
     /// Spawned next to every Blacksmith NPC (static + procedural).
     Forge,
+    /// the Chef's cooking pot — non-walkable. `f` opens the cookbook menu
+    /// directly so cooking has a discoverable physical home next to the
+    /// chef NPC.
+    CookingPot,
     /// Sparse inspectable curio. The specific curio (id + glyph + color)
     /// is derived from `curio_at(x, y, dim, seed)` so the same cell always
     /// hosts the same object. Non-walkable — players stand adjacent and
@@ -518,6 +522,7 @@ impl Tile {
             Tile::PortalFrame => "PortalFrame",
             Tile::Smelter => "Smelter",
             Tile::Forge => "Forge",
+            Tile::CookingPot => "CookingPot",
             Tile::Curio => "Curio",
         }
     }
@@ -702,6 +707,9 @@ impl World {
         // home-village smith sits at (-12, 1); proc-village smiths at
         // (ax+3, ay). Smelter is north of the smith, Forge south.
         if let Some(t) = blacksmith_station_at(x, y, self.seed) {
+            return t;
+        }
+        if let Some(t) = cooking_pot_at(x, y) {
             return t;
         }
         if let Some(t) = village_tile(x, y) {
@@ -1259,6 +1267,14 @@ impl World {
                 Style::default()
                     .fg(Color::Rgb(255, 90, 60))
                     .bg(Color::Rgb(40, 6, 6))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            // Cooking pot: round vessel atop coals; warm orange on near-black.
+            Tile::CookingPot => (
+                'O',
+                Style::default()
+                    .fg(Color::Rgb(255, 200, 120))
+                    .bg(Color::Rgb(40, 18, 6))
                     .add_modifier(Modifier::BOLD),
             ),
             Tile::Tombstone => {
@@ -2512,6 +2528,17 @@ pub fn curio_at(x: i32, y: i32, dim: Dimension, seed: u32) -> Option<(&'static C
                 return Some((entry, k as usize));
             }
         }
+    }
+    None
+}
+
+/// Cooking pot tile: anchored one cell north of the Chef NPC at (22, 3)
+/// so it shows as a warm orange 'O' atop the village path right next to
+/// the chef. Interacting with `f` opens the cookbook menu directly.
+pub fn cooking_pot_at(x: i32, y: i32) -> Option<Tile> {
+    const CHEF: (i32, i32) = (22, 3);
+    if (x, y) == (CHEF.0, CHEF.1 - 1) {
+        return Some(Tile::CookingPot);
     }
     None
 }
