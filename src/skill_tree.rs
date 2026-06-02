@@ -109,7 +109,15 @@ impl SkillTree {
 
     /// Skill points the player has earned across the lifetime of the
     /// save. Comes from fishing level + future streams.
-    pub fn earned(fishing_level: u32, achievements_unlocked: u32, mastery_milestones: u32) -> u32 {
+    /// `encyclopedia_level` is a separate channel: each level grants 2
+    /// extra skill points, so wide-roster discovery work is rewarded
+    /// without overshadowing the fishing climb.
+    pub fn earned(
+        fishing_level: u32,
+        achievements_unlocked: u32,
+        mastery_milestones: u32,
+        encyclopedia_level: u32,
+    ) -> u32 {
         // Tapered curve so the tree doesn't self-complete from levelling
         // alone — players have to pick a build instead of a full sweep.
         //   L  1- 30 : 1 per level         (30 pts)
@@ -134,10 +142,18 @@ impl SkillTree {
         level_pts
             .saturating_add(achievements_unlocked)
             .saturating_add(mastery_milestones)
+            .saturating_add(encyclopedia_level.saturating_mul(2))
     }
 
-    pub fn available(&self, fishing_level: u32, achievements: u32, mastery: u32) -> u32 {
-        Self::earned(fishing_level, achievements, mastery).saturating_sub(self.spent)
+    pub fn available(
+        &self,
+        fishing_level: u32,
+        achievements: u32,
+        mastery: u32,
+        encyclopedia_level: u32,
+    ) -> u32 {
+        Self::earned(fishing_level, achievements, mastery, encyclopedia_level)
+            .saturating_sub(self.spent)
     }
 
     pub fn total_invested(&self) -> u32 {
