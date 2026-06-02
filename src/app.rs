@@ -343,6 +343,17 @@ pub struct App {
     /// Tree anchor coords for the in-progress chopping minigame. Consumed
     /// (and cleared) on chop completion to mark exactly one tree as cut.
     pub pending_chop_anchor: Option<(i32, i32)>,
+    /// Per-recipe "discovered" flag (parallel to `recipes::recipes()`).
+    /// Discovery happens automatically the moment the player catches any
+    /// fish whose name appears in the recipe's ingredient list. Discovered
+    /// recipes show up in the cookbook; undiscovered ones stay hidden.
+    pub recipe_discovered: Vec<bool>,
+    /// Queue of recent discovery events to surface as the big top-of-screen
+    /// banner. Each event holds (label, xp_gained, is_recipe). The frontmost
+    /// entry is the one currently displayed; `discovery_show_until` is the
+    /// anim_tick at which it expires and we advance.
+    pub discovery_queue: std::collections::VecDeque<(String, u64, bool)>,
+    pub discovery_show_until: u64,
     /// Highest fishdex milestone index already paid out (so the same
     /// reward isn't re-granted across saves). Indexes into FISHDEX_MILES.
     pub fishdex_milestones_granted: u32,
@@ -507,6 +518,9 @@ impl App {
             mastery: vec![0; fishlist::fish().len()],
             cooking_mastery: vec![0; crate::recipes::recipes().len()],
             pending_chop_anchor: None,
+            recipe_discovered: vec![false; crate::recipes::recipes().len()],
+            discovery_queue: std::collections::VecDeque::new(),
+            discovery_show_until: 0,
             fishdex_milestones_granted: 0,
             cookbook_milestones_granted: 0,
             mastery_milestones: 0,
@@ -746,6 +760,25 @@ impl App {
         let n = crate::recipes::recipes().len();
         self.cooking_mastery = data.cooking_mastery.clone();
         self.cooking_mastery.resize(n, 0);
+        // Recipe discovery is derived from caught[] — every recipe whose
+        // ingredient list mentions any fish the player has already caught
+        // is auto-discovered on load. Cheap and avoids a new save field.
+        self.recipe_discovered = vec![false; n];
+        let names: Vec<String> = fishlist::fish()
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| self.caught.get(*i).copied().unwrap_or(false))
+            .map(|(_, f)| f.name.to_ascii_lowercase())
+            .collect();
+        for (ri, r) in crate::recipes::recipes().iter().enumerate() {
+            if r
+                .ingredients
+                .iter()
+                .any(|(name, _)| names.iter().any(|n| n == &name.to_ascii_lowercase()))
+            {
+                self.recipe_discovered[ri] = true;
+            }
+        }
         self.fishdex_milestones_granted = data.fishdex_milestones_granted;
         self.cookbook_milestones_granted = data.cookbook_milestones_granted;
         self.world.chopped.clear();
@@ -1102,6 +1135,77 @@ impl App {
         }
     }
 
+    /// Enqueue a discovery banner: a fish or recipe is being seen for the
+    /// first time. Grants Encyclopedia xp scaled by `xp` and shows the
+    /// label at the top of the screen for ~3 seconds (chained behind any
+    /// earlier popups already in the queue).
+    fn register_discovery(&mut self, label: String, xp: u64, is_recipe: bool) {
+        let before = self.skills.encyclopedia_level();
+        self.skills.encyclopedia_xp = self.skills.encyclopedia_xp.saturating_add(xp);
+        let after = self.skills.encyclopedia_level();
+        self.discovery_queue.push_back((label, xp, is_recipe));
+        if after > before {
+            self.narrator
+                .say(format!("Encyclopedia level up! Now level {after}."));
+        }
+    }
+
+    /// Fish-discovery side effects: enqueue the fish banner and
+    /// auto-unlock every recipe whose ingredient list mentions this fish.
+    /// Each newly-discovered recipe gets its own banner + xp drop.
+    fn on_fish_first_discovered(&mut self, fish_idx: usize) {
+        let fish = match crate::fishlist::fish().get(fish_idx) {
+            Some(f) => f,
+            None => return,
+        };
+        let diff = fish.difficulty.max(1) as u64;
+        let xp = 10 + diff * 5;
+        self.register_discovery(format!("Fish: {}", fish.name), xp, false);
+        let recs = crate::recipes::recipes();
+        for (ri, r) in recs.iter().enumerate() {
+            let already = self
+                .recipe_discovered
+                .get(ri)
+                .copied()
+                .unwrap_or(false);
+            if already {
+                continue;
+            }
+            let referenced = r
+                .ingredients
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case(&fish.name));
+            if !referenced {
+                continue;
+            }
+            if let Some(slot) = self.recipe_discovered.get_mut(ri) {
+                *slot = true;
+            }
+            let rxp = 15 + (r.min_cooking_level as u64);
+            self.register_discovery(format!("Recipe: {}", r.name), rxp, true);
+        }
+    }
+
+    /// Tick the discovery queue. Called once per frame.
+    fn tick_discovery_queue(&mut self) {
+        if self.discovery_queue.is_empty() {
+            return;
+        }
+        if self.discovery_show_until == 0 {
+            // Fresh head — start its display window.
+            self.discovery_show_until = self.anim_tick + 60; // ~3s at 20fps
+            return;
+        }
+        if self.anim_tick >= self.discovery_show_until {
+            self.discovery_queue.pop_front();
+            self.discovery_show_until = if self.discovery_queue.is_empty() {
+                0
+            } else {
+                self.anim_tick + 60
+            };
+        }
+    }
+
     /// Run after every catch + after every cook: pays out fishdex/cookbook
     /// milestone rewards as the running totals cross each threshold.
     fn check_encyclopedia_milestones(&mut self) {
@@ -1190,6 +1294,11 @@ impl App {
     fn cook_recipe_at(&mut self, idx: usize) {
         let recs = crate::recipes::recipes();
         let Some(r) = recs.get(idx) else { return };
+        if !self.recipe_discovered.get(idx).copied().unwrap_or(false) {
+            self.narrator
+                .say("You haven't discovered that recipe yet. Catch a fish that uses it.");
+            return;
+        }
         let lvl = self.skills.cooking_level();
         if lvl < r.min_cooking_level {
             self.narrator.say(format!(
@@ -1651,6 +1760,7 @@ impl App {
         }
         self.tick_cast();
         self.tick_stamina();
+        self.tick_discovery_queue();
         self.maybe_autosave();
         // Pantheon meta-progression checks: cheap, idempotent. Only fires when
         // a threshold is crossed and that god isn't already granted.
@@ -3451,6 +3561,7 @@ impl App {
         }
         let fish_ref = &fishlist::fish()[i];
         self.caught[i] = true;
+        self.on_fish_first_discovered(i);
         if let Some(slot) = self.caught_at.get_mut(i) {
             if slot.is_none() {
                 *slot = Some((where_from.to_string(), "-".to_string()));
@@ -3506,7 +3617,11 @@ impl App {
                         if fish_ref.unique && self.caught.get(i).copied().unwrap_or(false) {
                             already_had_unique = true;
                         }
+                        let first_time = !self.caught.get(i).copied().unwrap_or(false);
                         self.caught[i] = true;
+                        if first_time {
+                            self.on_fish_first_discovered(i);
+                        }
                         if let Some(slot) = self.caught_at.get_mut(i) {
                             if slot.is_none() {
                                 *slot = self.pending_catch_loc.clone();
@@ -5375,6 +5490,7 @@ impl App {
                     *cursor,
                     self.skills.cooking_level(),
                     &self.cooking_mastery,
+                    &self.recipe_discovered,
                     &self.player.inventory,
                 );
             }
@@ -5588,6 +5704,14 @@ impl App {
 
         if let Some((skill, gained, total_xp, level, _)) = self.xp_popup {
             render_xp_popup(frame, skill, gained, total_xp, level);
+        }
+
+        // Top-of-screen discovery banner. Pulls the current head off
+        // discovery_queue (kept by tick_discovery_queue) and draws a
+        // chunky yellow row so the user sees every first catch / first
+        // recipe unlock distinctly from the regular xp popup.
+        if let Some((label, gained, is_recipe)) = self.discovery_queue.front() {
+            render_discovery_banner(frame, label, *gained, *is_recipe);
         }
 
         if let Some(id) = self.pinned_quest.as_deref() {
@@ -6230,6 +6354,39 @@ fn render_xp_popup(
         ratatui::text::Line::from(format!(" [{bar}]")),
     ];
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn render_discovery_banner(frame: &mut Frame, label: &str, xp: u64, is_recipe: bool) {
+    let area = viewport(frame);
+    let kind = if is_recipe { "Recipe" } else { "Fish" };
+    let line = format!("★ {} discovered: {} ★   +{} encyclopedia xp", kind, label, xp);
+    let w = (line.len() as u16 + 6).min(area.width.saturating_sub(2));
+    let h = 3u16.min(area.height);
+    if w < 16 || h < 3 {
+        return;
+    }
+    let x = area.x + area.width.saturating_sub(w) / 2;
+    let y = area.y + 1;
+    let popup = Rect { x, y, width: w, height: h };
+    frame.render_widget(Clear, popup);
+    let border = if is_recipe {
+        Color::LightMagenta
+    } else {
+        Color::LightYellow
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border).add_modifier(Modifier::BOLD));
+    let para = Paragraph::new(line)
+        .style(
+            Style::default()
+                .fg(Color::Black)
+                .bg(border)
+                .add_modifier(Modifier::BOLD),
+        )
+        .alignment(Alignment::Center)
+        .block(block);
+    frame.render_widget(para, popup);
 }
 
 fn render_location_popup(frame: &mut Frame, label: &str) {
@@ -7359,6 +7516,8 @@ fn render_stats(
         ("Mining", skills.mining_level(), skills.mining_xp),
         ("Woodcutting", skills.woodcutting_level(), skills.woodcutting_xp),
         ("Blacksmithing", skills.blacksmithing_level(), skills.blacksmithing_xp),
+        ("Cooking", skills.cooking_level(), skills.cooking_xp),
+        ("Encyclopedia", skills.encyclopedia_level(), skills.encyclopedia_xp),
     ];
     for (label, lvl, xp) in entries {
         let next = crate::stats::level_to_xp(lvl + 1);
@@ -8206,15 +8365,21 @@ fn render_cookbook(
     cursor: usize,
     cooking_level: u32,
     mastery: &[u32],
+    discovered: &[bool],
     basket: &[&'static crate::fish::FishDef],
 ) {
     use ratatui::widgets::Paragraph;
     let area = viewport(frame);
     frame.render_widget(Clear, area);
     let recs = crate::recipes::recipes();
+    let discovered_total = discovered.iter().filter(|d| **d).count();
     let unlocked = recs
         .iter()
-        .filter(|r| cooking_level >= r.min_cooking_level)
+        .enumerate()
+        .filter(|(i, r)| {
+            discovered.get(*i).copied().unwrap_or(false)
+                && cooking_level >= r.min_cooking_level
+        })
         .count();
     let mastered = mastery.iter().filter(|m| **m >= 5).count() as u32;
     // Next milestone for the header
@@ -8229,7 +8394,7 @@ fn render_cookbook(
         None => " | all milestones earned".to_string(),
     };
     let title = format!(
-        " cookbook  cooking lv {cooking_level}  |  unlocked {unlocked}/{}  |  mastered {mastered}{mile_blurb}  j/k pick  enter cook  q close ",
+        " cookbook  cooking lv {cooking_level}  |  discovered {discovered_total}/{}  |  unlocked {unlocked}  |  mastered {mastered}{mile_blurb}  j/k pick  enter cook  q close ",
         recs.len(),
     );
     let block = Block::default()
@@ -8243,7 +8408,8 @@ fn render_cookbook(
     for (i, r) in recs.iter().enumerate() {
         let selected = i == cursor;
         let prefix = if selected { "> " } else { "  " };
-        let unlocked = cooking_level >= r.min_cooking_level;
+        let is_discovered = discovered.get(i).copied().unwrap_or(false);
+        let unlocked = is_discovered && cooking_level >= r.min_cooking_level;
         let cookable = unlocked && crate::recipes::can_cook(r, basket);
         let m = mastery.get(i).copied().unwrap_or(0);
         let scale = 1.0 + ((m as f32 / 5.0).floor() * 0.05).min(0.50);
@@ -8255,7 +8421,9 @@ fn render_cookbook(
             String::new()
         };
 
-        let status = if !unlocked {
+        let status = if !is_discovered {
+            "[???]".to_string()
+        } else if !unlocked {
             format!("[lvl {}]", r.min_cooking_level)
         } else if cookable {
             "[cook]".to_string()
@@ -8263,7 +8431,9 @@ fn render_cookbook(
             "[need]".to_string()
         };
 
-        let row_fg = if !unlocked {
+        let row_fg = if !is_discovered {
+            Color::Rgb(45, 45, 45)
+        } else if !unlocked {
             Color::Rgb(70, 70, 70)
         } else if cookable {
             Color::White
@@ -8288,11 +8458,17 @@ fn render_cookbook(
             .as_deref()
             .map(|e| format!(" +{e}"))
             .unwrap_or_default();
+        let display_name = if is_discovered {
+            r.name.clone()
+        } else {
+            "???".to_string()
+        };
+        let display_ing = if is_discovered { ing.join(", ") } else { "???".to_string() };
+        let display_eff = if is_discovered { eff } else { String::new() };
+        let display_st = if is_discovered { r.stamina.to_string() } else { "?".to_string() };
         let row = format!(
-            "{prefix}{status}  {:<28}  +{}st{eff}  ({}){mastery_tag}",
-            r.name,
-            r.stamina,
-            ing.join(", ")
+            "{prefix}{status}  {:<28}  +{}st{display_eff}  ({}){mastery_tag}",
+            display_name, display_st, display_ing
         );
         lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
             row, row_style,
