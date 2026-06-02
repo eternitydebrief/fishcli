@@ -340,6 +340,9 @@ pub struct App {
     /// milestones at 5/25/100 boost the dish's effect magnitude (additive
     /// to the buff's `magnitude` param). Length is auto-extended on load.
     pub cooking_mastery: Vec<u32>,
+    /// Tree anchor coords for the in-progress chopping minigame. Consumed
+    /// (and cleared) on chop completion to mark exactly one tree as cut.
+    pub pending_chop_anchor: Option<(i32, i32)>,
     /// Highest fishdex milestone index already paid out (so the same
     /// reward isn't re-granted across saves). Indexes into FISHDEX_MILES.
     pub fishdex_milestones_granted: u32,
@@ -503,6 +506,7 @@ impl App {
             caught_context: vec![None; fishlist::fish().len()],
             mastery: vec![0; fishlist::fish().len()],
             cooking_mastery: vec![0; crate::recipes::recipes().len()],
+            pending_chop_anchor: None,
             fishdex_milestones_granted: 0,
             cookbook_milestones_granted: 0,
             mastery_milestones: 0,
@@ -744,6 +748,11 @@ impl App {
         self.cooking_mastery.resize(n, 0);
         self.fishdex_milestones_granted = data.fishdex_milestones_granted;
         self.cookbook_milestones_granted = data.cookbook_milestones_granted;
+        self.world.chopped.clear();
+        for &(x, y, t) in &data.chopped_trees {
+            self.world.chopped.insert((x, y), t);
+        }
+        self.world.prune_chopped();
         // Legacy save with `has_boat=true` but no hull tier? Treat it as
         // tier 1 with a fresh tank so the player keeps the boat they paid for.
         if self.player.has_boat && self.player.hull_tier == 0 {
@@ -867,6 +876,12 @@ impl App {
             cooking_mastery: self.cooking_mastery.clone(),
             fishdex_milestones_granted: self.fishdex_milestones_granted,
             cookbook_milestones_granted: self.cookbook_milestones_granted,
+            chopped_trees: self
+                .world
+                .chopped
+                .iter()
+                .map(|(&(x, y), &t)| (x, y, t))
+                .collect(),
         }
     }
 
@@ -945,7 +960,8 @@ impl App {
 
     /// Begin the chopping minigame on the tree the player is facing.
     /// The actual yield + xp grant happens inside the Chopping scene's
-    /// completion path.
+    /// completion path; the world's tree anchor is recorded here so the
+    /// completion path can mark it chopped (with a respawn timer).
     fn do_chop(&mut self) {
         let (dx, dy) = self.player.facing;
         let tx = self.player.x + dx;
@@ -963,6 +979,15 @@ impl App {
             self.narrator.say("Too tired to swing. Fish first.");
             return;
         }
+        // Resolve which anchor this trunk/canopy belongs to so the chop
+        // can mark exactly one tree as cut down. Village oaks are static
+        // (no anchor in the proc system), so they fall back to (tx, ty)
+        // as a pseudo-anchor — chopping a village oak still removes its
+        // canopy via the chopped-map lookup on that cell.
+        let anchor =
+            crate::world::find_tree_anchor_pub(tx, ty, self.world.seed)
+                .unwrap_or((tx, ty));
+        self.pending_chop_anchor = Some(anchor);
         let lvl = self.skills.woodcutting_level();
         let c = crate::chop::Chopping::new(lvl, &mut self.rng_state);
         self.scene = Scene::Chopping(c);
@@ -1002,6 +1027,12 @@ impl App {
             if after > lvl {
                 self.narrator
                     .say(format!("Woodcutting level up! Now level {after}."));
+            }
+            // Mark the felled tree gone. Respawn in 10 real-time minutes
+            // mirrors the vein-cooldown cadence; keeps clearings sparse
+            // without making the world feel deforested forever.
+            if let Some(anchor) = self.pending_chop_anchor.take() {
+                self.world.chop_tree(anchor.0, anchor.1, 10 * 60);
             }
             self.scene = Scene::Overworld;
         }
@@ -5515,6 +5546,18 @@ impl App {
                 width: log_w,
                 height: boat_h,
             };
+            // Surface-only: surface a current/max-depth pair so the player
+            // can see how close the hull is to its gate. Off-surface we
+            // just show 0/0 (depth isn't meaningful in the Mines etc.).
+            let (cur_depth, max_depth) =
+                if matches!(self.world.dim, crate::world::Dimension::Surface) {
+                    (
+                        ocean_depth_at(&self.world, self.player.x, self.player.y),
+                        crate::player::ocean_depth_max(self.player.hull_tier),
+                    )
+                } else {
+                    (0, 0)
+                };
             render_boat_hud(
                 frame,
                 boat_area,
@@ -5522,6 +5565,8 @@ impl App {
                 self.player.crew_hunger,
                 self.player.biofuel,
                 self.player.wood,
+                cur_depth,
+                max_depth,
             );
         }
 
@@ -7097,45 +7142,8 @@ fn is_boatable(t: Tile) -> bool {
     matches!(t, Tile::Water | Tile::DeepWater | Tile::Seabed | Tile::Kelp | Tile::Anemone)
 }
 
-/// Manhattan distance from (x, y) to the nearest non-water tile (any shore
-/// or island), capped at 24. Used by the fish picker to reward casts far
-/// offshore with rarer / meaner bites. Cheap enough to run once per cast:
-/// expanding-ring scan over noise-driven tile lookups, exits the moment
-/// it hits land.
-fn ocean_depth_at(world: &World, x: i32, y: i32) -> u32 {
-    let cap: i32 = 24;
-    let is_water = |t: Tile| {
-        matches!(
-            t,
-            Tile::Water
-                | Tile::DeepWater
-                | Tile::MineralWater
-                | Tile::Seabed
-                | Tile::Kelp
-                | Tile::Anemone
-                | Tile::Dock
-        )
-    };
-    for r in 1..=cap {
-        for dx in -r..=r {
-            if !is_water(world.get(x + dx, y - r)) {
-                return r as u32;
-            }
-            if !is_water(world.get(x + dx, y + r)) {
-                return r as u32;
-            }
-        }
-        for dy in (-r + 1)..r {
-            if !is_water(world.get(x - r, y + dy)) {
-                return r as u32;
-            }
-            if !is_water(world.get(x + r, y + dy)) {
-                return r as u32;
-            }
-        }
-    }
-    cap as u32
-}
+// Re-exported for legacy import paths inside this module.
+use crate::world::ocean_depth_at;
 
 fn water_kind_at(world: &World, x: i32, y: i32) -> &'static str {
     let t = world.get(x, y);
@@ -8910,6 +8918,8 @@ fn render_boat_hud(
     crew_hunger: u32,
     biofuel: u32,
     wood: u32,
+    cur_depth: u32,
+    max_depth: u32,
 ) {
     if area.width < 10 {
         return;
@@ -8930,10 +8940,32 @@ fn render_boat_hud(
     } else {
         Color::LightCyan
     };
+    // Depth painted yellow as you approach the hull limit, red when you're
+    // about to be refused the next step. Fog Sea (>=32, hull tier 6+) shows
+    // as 'FOG' instead of a number since the limit is uncapped.
+    let max_label = if max_depth == u32::MAX {
+        "∞".to_string()
+    } else {
+        max_depth.to_string()
+    };
+    let in_fog = cur_depth >= 32;
+    let depth_color = if in_fog {
+        Color::Rgb(180, 180, 220)
+    } else if max_depth != u32::MAX && cur_depth + 1 >= max_depth {
+        Color::Red
+    } else if max_depth != u32::MAX && cur_depth * 3 >= max_depth * 2 {
+        Color::Yellow
+    } else {
+        Color::LightBlue
+    };
     let line = ratatui::text::Line::from(vec![
         ratatui::text::Span::styled(
             format!("[{hull}] "),
             Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD),
+        ),
+        ratatui::text::Span::styled(
+            format!("depth {cur_depth:>2}/{max_label} "),
+            Style::default().fg(depth_color),
         ),
         ratatui::text::Span::styled(
             format!("hunger {crew_hunger:>3}/100 "),
