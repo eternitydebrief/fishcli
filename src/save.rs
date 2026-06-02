@@ -30,6 +30,15 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
+// Forward-compat rule (see CLAUDE.md "save-file evolution"):
+//   * every new field added here MUST be `#[serde(default)]` (or
+//     `#[serde(default = "fn")]` for non-`Default` types) so old saves
+//     that predate the field still load.
+//   * never rename or remove an existing field without bumping the wire
+//     version in `decrypt_opaque`. obsolete fields stay on the struct
+//     (prefix with `_`) and just stop being read.
+//   * same rule applies recursively to nested types (Stats, Skills,
+//     OwnedRods, BaitStock, EquippedTackle, etc.).
 #[derive(Default, Serialize, Deserialize)]
 pub struct SaveData {
     pub name: String,
@@ -129,26 +138,63 @@ pub struct SaveData {
     pub bounty: Option<crate::procedural_quests::ProceduralQuest>,
     #[serde(default)]
     pub tutorial_step: u32,
+    #[serde(default)]
+    pub gear: crate::gear::EquippedGear,
+    #[serde(default)]
+    pub ingots: std::collections::BTreeMap<String, u32>,
+    /// Last in-game month-id (`year * MONTHS_PER_YEAR + month`) the cape
+    /// paid out. Drives the "1st of every month" cape stipend.
+    #[serde(default)]
+    pub last_cape_payout_month: u64,
+    /// Per-day counters for merchant caps. Reset whenever
+    /// `last_market_day` changes.
+    #[serde(default)]
+    pub fish_sold_today: u32,
+    #[serde(default)]
+    pub ore_sold_today: u32,
+    #[serde(default)]
+    pub last_market_day: u64,
+    #[serde(default)]
+    pub hull_tier: u32,
+    #[serde(default)]
+    pub crew_hunger: u32,
+    #[serde(default)]
+    pub biofuel: u32,
+    #[serde(default)]
+    pub wood: u32,
+    #[serde(default)]
+    pub cooking_mastery: Vec<u32>,
+    #[serde(default)]
+    pub fishdex_milestones_granted: u32,
+    #[serde(default)]
+    pub cookbook_milestones_granted: u32,
 }
 
 fn default_stamina() -> f32 {
     100.0
 }
 
-/// Saves live in ./saves/ relative to the current working directory so they
-/// can be easily copied/exported. Each save is written to its own ISO 8601
-/// timestamped file. Retention is intentionally tight (no savescumming):
-///   * primary `./saves/` keeps the latest save + 3 backups = 4 files max.
-///   * mirrored `./saves/redundancy/` keeps the 3 most recent files as a
+/// Saves live under the platform data dir (`$XDG_DATA_HOME/fishcli/saves`
+/// on Linux, e.g. `~/.local/share/fishcli/saves`) so the binary is FHS-
+/// installable and runnable from any cwd. Each save is written to its own
+/// ISO 8601 timestamped file. Retention is intentionally tight (no
+/// savescumming):
+///   * primary keeps the latest save + 3 backups = 4 files max.
+///   * mirrored `redundancy/` keeps the 3 most recent files as a
 ///     belt-and-suspenders second copy.
-/// Old files beyond those windows are pruned on every write.
+/// Old files beyond those windows are pruned on every write. If
+/// `dirs::data_dir()` is unresolvable (no HOME), we fall back to a
+/// cwd-relative `./saves/` so dev iteration from inside the repo still
+/// works.
 const SAVE_DIR: &str = "saves";
 const REDUNDANCY_DIR: &str = "redundancy";
 const KEEP_PRIMARY: usize = 4;
 const KEEP_REDUNDANCY: usize = 3;
 
 fn save_dir() -> PathBuf {
-    PathBuf::from(SAVE_DIR)
+    dirs::data_dir()
+        .map(|d| d.join("fishcli").join(SAVE_DIR))
+        .unwrap_or_else(|| PathBuf::from(SAVE_DIR))
 }
 
 fn redundancy_dir() -> PathBuf {
@@ -214,8 +260,13 @@ fn legacy_save_paths() -> Vec<PathBuf> {
         v.push(base.join("save.dat"));
         v.push(base.join("save.json"));
     }
-    // pre-timestamping single-file save in the project dir
-    v.push(PathBuf::from(SAVE_DIR).join("save.dat"));
+    // pre-XDG saves directory in the project cwd. Includes both the
+    // pre-timestamping single-file form and any timestamped dev saves,
+    // so launching the installed binary from the repo (or anywhere with
+    // a stale ./saves/) auto-imports them once into XDG.
+    let cwd_dir = PathBuf::from(SAVE_DIR);
+    v.push(cwd_dir.join("save.dat"));
+    v.extend(list_dat_files(&cwd_dir));
     v
 }
 

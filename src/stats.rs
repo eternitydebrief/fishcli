@@ -26,6 +26,10 @@ pub struct Skills {
     pub negotiation_xp: u64,
     pub mining_xp: u64,
     pub woodcutting_xp: u64,
+    #[serde(default)]
+    pub blacksmithing_xp: u64,
+    #[serde(default)]
+    pub cooking_xp: u64,
 }
 
 impl Skills {
@@ -43,6 +47,12 @@ impl Skills {
     }
     pub fn woodcutting_level(&self) -> u32 {
         xp_to_level(self.woodcutting_xp)
+    }
+    pub fn blacksmithing_level(&self) -> u32 {
+        xp_to_level(self.blacksmithing_xp)
+    }
+    pub fn cooking_level(&self) -> u32 {
+        xp_to_level(self.cooking_xp)
     }
 }
 
