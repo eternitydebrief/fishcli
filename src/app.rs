@@ -105,8 +105,13 @@ pub enum Scene {
     Chopping(crate::chop::Chopping),
     /// Cooking menu: scrollable recipe list. Rows are dimmed when the
     /// player is missing ingredients; enter cooks the highlighted dish
-    /// (consumes ingredients, applies stamina + effect).
-    Cooking { cursor: usize },
+    /// (consumes ingredients, applies stamina + effect). `/` opens the
+    /// filter editor; typed text matches recipe name + ingredient names.
+    Cooking {
+        cursor: usize,
+        filter: String,
+        editing_filter: bool,
+    },
     /// Achievements menu: shows active (next-unmet) tier per chain plus
     /// completed-tier history at the bottom. q/esc leaves.
     Achievements { cursor: usize },
@@ -1267,11 +1272,45 @@ impl App {
     }
 
     fn handle_cooking_key(&mut self, code: KeyCode) {
-        let n = crate::recipes::recipes().len();
-        let Scene::Cooking { cursor } = &mut self.scene else { return };
+        let Scene::Cooking { cursor, filter, editing_filter } = &mut self.scene else {
+            return;
+        };
+        if *editing_filter {
+            match code {
+                KeyCode::Enter => {
+                    *editing_filter = false;
+                    *cursor = 0;
+                }
+                KeyCode::Esc => {
+                    *editing_filter = false;
+                    filter.clear();
+                    *cursor = 0;
+                }
+                KeyCode::Backspace => {
+                    filter.pop();
+                }
+                KeyCode::Char(c) if !c.is_control() => {
+                    if filter.chars().count() < 40 {
+                        filter.push(c);
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
+        let visible = cookbook_visible_indices(filter);
+        let n = visible.len();
         match code {
             KeyCode::Esc | KeyCode::Char('q') => {
-                self.scene = Scene::Overworld;
+                if filter.is_empty() {
+                    self.scene = Scene::Overworld;
+                } else {
+                    filter.clear();
+                    *cursor = 0;
+                }
+            }
+            KeyCode::Char('/') => {
+                *editing_filter = true;
             }
             KeyCode::Char('j') | KeyCode::Down => {
                 if n > 0 {
@@ -1282,8 +1321,9 @@ impl App {
                 *cursor = cursor.saturating_sub(1);
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
-                let idx = *cursor;
-                self.cook_recipe_at(idx);
+                if let Some(&idx) = visible.get(*cursor) {
+                    self.cook_recipe_at(idx);
+                }
             }
             _ => {}
         }
@@ -2078,11 +2118,14 @@ impl App {
         let fishdex_filtering = matches!(
             &self.scene, Scene::Fishdex(d) if d.editing_filter
         );
+        let cookbook_filtering = matches!(
+            &self.scene, Scene::Cooking { editing_filter, .. } if *editing_filter
+        );
         let cmd_shortcut_blocked = matches!(
             self.scene,
             Scene::Notes(_) | Scene::NamePrompt(_) | Scene::Dialogue { .. }
             | Scene::Mining(_) | Scene::Chopping(_) | Scene::Fishing(_) | Scene::Boss(_)
-        ) || fishdex_filtering;
+        ) || fishdex_filtering || cookbook_filtering;
         if code == KeyCode::Char(':') && !cmd_shortcut_blocked {
             self.mode = Mode::Command(String::new());
             return;
@@ -3233,14 +3276,22 @@ impl App {
                     // Open the recipe menu instead of the old usage hint.
                     // `:cook <fish name>` still works for the legacy
                     // single-fish stamina restore.
-                    self.scene = Scene::Cooking { cursor: 0 };
+                    self.scene = Scene::Cooking {
+                        cursor: 0,
+                        filter: String::new(),
+                        editing_filter: false,
+                    };
                     self.mode = Mode::Insert;
                 } else {
                     self.do_cook(name);
                 }
             }
             "recipes" | "cookbook" | "rb" => {
-                self.scene = Scene::Cooking { cursor: 0 };
+                self.scene = Scene::Cooking {
+                    cursor: 0,
+                    filter: String::new(),
+                    editing_filter: false,
+                };
                 self.mode = Mode::Insert;
                 self.tutorial_advance(6);
             }
@@ -5422,6 +5473,13 @@ impl App {
                 self.fishmonger_daily_cap(),
                 self.ore_sold_today,
                 self.blacksmith_daily_cap(),
+                self.recipe_discovered.iter().filter(|d| **d).count(),
+                self.cooking_mastery.iter().filter(|m| **m >= 5).count(),
+                crate::recipes::recipes().len(),
+                self.player.wood,
+                self.player.hull_tier,
+                self.player.biofuel,
+                self.player.crew_hunger,
             ),
             Scene::Settings => render_settings(frame, self.settings_cursor, &self.settings),
             Scene::Quests { cursor } => render_quests(
@@ -5520,7 +5578,7 @@ impl App {
             Scene::Chopping(c) => {
                 render_chopping(frame, c, self.anim_tick);
             }
-            Scene::Cooking { cursor } => {
+            Scene::Cooking { cursor, filter, editing_filter } => {
                 render_cookbook(
                     frame,
                     *cursor,
@@ -5528,6 +5586,8 @@ impl App {
                     &self.cooking_mastery,
                     &self.recipe_discovered,
                     &self.player.inventory,
+                    filter,
+                    *editing_filter,
                 );
             }
             Scene::Achievements { .. } => {
@@ -7506,6 +7566,13 @@ fn render_stats(
     ingot_count: u32,
     fish_today: u32, fish_cap: u32,
     ore_today: u32, ore_cap: u32,
+    recipes_discovered: usize,
+    recipes_mastered: usize,
+    total_recipes: usize,
+    wood: u32,
+    hull_tier: u32,
+    biofuel: u32,
+    crew_hunger: u32,
 ) {
     let area = viewport(frame);
     let block = Block::default()
@@ -7537,13 +7604,51 @@ fn render_stats(
 
     lines.push(ratatui::text::Line::from(""));
     lines.push(section("PROGRESS"));
+    let fishdex_pct = if total_species > 0 {
+        (unique_caught * 100) / total_species
+    } else {
+        0
+    };
+    let recipe_disc_pct = if total_recipes > 0 {
+        (recipes_discovered * 100) / total_recipes
+    } else {
+        0
+    };
     lines.push(row(
         "Fishdex",
-        format!("{}/{} species", unique_caught, total_species),
+        format!("{}/{} species ({}%)", unique_caught, total_species, fishdex_pct),
+    ));
+    lines.push(row(
+        "Cookbook discovered",
+        format!(
+            "{}/{} recipes ({}%)",
+            recipes_discovered, total_recipes, recipe_disc_pct
+        ),
+    ));
+    lines.push(row(
+        "Cookbook mastered",
+        format!("{}/{} (≥5 cooks)", recipes_mastered, total_recipes),
     ));
     lines.push(row("Fish in basket", fish_in_basket.to_string()));
     lines.push(row("Items picked up", items_picked.to_string()));
     lines.push(row("Quests completed", quests_done.to_string()));
+
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(section("BOAT"));
+    lines.push(row(
+        "Hull",
+        format!("tier {} — {}", hull_tier, crate::player::hull_label(hull_tier)),
+    ));
+    let max_depth = crate::player::ocean_depth_max(hull_tier);
+    let depth_label = if max_depth == u32::MAX {
+        "∞ (Fog Sea unlocked)".to_string()
+    } else {
+        format!("{} tiles offshore", max_depth)
+    };
+    lines.push(row("Reach", depth_label));
+    lines.push(row("Biofuel", format!("{}/200", biofuel)));
+    lines.push(row("Crew hunger", format!("{}/100", crew_hunger)));
+    lines.push(row("Wood stash", wood.to_string()));
 
     lines.push(ratatui::text::Line::from(""));
     lines.push(section("ACTIVITY"));
@@ -8407,6 +8512,27 @@ fn render_mining(frame: &mut Frame, m: &crate::mining::Mining) {
     frame.render_widget(p, inner);
 }
 
+/// Indices of recipes that match the cookbook filter. Empty filter →
+/// every recipe in catalog order. Matches against recipe name and
+/// ingredient names (case-insensitive substring).
+fn cookbook_visible_indices(filter: &str) -> Vec<usize> {
+    let q = filter.to_ascii_lowercase();
+    let recs = crate::recipes::recipes();
+    if q.is_empty() {
+        return (0..recs.len()).collect();
+    }
+    recs.iter()
+        .enumerate()
+        .filter(|(_, r)| {
+            r.name.to_ascii_lowercase().contains(&q)
+                || r.ingredients
+                    .iter()
+                    .any(|(name, _)| name.to_ascii_lowercase().contains(&q))
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+
 fn render_cookbook(
     frame: &mut Frame,
     cursor: usize,
@@ -8414,6 +8540,8 @@ fn render_cookbook(
     mastery: &[u32],
     discovered: &[bool],
     basket: &[&'static crate::fish::FishDef],
+    filter: &str,
+    editing_filter: bool,
 ) {
     use ratatui::widgets::Paragraph;
     let area = viewport(frame);
@@ -8441,10 +8569,20 @@ fn render_cookbook(
         None => " | all milestones earned".to_string(),
     };
     let level_bonus_pct = ((cooking_level as f32 * 0.5).min(30.0)) as u32;
-    let title = format!(
-        " cookbook  cooking lv {cooking_level} (+{level_bonus_pct}% all dishes)  |  discovered {discovered_total}/{}  |  unlocked {unlocked}  |  mastered {mastered}{mile_blurb}  j/k pick  enter cook  q close ",
-        recs.len(),
-    );
+    let visible = cookbook_visible_indices(filter);
+    let title = if editing_filter {
+        format!(" cookbook / {filter}_   (Enter apply, Esc clear) ")
+    } else if !filter.is_empty() {
+        format!(
+            " cookbook  filter: {filter} ({} match)  j/k pick  enter cook  / edit filter  esc clear  q close ",
+            visible.len(),
+        )
+    } else {
+        format!(
+            " cookbook  cooking lv {cooking_level} (+{level_bonus_pct}% all dishes)  |  discovered {discovered_total}/{}  |  unlocked {unlocked}  |  mastered {mastered}{mile_blurb}  j/k pick  enter cook  / filter  q close ",
+            recs.len(),
+        )
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .title(title)
@@ -8453,8 +8591,9 @@ fn render_cookbook(
     frame.render_widget(block, area);
 
     let mut lines: Vec<ratatui::text::Line> = Vec::new();
-    for (i, r) in recs.iter().enumerate() {
-        let selected = i == cursor;
+    for (vi, &i) in visible.iter().enumerate() {
+        let r = &recs[i];
+        let selected = vi == cursor;
         let prefix = if selected { "> " } else { "  " };
         let is_discovered = discovered.get(i).copied().unwrap_or(false);
         let unlocked = is_discovered && cooking_level >= r.min_cooking_level;
