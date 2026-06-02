@@ -28,109 +28,24 @@ pub fn fish() -> &'static [FishDef] {
 struct Variant {
     prefix: &'static str,
     pool: &'static str,
-    intro: &'static str,
     price_mult: u64,
     difficulty_bump: u8,
     rarity: f32,
 }
 
 const VARIANTS: &[Variant] = &[
-    Variant {
-        prefix: "Astral",
-        pool: "cosmic",
-        intro: "ASTRAL: shimmers between dimensions, half-here.",
-        price_mult: 5,
-        difficulty_bump: 2,
-        rarity: 0.05,
-    },
-    Variant {
-        prefix: "Hot",
-        pool: "hot",
-        intro: "HOT: warm to the touch, slow to cool.",
-        price_mult: 3,
-        difficulty_bump: 1,
-        rarity: 0.10,
-    },
-    Variant {
-        prefix: "Burning",
-        pool: "burning",
-        intro: "BURNING: actively on fire, somehow alive.",
-        price_mult: 5,
-        difficulty_bump: 2,
-        rarity: 0.05,
-    },
-    Variant {
-        prefix: "Infernal",
-        pool: "infernal",
-        intro: "INFERNAL: smoldering, bites with heat.",
-        price_mult: 8,
-        difficulty_bump: 3,
-        rarity: 0.03,
-    },
-    Variant {
-        prefix: "Angelic",
-        pool: "angelic",
-        intro: "ANGELIC: glows white-gold, serene strength.",
-        price_mult: 8,
-        difficulty_bump: 3,
-        rarity: 0.03,
-    },
-    Variant {
-        prefix: "Sapphire",
-        pool: "mineral",
-        intro: "SAPPHIRE: scales shot through with deep blue crystal.",
-        price_mult: 3,
-        difficulty_bump: 1,
-        rarity: 0.10,
-    },
-    Variant {
-        prefix: "Ruby",
-        pool: "mineral",
-        intro: "RUBY: gleaming red facets along the spine.",
-        price_mult: 3,
-        difficulty_bump: 1,
-        rarity: 0.10,
-    },
-    Variant {
-        prefix: "Topaz",
-        pool: "mineral",
-        intro: "TOPAZ: warm yellow inclusions catch the light.",
-        price_mult: 3,
-        difficulty_bump: 1,
-        rarity: 0.10,
-    },
-    Variant {
-        prefix: "Opal",
-        pool: "mineral",
-        intro: "OPAL: iridescent. No two scales the same color.",
-        price_mult: 4,
-        difficulty_bump: 2,
-        rarity: 0.07,
-    },
-    Variant {
-        prefix: "Emerald",
-        pool: "mineral",
-        intro: "EMERALD: leaf-green crystal armor.",
-        price_mult: 3,
-        difficulty_bump: 1,
-        rarity: 0.10,
-    },
-    Variant {
-        prefix: "Onyx",
-        pool: "mineral",
-        intro: "ONYX: lightless black. You see it move only by what it blocks.",
-        price_mult: 4,
-        difficulty_bump: 2,
-        rarity: 0.07,
-    },
-    Variant {
-        prefix: "Diamond",
-        pool: "mineral",
-        intro: "DIAMOND: adamant-scaled. The rarest mineral form.",
-        price_mult: 7,
-        difficulty_bump: 4,
-        rarity: 0.01,
-    },
+    Variant { prefix: "Astral",   pool: "cosmic",   price_mult: 5, difficulty_bump: 2, rarity: 0.05 },
+    Variant { prefix: "Hot",      pool: "hot",      price_mult: 3, difficulty_bump: 1, rarity: 0.10 },
+    Variant { prefix: "Burning",  pool: "burning",  price_mult: 5, difficulty_bump: 2, rarity: 0.05 },
+    Variant { prefix: "Infernal", pool: "infernal", price_mult: 8, difficulty_bump: 3, rarity: 0.03 },
+    Variant { prefix: "Angelic",  pool: "angelic",  price_mult: 8, difficulty_bump: 3, rarity: 0.03 },
+    Variant { prefix: "Sapphire", pool: "mineral",  price_mult: 3, difficulty_bump: 1, rarity: 0.10 },
+    Variant { prefix: "Ruby",     pool: "mineral",  price_mult: 3, difficulty_bump: 1, rarity: 0.10 },
+    Variant { prefix: "Topaz",    pool: "mineral",  price_mult: 3, difficulty_bump: 1, rarity: 0.10 },
+    Variant { prefix: "Opal",     pool: "mineral",  price_mult: 4, difficulty_bump: 2, rarity: 0.07 },
+    Variant { prefix: "Emerald",  pool: "mineral",  price_mult: 3, difficulty_bump: 1, rarity: 0.10 },
+    Variant { prefix: "Onyx",     pool: "mineral",  price_mult: 4, difficulty_bump: 2, rarity: 0.07 },
+    Variant { prefix: "Diamond",  pool: "mineral",  price_mult: 7, difficulty_bump: 4, rarity: 0.01 },
 ];
 
 /// Base species that get the full variant treatment. Keep this list to
@@ -190,13 +105,11 @@ fn generate_variants(base: &[FishDef]) -> Vec<FishDef> {
         };
         for v in VARIANTS {
             let mut f = b.clone();
-            // capitalize the base name's first letter for the variant name
-            let mut base_name = b.name.clone();
-            if let Some(c) = base_name.get_mut(0..1) {
-                c.make_ascii_uppercase();
-            }
-            f.name = format!("{} {}", v.prefix, base_name);
-            f.description = format!("{} (base: {})", v.intro, b.name);
+            // Variant naming: "<base name> (<Variant>)". The base
+            // description is preserved verbatim — the variant is a cosmetic
+            // / stat overlay, not a different species, so it shouldn't
+            // overwrite the lore the user wrote for the base fish.
+            f.name = format!("{} ({})", b.name, v.prefix);
             f.rarity = v.rarity;
             f.difficulty = b.difficulty.saturating_add(v.difficulty_bump).min(10);
             let base_price = if b.price > 0 {

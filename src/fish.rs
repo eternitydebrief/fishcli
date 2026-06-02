@@ -180,6 +180,7 @@ pub fn pick_fish_full<'a>(
     catches: u64,
     fishing_level: u32,
     rod_tier: u32,
+    ocean_depth: u32,
 ) -> &'a FishDef {
     let gated = |f: &FishDef| {
         // Unique / pool fish ignore level+rod gates so The Rod's pool
@@ -231,21 +232,76 @@ pub fn pick_fish_full<'a>(
             3 => 1.0 + early_factor * 1.0,
             _ => 1.0,
         };
-        w * ease_boost
+        // Offshore boost: the further from shore on the ocean, the rarer
+        // and meaner the bite. Only non-zero when caller passes a depth
+        // (i.e. ocean cast). Common difficulty 1-3 fish and junk get
+        // suppressed; rare fish (rarity < 0.1) get amplified; junk gets
+        // hammered extra hard since nobody dumps a soda can 20 tiles out.
+        let depth_mult = if ocean_depth > 0 {
+            let d = ocean_depth as f32;
+            let mut m = 1.0;
+            if f.joke {
+                m *= 1.0 / (1.0 + d * 0.4);
+            }
+            if f.difficulty <= 3 {
+                m *= 1.0 / (1.0 + d * 0.12);
+            }
+            if f.rarity > 0.0 && f.rarity < 0.1 {
+                m *= 1.0 + d * 0.18;
+            }
+            m
+        } else {
+            1.0
+        };
+        w * ease_boost * depth_mult
     };
-    let total: f32 = pool_vec.iter().map(|f| weight_of(f)).sum();
-    if total <= 0.0 || pool_vec.is_empty() {
+    // Trash gate. Junk fish (boots, cans, soda bottles) now live in a
+    // separate pre-roll sub-pool instead of competing on weight with real
+    // fish — gives an explicit, dial-able trash chance. Override pools
+    // (cosmic / divine / pyramid / etc.) skip this: their fish list is
+    // already curated and joke items aren't tagged into them.
+    //
+    // Curve: 33% at zero stats, decaying linearly to 1% once
+    // (fishing_level + rod_tier) crosses 200. Tracks the rest of the
+    // progression gates (rod tier 200 = late endgame).
+    let candidates: Vec<&'a FishDef> = if pool.is_none() {
+        let trash: Vec<&'a FishDef> = pool_vec
+            .iter()
+            .copied()
+            .filter(|f| f.joke && !f.unique)
+            .collect();
+        let real: Vec<&'a FishDef> = pool_vec
+            .iter()
+            .copied()
+            .filter(|f| !f.joke || f.unique)
+            .collect();
+        let progress = ((fishing_level + rod_tier) as f32 / 200.0).clamp(0.0, 1.0);
+        let trash_chance = 0.33 - 0.32 * progress;
+        let want_trash = next_rand_f32(rng) < trash_chance;
+        match (want_trash, trash.is_empty(), real.is_empty()) {
+            (true, false, _) => trash,
+            (false, _, false) => real,
+            // Requested side is empty → use whatever the other side has.
+            (true, true, false) => real,
+            (false, _, true) => trash,
+            _ => pool_vec.clone(),
+        }
+    } else {
+        pool_vec.clone()
+    };
+    let total: f32 = candidates.iter().map(|f| weight_of(f)).sum();
+    if total <= 0.0 || candidates.is_empty() {
         return &fish[0];
     }
     let r = next_rand_f32(rng) * total;
     let mut acc = 0.0;
-    for f in &pool_vec {
+    for f in &candidates {
         acc += weight_of(f);
         if r <= acc {
             return f;
         }
     }
-    pool_vec[pool_vec.len() - 1]
+    candidates[candidates.len() - 1]
 }
 
 pub fn next_rand_f32(s: &mut u32) -> f32 {

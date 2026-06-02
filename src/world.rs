@@ -136,6 +136,10 @@ pub enum Dimension {
     Crater,
     Colosseum,
     AllBlue,
+    /// Flooded subterranean cavern reached via an A-frame entrance on a
+    /// lake island. Eyeless, stygobitic fauna; only the lakebed fish pool
+    /// rolls here.
+    Lakebed,
 }
 
 impl Dimension {
@@ -150,6 +154,7 @@ impl Dimension {
             Dimension::Mines => 3,
             Dimension::Pyramid => 15,
             Dimension::SwampCave => 20,
+            Dimension::Lakebed => 25,
             Dimension::Wreckage => 30,
             Dimension::BogCathedral => 40,
             Dimension::Atlantis => 50,
@@ -179,6 +184,7 @@ impl Dimension {
             Dimension::Crater => "Crater",
             Dimension::Colosseum => "Colosseum",
             Dimension::AllBlue => "All Blue",
+            Dimension::Lakebed => "Lakebed Caves",
         }
     }
 
@@ -201,6 +207,7 @@ impl Dimension {
             "crater" => Dimension::Crater,
             "colosseum" | "coliseum" => Dimension::Colosseum,
             "all blue" | "allblue" | "deep" => Dimension::AllBlue,
+            "lakebed" | "lakebed caves" | "lakebed cave" => Dimension::Lakebed,
             "surface" => Dimension::Surface,
             _ => return None,
         })
@@ -370,6 +377,11 @@ pub enum Tile {
     /// Specialty dim portal (sparse). The destination is recomputed from
     /// the cell's (x, y, seed) hash at interact time — no extra state.
     DimPortal,
+    /// Decorative stone arch wrapped around a DimPortal anchor (5w x 4h
+    /// gateway). Non-walkable; the player approaches the anchor cell from
+    /// the south and presses `f` to travel. Glyph + tint vary with the
+    /// destination dim.
+    PortalFrame,
     Water,
     Dock,
     Sand,
@@ -416,6 +428,18 @@ pub enum Tile {
     LandmarkDoor,
     /// tombstone (mines crypt)
     Tombstone,
+    /// blacksmith's smelter — non-walkable. `f` opens the smelt minigame.
+    /// Spawned next to every Blacksmith NPC (static + procedural).
+    Smelter,
+    /// blacksmith's forge — non-walkable. `f` opens the forge minigame.
+    /// Spawned next to every Blacksmith NPC (static + procedural).
+    Forge,
+    /// Sparse inspectable curio. The specific curio (id + glyph + color)
+    /// is derived from `curio_at(x, y, dim, seed)` so the same cell always
+    /// hosts the same object. Non-walkable — players stand adjacent and
+    /// use `x` while facing it to read its description. Lore lives in
+    /// `assets/inspect.json` under `curio:<id>` keys.
+    Curio,
     // --- atlantis plane ---
     Seabed,
     /// trunk-equivalent for coral; pairs with CoralCanopy in a 4-cell shape
@@ -443,7 +467,6 @@ impl Tile {
                 | Tile::Kelp
                 | Tile::InfernoFloor
                 | Tile::LandmarkDoor
-                | Tile::DimPortal
         )
     }
 
@@ -492,6 +515,10 @@ impl Tile {
             Tile::LandmarkDoor => "LandmarkDoor",
             Tile::Tombstone => "Tombstone",
             Tile::DimPortal => "DimPortal",
+            Tile::PortalFrame => "PortalFrame",
+            Tile::Smelter => "Smelter",
+            Tile::Forge => "Forge",
+            Tile::Curio => "Curio",
         }
     }
 
@@ -564,7 +591,7 @@ impl<'a> Widget for WorldView<'a> {
                 }
                 // NPCs are per-dim now (atlantean citizens, crypt ghouls,
                 // infernal imps each live only in their own dim).
-                if let Some(npc) = crate::npc::npc_at_dim(wx, wy, self.world.dim) {
+                if let Some(npc) = crate::npc::npc_at_dim(wx, wy, self.world.dim, self.world.seed) {
                     return (
                         npc.render_char(),
                         Style::default()
@@ -605,7 +632,7 @@ impl World {
     }
 
     pub fn get(&self, x: i32, y: i32) -> Tile {
-        match self.dim {
+        let base = match self.dim {
             Dimension::Surface => self.surface_get(x, y),
             Dimension::Mines => self.mines_get(x, y),
             Dimension::Atlantis => self.atlantis_get(x, y),
@@ -621,7 +648,15 @@ impl World {
             Dimension::Crater => crater_get(x, y),
             Dimension::Colosseum => colosseum_get(x, y),
             Dimension::AllBlue => all_blue_get(x, y, self.seed),
+            Dimension::Lakebed => lakebed_get(x, y, self.seed),
+        };
+        // Overlay a sparse curio when the underlying tile is open floor.
+        // Curios block movement; the player stands adjacent and presses
+        // `x` while facing one to read its lore.
+        if base.walkable() && curio_at(x, y, self.dim, self.seed).is_some() {
+            return Tile::Curio;
         }
+        base
     }
 
     fn surface_get(&self, x: i32, y: i32) -> Tile {
@@ -632,11 +667,20 @@ impl World {
         if (x, y) == SEWER_PORTAL_XY || (x, y) == WRECKAGE_PORTAL_XY {
             return Tile::DimPortal;
         }
+        // Blacksmith stations next to every Blacksmith NPC. Static
+        // home-village smith sits at (-12, 1); proc-village smiths at
+        // (ax+3, ay). Smelter is north of the smith, Forge south.
+        if let Some(t) = blacksmith_station_at(x, y, self.seed) {
+            return t;
+        }
         if let Some(t) = village_tile(x, y) {
             return t;
         }
         if dim_portal_for(x, y, self.seed).is_some() {
             return Tile::DimPortal;
+        }
+        if portal_frame_at(x, y, self.seed).is_some() {
+            return Tile::PortalFrame;
         }
         if pier_cell(x, y) {
             return Tile::Dock;
@@ -855,22 +899,22 @@ impl World {
         // wall-zone procedural noise may have placed there.
         match self.dim {
             Dimension::Mines => {
-                if is_buried_wall(x, y, self.seed) {
+                if is_buried_wall(self, x, y, self.seed) {
                     return (' ', Style::default());
                 }
             }
             Dimension::Inferno => {
-                if is_buried_wall(x, y, self.seed.wrapping_add(0x1AFE_5A00)) {
+                if is_buried_wall(self, x, y, self.seed.wrapping_add(0x1AFE_5A00)) {
                     return (' ', Style::default());
                 }
             }
             Dimension::HotSpring => {
-                if is_buried_wall(x, y, self.seed.wrapping_add(0x4075_5E5E)) {
+                if is_buried_wall(self, x, y, self.seed.wrapping_add(0x4075_5E5E)) {
                     return (' ', Style::default());
                 }
             }
             Dimension::SwampCave => {
-                if is_buried_wall(x, y, self.seed.wrapping_add(0x5AA9_0CA1)) {
+                if is_buried_wall(self, x, y, self.seed.wrapping_add(0x5AA9_0CA1)) {
                     return (' ', Style::default());
                 }
             }
@@ -890,10 +934,27 @@ impl World {
                     Dimension::Colosseum => roman_wall_glyph(x, y),
                     Dimension::BogCathedral => gothic_wall_glyph(x, y),
                     Dimension::Sewer => sewer_brick_glyph(x, y),
-                    _ => perimeter_glyph(x, y).unwrap_or_else(|| wall_glyph(x, y)),
+                    _ => perimeter_glyph(x, y).unwrap_or_else(|| {
+                        // Per-house variant if this wall belongs to one.
+                        if let Some(door) = house_seed_at(x, y, self.seed) {
+                            wall_glyph_for_house(x, y, door)
+                        } else {
+                            wall_glyph(x, y)
+                        }
+                    }),
                 }
             }
-            Tile::Roof => roof_glyph(x, y),
+            Tile::Roof => {
+                if self.dim == Dimension::Surface {
+                    if let Some(door) = house_seed_at(x, y, self.seed) {
+                        if house_chimney_at(x, y, door) {
+                            return chimney_glyph(x, y, door);
+                        }
+                        return roof_glyph_for_house(x, y, door);
+                    }
+                }
+                roof_glyph(x, y)
+            }
             Tile::DoorRod => (
                 'D',
                 Style::default()
@@ -1028,7 +1089,7 @@ impl World {
                     Dimension::SwampCave => self.seed.wrapping_add(0x5AA9_0CA1),
                     _ => self.seed,
                 };
-                if is_buried_wall(x, y, buried_seed) {
+                if is_buried_wall(self, x, y, buried_seed) {
                     return (' ', Style::default());
                 }
                 match self.dim {
@@ -1093,7 +1154,7 @@ impl World {
                 (g, Style::default().fg(Color::Rgb(r, gc, b)).add_modifier(Modifier::BOLD))
             }
             Tile::InfernoWall => {
-                if is_buried_wall(x, y, self.seed.wrapping_add(0x1AFE_5A00)) {
+                if is_buried_wall(self, x, y, self.seed.wrapping_add(0x1AFE_5A00)) {
                     (' ', Style::default())
                 } else {
                     inferno_wall_glyph(x, y)
@@ -1106,6 +1167,40 @@ impl World {
             ),
             Tile::LandmarkWall => landmark_wall_glyph(x, y, self.dim),
             Tile::LandmarkDoor => landmark_door_glyph(self.dim),
+            // Curio: distinct glyph + tinted bg so it stands out against
+            // the underlying floor. Pool is dim-specific; (x, y, dim, seed)
+            // picks the exact entry deterministically.
+            Tile::Curio => {
+                if let Some((entry, idx)) = curio_at(x, y, self.dim, self.seed) {
+                    let g = entry.1.chars().nth(idx).unwrap_or('?');
+                    let (r, gc, b) = entry.2;
+                    (
+                        g,
+                        Style::default()
+                            .fg(Color::Rgb(r, gc, b))
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else {
+                    // Defensive fallback (shouldn't happen in practice).
+                    ('?', Style::default().fg(Color::Magenta))
+                }
+            }
+            // Smelter: chunky furnace glyph with a low orange glow.
+            Tile::Smelter => (
+                'S',
+                Style::default()
+                    .fg(Color::Rgb(255, 140, 60))
+                    .bg(Color::Rgb(40, 12, 6))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            // Forge: anvil glyph with red-hot tint.
+            Tile::Forge => (
+                'F',
+                Style::default()
+                    .fg(Color::Rgb(255, 90, 60))
+                    .bg(Color::Rgb(40, 6, 6))
+                    .add_modifier(Modifier::BOLD),
+            ),
             Tile::Tombstone => {
                 let g = match hash2(x, y, 0x7070_85_70) % 3 {
                     0 => 'T',
@@ -1135,6 +1230,7 @@ impl World {
                 };
                 (g, Style::default().fg(c).add_modifier(Modifier::BOLD))
             }
+            Tile::PortalFrame => portal_frame_glyph(x, y, self.seed),
         }
     }
 }
@@ -1417,6 +1513,89 @@ fn atlantis_castle_at(x: i32, y: i32) -> Option<Tile> {
     for &(cx, cy) in ATLANTIS_HUTS {
         if let Some(t) = small_hut_at(x, y, cx, cy) {
             return Some(t);
+        }
+    }
+    // ---- satellite cities far from the central castle -----------------
+    //
+    // Each entry is one city: (cx, cy, temple_half_w, temple_half_h,
+    // door_y_offset, hut_pattern_id). The hut pattern is chosen by id so
+    // each city has a recognisable layout silhouette. Coords were placed
+    // by hand to sit in deep water away from the central cluster.
+    //
+    // Player teleports in at (0, 7) just south of the central castle door;
+    // wandering N, NE, NW, S, SE or SW eventually surfaces one of these.
+    if let Some(t) = atlantis_satellite_city(x, y) {
+        return Some(t);
+    }
+    None
+}
+
+/// Render one of the satellite Atlantis cities if (x, y) falls within
+/// any. Each has a small central temple (6×4) plus a ring of huts. The
+/// temple acts as a landmark; the huts are walkable interiors so the
+/// player can step in.
+fn atlantis_satellite_city(x: i32, y: i32) -> Option<Tile> {
+    // (city centre, temple half-extents, hut offset list)
+    // hut offsets are relative to the city centre.
+    struct City {
+        cx: i32,
+        cy: i32,
+        thw: i32, // temple half-width
+        thh: i32, // temple half-height
+        huts: &'static [(i32, i32)],
+    }
+    const CITIES: &[City] = &[
+        // North-east — "the Crested Reef" city
+        City {
+            cx: 60, cy: -45, thw: 5, thh: 3,
+            huts: &[(-12, 4), (-7, 6), (0, 7), (7, 6), (12, 4),
+                    (-8, -6), (8, -6), (-3, -8), (3, -8)],
+        },
+        // South-west — "the Trench" city, tighter layout
+        City {
+            cx: -70, cy: 35, thw: 6, thh: 3,
+            huts: &[(-13, 5), (-6, 6), (0, 7), (6, 6), (13, 5),
+                    (-10, -5), (10, -5)],
+        },
+        // South-east — "the Open Pearl" city, larger temple
+        City {
+            cx: 85, cy: 55, thw: 7, thh: 4,
+            huts: &[(-14, 6), (-7, 7), (7, 7), (14, 6),
+                    (-9, -7), (0, -8), (9, -7)],
+        },
+        // North-west — "the Cold Bell" city
+        City {
+            cx: -55, cy: -55, thw: 4, thh: 3,
+            huts: &[(-9, 5), (-3, 6), (3, 6), (9, 5),
+                    (-7, -5), (7, -5)],
+        },
+        // Far-east outpost — "the Long Drift", just a handful of huts
+        City {
+            cx: 130, cy: 0, thw: 4, thh: 2,
+            huts: &[(-8, 4), (-3, 5), (3, 5), (8, 4),
+                    (-6, -4), (6, -4)],
+        },
+    ];
+    for city in CITIES {
+        // Temple first.
+        let dx = x - city.cx;
+        let dy = y - city.cy;
+        if dx.abs() <= city.thw && dy.abs() <= city.thh {
+            let is_perim = dx.abs() == city.thw || dy.abs() == city.thh;
+            let is_door = dx == 0 && dy == city.thh;
+            if is_door {
+                return Some(Tile::LandmarkDoor);
+            }
+            if is_perim {
+                return Some(Tile::LandmarkWall);
+            }
+            return Some(Tile::Seabed);
+        }
+        // Hut ring.
+        for &(ox, oy) in city.huts {
+            if let Some(t) = small_hut_at(x, y, city.cx + ox, city.cy + oy) {
+                return Some(t);
+            }
         }
     }
     None
@@ -2049,6 +2228,266 @@ pub fn villages_in_rect(
     out
 }
 
+/// Static curio pools per dimension. Each entry is (id, glyph, rgb).
+/// Density is gated by `curio_at` (1-in-~700 hash hit). Players see them
+/// as standout cells against the floor; `x` while facing one reads the
+/// flavor text from `inspect.json` (key `curio:<id>`). User writes the
+/// prose; engine just places the objects.
+/// (id, glyph_string, rgb_color). `glyph_string` is 1-N pure-ASCII chars
+/// — single chars for tiny objects, multi-char ASCII art for richer
+/// constructions (anchors / sarcophagi / chains / etc). The string's
+/// length defines the curio's horizontal footprint.
+type CurioEntry = (&'static str, &'static str, (u8, u8, u8));
+
+/// Hard cap on curio width. `curio_at` scans up to this many cells
+/// westward to find an anchor whose footprint covers the queried cell,
+/// so this directly drives the render hot-path cost. Keep small.
+const MAX_CURIO_WIDTH: i32 = 5;
+
+const CURIOS_SURFACE: &[CurioEntry] = &[
+    ("driftwood",      "~/~",  (160, 130, 90)),
+    ("seaglass",       "<*>",  (140, 210, 200)),
+    ("rusted-reel",    "[O]",  (140, 80, 50)),
+    ("cairn",          "/A\\", (170, 165, 150)),
+    ("broken-buoy",    "(o)",  (220, 150, 80)),
+    ("memorial-stone", "[+]",  (180, 175, 165)),
+    ("crow-feather",   "v",    (60, 55, 70)),
+    ("salt-crust",     ".:.",  (220, 220, 230)),
+];
+
+const CURIOS_MINES: &[CurioEntry] = &[
+    ("rust-helmet",    "(h)",  (110, 80, 55)),
+    ("broken-pick",    "/=,",  (140, 130, 110)),
+    ("coal-heap",      ":.:",  (40, 35, 40)),
+    ("buried-lantern", "(*)",  (220, 190, 90)),
+    ("skeleton-bits",  "x:x",  (220, 215, 200)),
+    ("tally-marks",    "||/",  (150, 145, 130)),
+    ("mineshaft-sign", "[T]",  (180, 140, 90)),
+];
+
+const CURIOS_ATLANTIS: &[CurioEntry] = &[
+    ("sunken-statue",   "(@)",  (180, 200, 215)),
+    ("ancient-amphora", "[=]",  (190, 165, 110)),
+    ("pearl-bed",       "oOo",  (240, 235, 215)),
+    ("whale-bone",      "<_>",  (230, 225, 210)),
+    ("coral-skull",     "@^@",  (240, 180, 175)),
+    ("sea-shrine",      "/^\\", (170, 200, 210)),
+    ("ship-anchor",     "+|+",  (130, 140, 150)),
+];
+
+const CURIOS_INFERNO: &[CurioEntry] = &[
+    ("obsidian-shard", "<*>",  (40, 35, 45)),
+    ("bone-pile",      "x:x",  (220, 200, 170)),
+    ("brimstone-vent", "(*)",  (240, 200, 90)),
+    ("charred-banner", "|=|",  (180, 90, 50)),
+    ("lava-glass",     "*o*",  (255, 130, 60)),
+    ("rusted-chain",   "===",  (150, 90, 55)),
+];
+
+const CURIOS_SEWER: &[CurioEntry] = &[
+    ("broken-crate",   "[=]",  (140, 110, 75)),
+    ("rat-skull",      "<x>",  (200, 195, 180)),
+    ("pipe-fragment",  "(o)",  (110, 100, 90)),
+    ("coin-pile",      "$$$",  (220, 200, 120)),
+    ("graffiti-slab",  "#%#",  (130, 150, 110)),
+    ("soggy-paper",    ":._:", (160, 150, 130)),
+];
+
+const CURIOS_HOTSPRING: &[CurioEntry] = &[
+    ("bath-stone",     "(O)",  (200, 200, 210)),
+    ("mineral-cake",   "(.)",  (240, 220, 180)),
+    ("bamboo-basin",   "{=}",  (160, 180, 120)),
+    ("offering-bowl",  "(_)",  (220, 200, 170)),
+    ("steam-shrine",   "/^\\", (210, 220, 230)),
+];
+
+const CURIOS_PYRAMID: &[CurioEntry] = &[
+    ("sand-sarcophagus", "[==]", (210, 180, 110)),
+    ("hieroglyph-slab",  "#=#",  (220, 195, 140)),
+    ("broken-urn",       "_/_",  (180, 145, 95)),
+    ("keystone",         "<O>",  (230, 200, 145)),
+    ("mummy-wrap",       "~~~",  (215, 200, 170)),
+    ("scarab-husk",      "<@>",  (90, 130, 70)),
+];
+
+const CURIOS_SWAMPCAVE: &[CurioEntry] = &[
+    ("bog-bone",     "x_x",   (200, 190, 170)),
+    ("sunken-log",   "====",  (90, 75, 55)),
+    ("swamp-totem",  "[I]",   (110, 90, 70)),
+    ("mossy-stone",  "(o)",   (110, 140, 80)),
+    ("witch-bundle", ":~:",   (140, 110, 130)),
+];
+
+const CURIOS_BOGCATHEDRAL: &[CurioEntry] = &[
+    ("toppled-candle", "_|_",  (220, 200, 150)),
+    ("stained-glass",  "<#>",  (170, 130, 200)),
+    ("reliquary",      "[+]",  (200, 180, 220)),
+    ("wax-pool",       "(_)",  (230, 215, 165)),
+    ("cracked-pew",    "===",  (110, 90, 75)),
+    ("hymnal-scrap",   "_._",  (180, 170, 160)),
+];
+
+const CURIOS_MIRRORLAKE: &[CurioEntry] = &[
+    ("polished-stone",  "(O)",  (220, 230, 240)),
+    ("silver-coin",     "(o)",  (220, 225, 230)),
+    ("glass-shard",     "/*\\", (180, 210, 230)),
+    ("mirror-frame",    "[ ]",  (190, 200, 220)),
+    ("reflection-pool", "[o]",  (210, 225, 240)),
+];
+
+const CURIOS_ICESHELF: &[CurioEntry] = &[
+    ("frozen-fish",     "<o>",  (180, 210, 240)),
+    ("ice-pick",        "Y|.",  (220, 230, 240)),
+    ("frost-flower",    "*.*",  (220, 235, 250)),
+    ("snowdrift-cairn", "/A\\", (240, 245, 250)),
+    ("walrus-tusk",     "/|\\", (230, 215, 190)),
+];
+
+const CURIOS_WRECKAGE: &[CurioEntry] = &[
+    ("ship-bell",       "(B)",  (200, 170, 90)),
+    ("porthole",        "(o)",  (160, 180, 190)),
+    ("figurehead",      "[+]",  (180, 140, 95)),
+    ("wave-worn-chest", "[_]",  (130, 100, 75)),
+    ("rotted-rigging",  "~~~",  (140, 130, 110)),
+    ("captain-skull",   "<X>",  (220, 215, 200)),
+];
+
+const CURIOS_CRATER: &[CurioEntry] = &[
+    ("star-iron",       "*o*",  (220, 220, 255)),
+    ("impact-glass",    "<*>",  (180, 200, 240)),
+    ("meteor-fragment", ".o.",  (160, 130, 200)),
+    ("cosmic-sigil",    "[+]",  (220, 180, 255)),
+    ("crystal-bloom",   "/^\\", (200, 220, 255)),
+];
+
+const CURIOS_COLOSSEUM: &[CurioEntry] = &[
+    ("cracked-column", "|||", (220, 215, 200)),
+    ("gladiator-helm", "(h)", (190, 170, 130)),
+    ("marble-bust",    "[O]", (235, 230, 215)),
+    ("worn-trophy",    "[Y]", (200, 175, 120)),
+    ("banner-pole",    "_|_", (180, 60, 60)),
+];
+
+const CURIOS_ALLBLUE: &[CurioEntry] = &[
+    ("mystery-jelly",  "(@)",  (140, 200, 230)),
+    ("lost-lantern",   "(*)",  (220, 200, 120)),
+    ("empty-bottle",   "_U_",  (160, 200, 220)),
+    ("single-sandal",  "[_]",  (200, 170, 130)),
+    ("apex-fang",      "/V\\", (240, 230, 220)),
+];
+
+fn curio_pool_for(dim: Dimension) -> &'static [CurioEntry] {
+    match dim {
+        Dimension::Surface => CURIOS_SURFACE,
+        Dimension::Mines => CURIOS_MINES,
+        Dimension::Atlantis => CURIOS_ATLANTIS,
+        Dimension::Inferno => CURIOS_INFERNO,
+        Dimension::Sewer => CURIOS_SEWER,
+        Dimension::HotSpring => CURIOS_HOTSPRING,
+        Dimension::Pyramid => CURIOS_PYRAMID,
+        Dimension::SwampCave => CURIOS_SWAMPCAVE,
+        Dimension::BogCathedral => CURIOS_BOGCATHEDRAL,
+        Dimension::MirrorLake => CURIOS_MIRRORLAKE,
+        Dimension::Iceshelf => CURIOS_ICESHELF,
+        Dimension::Wreckage => CURIOS_WRECKAGE,
+        Dimension::Crater => CURIOS_CRATER,
+        Dimension::Colosseum => CURIOS_COLOSSEUM,
+        Dimension::AllBlue => CURIOS_ALLBLUE,
+        // Lakebed shares the cave-flavour curio pool with the Mines until
+        // it gets its own lore drops.
+        Dimension::Lakebed => CURIOS_MINES,
+    }
+}
+
+/// Anchor check — returns the curio whose footprint *begins* at (x, y).
+/// Density: 1 in 5000 cells. Calibrated so a typical ~5600-cell viewport
+/// surfaces ~1 curio at a time on screen — rare enough that finding one
+/// feels like a discovery, not background clutter.
+fn curio_anchor_at(x: i32, y: i32, dim: Dimension, seed: u32) -> Option<&'static CurioEntry> {
+    let h = hash2(x, y, seed.wrapping_add(0xC0_71_05_03) ^ (dim as u32).wrapping_mul(0x9E37_79B1));
+    if h % 5000 != 31 {
+        return None;
+    }
+    let pool = curio_pool_for(dim);
+    if pool.is_empty() {
+        return None;
+    }
+    Some(&pool[(h as usize / 5000) % pool.len()])
+}
+
+/// Returns Some((entry, char_index)) when (x, y) is part of any curio's
+/// horizontal footprint. Scans up to `MAX_CURIO_WIDTH` cells westward
+/// for an anchor whose width covers (x, y). The char index lets the
+/// renderer pick the correct character of the curio's multi-char glyph
+/// string.
+pub fn curio_at(x: i32, y: i32, dim: Dimension, seed: u32) -> Option<(&'static CurioEntry, usize)> {
+    for k in 0..MAX_CURIO_WIDTH {
+        if let Some(entry) = curio_anchor_at(x - k, y, dim, seed) {
+            let w = entry.1.chars().count() as i32;
+            if k < w {
+                return Some((entry, k as usize));
+            }
+        }
+    }
+    None
+}
+
+/// Smelter / Forge tile placement: one of each is anchored to every
+/// Blacksmith NPC (static home-village smith + every procedural village's
+/// templated smith). The smelter sits one cell north of the smith, the
+/// forge one cell south. `f` on either opens the matching minigame.
+pub fn blacksmith_station_at(x: i32, y: i32, seed: u32) -> Option<Tile> {
+    // Static home-village smith at (-12, 1). Cheapest check first.
+    const HOME_SMITH: (i32, i32) = (-12, 1);
+    if (x, y) == (HOME_SMITH.0, HOME_SMITH.1 - 1) {
+        return Some(Tile::Smelter);
+    }
+    if (x, y) == (HOME_SMITH.0, HOME_SMITH.1 + 1) {
+        return Some(Tile::Forge);
+    }
+    // Proc-village smelter/forge sit at smith.y ± 1, and proc village
+    // anchors are constrained to `ay <= -8`. So smelter.y <= -9 and
+    // forge.y <= -7. If y > -7 there's no chance of a proc station —
+    // skip the expensive village_anchor_for call entirely. This is
+    // hit once per tile per frame, so the early-out matters.
+    if y > -7 {
+        return None;
+    }
+    if let Some(v) = village_anchor_for(x, y, seed) {
+        let smith = (v.ax + 3, v.ay);
+        if (x, y) == (smith.0, smith.1 - 1) {
+            return Some(Tile::Smelter);
+        }
+        if (x, y) == (smith.0, smith.1 + 1) {
+            return Some(Tile::Forge);
+        }
+    }
+    None
+}
+
+/// Resolve which procedural-village merchant (if any) stands at this
+/// world cell. Returns the template id ("blacksmith-template" or
+/// "fishmonger-template"). Each procedural village hosts exactly one of
+/// each merchant at fixed offsets from its anchor — blacksmith two cells
+/// east of the well, fishmonger two cells west — both on the village's
+/// path so the player can walk up and press f.
+pub fn proc_village_merchant_id_at(x: i32, y: i32, seed: u32) -> Option<&'static str> {
+    // Proc village anchors are constrained to ay <= -8, and both merchants
+    // stand at exactly smith.y == anchor.y. So y > -8 has no merchants;
+    // skip the expensive village_anchor_for call.
+    if y > -8 {
+        return None;
+    }
+    let v = village_anchor_for(x, y, seed)?;
+    if (x, y) == (v.ax + 3, v.ay) {
+        return Some("blacksmith-template");
+    }
+    if (x, y) == (v.ax - 3, v.ay) {
+        return Some("fishmonger-template");
+    }
+    None
+}
+
 fn village_anchor_for(x: i32, y: i32, seed: u32) -> Option<PVillage> {
     let cx = x.div_euclid(PV_CELL_W);
     let cy = y.div_euclid(PV_CELL_H);
@@ -2220,11 +2659,11 @@ fn hash2(x: i32, y: i32, seed: u32) -> u32 {
 /// outside the village zone and never inside water. The anchor cell becomes
 /// the interactable MineEntrance; the 5 surrounding cells render as MineFrame.
 fn is_mine_entrance_anchor(x: i32, y: i32, seed: u32) -> bool {
-    // Hash test FIRST — only ~1/4500 cells pass it (5x rarer than before).
-    // The expensive water / village / neighbor checks below run for less
-    // than 0.05% of cells instead of all of them.
+    // Hash test FIRST — only ~1/12000 cells pass it. The expensive water
+    // / village / neighbor checks below run for a vanishingly small slice
+    // of cells instead of all of them.
     let h = hash2(x, y, seed.wrapping_add(0xE17E_ED01));
-    if h % 4500 != 7 {
+    if h % 12000 != 7 {
         return false;
     }
     if y >= 4 {
@@ -2291,7 +2730,7 @@ pub fn lakebed_region(x: i32, y: i32, seed: u32) -> bool {
 ///     the entrance is unreachable.
 ///   - underground (x,y) must fall inside a lakebed_region so descending
 ///     opens flooded caves instead of dry stone.
-fn is_lakebed_entrance_anchor(x: i32, y: i32, seed: u32) -> bool {
+pub fn is_lakebed_entrance_anchor(x: i32, y: i32, seed: u32) -> bool {
     let h = hash2(x, y, seed.wrapping_add(0x1A4E_BED0));
     if h % 1200 != 3 {
         return false;
@@ -2413,7 +2852,11 @@ fn is_inferno_wall_margin(x: i32, y: i32, seed: u32) -> bool {
 /// True when (x,y) is a wall cell with NO open neighbor in any of the 8
 /// directions — i.e. fully buried inside a wall mass. Rendered pitch black
 /// so the cave reads as solid stone instead of a sea of tiled hashes.
-fn is_buried_wall(x: i32, y: i32, seed: u32) -> bool {
+/// Water counts as air here: a neighbor that renders as water (lakebed
+/// pools in the mines, hot-spring water spread by the 1-cell render
+/// offset, etc.) means the player can see through to this wall, so don't
+/// blank it out.
+fn is_buried_wall(world: &World, x: i32, y: i32, seed: u32) -> bool {
     if cave_open_at(x, y, seed) {
         return false;
     }
@@ -2422,7 +2865,15 @@ fn is_buried_wall(x: i32, y: i32, seed: u32) -> bool {
             if dx == 0 && dy == 0 {
                 continue;
             }
-            if cave_open_at(x + dx, y + dy, seed) {
+            let nx = x + dx;
+            let ny = y + dy;
+            if cave_open_at(nx, ny, seed) {
+                return false;
+            }
+            if matches!(
+                world.get(nx, ny),
+                Tile::Water | Tile::MineralWater | Tile::DeepWater | Tile::Lava
+            ) {
                 return false;
             }
         }
@@ -3092,6 +3543,40 @@ fn wall_glyph(x: i32, y: i32) -> (char, Style) {
     )
 }
 
+/// Per-house wall variants. The house's door coords seed the variant
+/// so every house renders with a distinct style — timber, brick, stone,
+/// adobe, driftwood, etc. Cell-level noise still adds within-house
+/// variation; the house seed only picks the palette + glyph family.
+fn wall_glyph_for_house(x: i32, y: i32, door: (i32, i32)) -> (char, Style) {
+    const FAMILIES: &[(&[char], (u8, u8, u8))] = &[
+        // 0 — warm timber (vertical planks)
+        (&['|', 'I', '|', '|'], (140, 95, 55)),
+        // 1 — brick + mortar
+        (&['#', '=', '#', 'H'], (155, 85, 70)),
+        // 2 — fieldstone (jumbled stones)
+        (&['o', 'O', '@', '0'], (140, 130, 115)),
+        // 3 — adobe/sandstone
+        (&['#', '%', '#', '#'], (190, 150, 95)),
+        // 4 — bleached driftwood
+        (&['|', '/', '\\', '|'], (180, 165, 140)),
+        // 5 — dark slate
+        (&['H', 'M', 'H', '#'], (80, 90, 110)),
+        // 6 — mossy green-tinted
+        (&['#', 'V', 'Y', '#'], (95, 130, 80)),
+        // 7 — whitewashed cottage
+        (&['|', ':', '|', '|'], (215, 210, 195)),
+    ];
+    let h = hash2(door.0, door.1, 0x5E5E_C0DE);
+    let fam = &FAMILIES[(h as usize) % FAMILIES.len()];
+    let g = fam.0[(hash2(x, y, h.wrapping_add(0xC011_C011)) as usize) % fam.0.len()];
+    (
+        g,
+        Style::default()
+            .fg(shade(fam.1, x, y, h ^ 0x1A11_F00D, 12))
+            .add_modifier(Modifier::BOLD),
+    )
+}
+
 fn roof_glyph(x: i32, y: i32) -> (char, Style) {
     let v = hash2(x, y, 0x720F_720F) % 3;
     let g = match v {
@@ -3105,6 +3590,141 @@ fn roof_glyph(x: i32, y: i32) -> (char, Style) {
             .fg(shade((160, 75, 55), x, y, 0x720F_720F, 12))
             .add_modifier(Modifier::BOLD),
     )
+}
+
+/// Per-house roof palettes. Same seeding scheme as wall_glyph_for_house.
+fn roof_glyph_for_house(x: i32, y: i32, door: (i32, i32)) -> (char, Style) {
+    const PALETTES: &[(&[char], (u8, u8, u8))] = &[
+        // 0 — red clay tile
+        (&['#', '%', '#'], (170, 70, 50)),
+        // 1 — grey shingle
+        (&['#', '=', '#'], (110, 110, 120)),
+        // 2 — slate blue
+        (&['#', '~', '#'], (75, 95, 130)),
+        // 3 — mossy green
+        (&['%', '#', '%'], (90, 130, 70)),
+        // 4 — straw thatch
+        (&['/', '\\', '/'], (200, 165, 95)),
+        // 5 — dark tar
+        (&['#', '#', '%'], (55, 50, 55)),
+        // 6 — sun-bleached cream
+        (&['#', '%', '#'], (220, 200, 160)),
+        // 7 — copper-green patina
+        (&['~', '%', '#'], (95, 150, 130)),
+    ];
+    let h = hash2(door.0, door.1, 0x720F_720F);
+    let pal = &PALETTES[(h as usize) % PALETTES.len()];
+    let g = pal.0[(hash2(x, y, h.wrapping_add(0xA10B_C0DE)) as usize) % pal.0.len()];
+    (
+        g,
+        Style::default()
+            .fg(shade(pal.1, x, y, h, 12))
+            .add_modifier(Modifier::BOLD),
+    )
+}
+
+/// Chimney location for a house — picked by hashing the door coords,
+/// always sitting on one of the roof cells. Returns true if (x, y) is
+/// the chimney cell.
+fn house_chimney_at(x: i32, y: i32, door: (i32, i32)) -> bool {
+    // door.0 is the door's x; door.1 is door y. The roof line is y == ya
+    // (the top of the house). We don't know ya precisely without scanning,
+    // but every house's roof is at door.y - 4 .. door.y - 1 across the
+    // known layouts. Pick a chimney offset within (-2..=+2) of the door
+    // column, on a roof row two cells above the door.
+    let h = hash2(door.0, door.1, 0xCD11_25E5);
+    let off = ((h as i32) % 5) - 2; // -2..=2
+    let chimney_y = door.1 - 2;
+    x == door.0 + off && y == chimney_y
+}
+
+/// Chimney render: thin tall glyph with a tiny smoke wisp tinted by the
+/// house's roof palette.
+fn chimney_glyph(_x: i32, _y: i32, door: (i32, i32)) -> (char, Style) {
+    let h = hash2(door.0, door.1, 0xCD11_25E5);
+    let g = match h % 3 {
+        0 => 'M',
+        1 => 'I',
+        _ => 'H',
+    };
+    let palette_h = hash2(door.0, door.1, 0x720F_720F);
+    let (r, g_c, b): (u8, u8, u8) = match palette_h % 8 {
+        0 => (110, 50, 40),
+        1 => (80, 75, 85),
+        2 => (60, 65, 85),
+        3 => (70, 90, 55),
+        4 => (130, 105, 65),
+        5 => (50, 40, 45),
+        6 => (150, 130, 105),
+        _ => (70, 100, 85),
+    };
+    (
+        g,
+        Style::default()
+            .fg(Color::Rgb(r, g_c, b))
+            .add_modifier(Modifier::BOLD),
+    )
+}
+
+/// Door-seed lookup for any house on the Surface. Returns the door's
+/// (x, y) — stable per house — when (x, y) sits inside any home-village
+/// or procedural-village hut. Used by render to give every house its
+/// own wall + roof palette.
+///
+/// Early-outs aggressively: most surface tiles aren't in a house, so we
+/// fast-fail before doing the village_anchor_for hash sweep.
+pub fn house_seed_at(qx: i32, qy: i32, seed: u32) -> Option<(i32, i32)> {
+    // Home-village houses, mirroring village_tile's table.
+    const HOME_HOUSES: &[((i32, i32, i32, i32), (i32, i32))] = &[
+        ((-37, -33, -1, 1), (-35, 1)),
+        ((-20, -16, -1, 1), (-18, 1)),
+        ((-2, 2, -5, -3), (0, -3)),
+        ((-25, -21, -7, -5), (-23, -5)),
+        ((21, 25, -7, -5), (23, -5)),
+        ((16, 20, -1, 1), (18, 1)),
+        ((33, 37, -1, 1), (35, 1)),
+    ];
+    for &((xa, xb, ya, yb), door) in HOME_HOUSES {
+        if (xa..=xb).contains(&qx) && (ya..=yb).contains(&qy) {
+            return Some(door);
+        }
+    }
+    // Procedural villages — only relevant when qy is within reach of any
+    // proc village. Anchors are at ay <= -8 with radius <= 35, so houses
+    // can occupy roughly y in [ay-7, ay+7]. If qy is way south of that
+    // (e.g. qy > 8 in the ocean), skip the anchor sweep.
+    if qy > 8 {
+        return None;
+    }
+    let v = village_anchor_for(qx, qy, seed)?;
+    let dx = qx - v.ax;
+    let dy = qy - v.ay;
+    let huts: &[((i32, i32), (i32, i32), (i32, i32))] = match v.kind {
+        VillageKind::Hamlet => &[
+            ((-10, -7), (-6, -5), (-8, -5)),
+            ((6, -7), (10, -5), (8, -5)),
+            ((-2, 5), (2, 7), (0, 7)),
+        ],
+        VillageKind::Town => &[
+            ((-15, -7), (-11, -5), (-13, -5)),
+            ((-5, -7), (-1, -5), (-3, -5)),
+            ((5, -7), (9, -5), (7, -5)),
+            ((-9, 5), (-5, 7), (-7, 7)),
+            ((5, 5), (9, 7), (7, 7)),
+        ],
+        VillageKind::Floating => &[
+            ((-16, -1), (-12, 1), (-12, 1)),
+            ((12, -1), (16, 1), (12, 1)),
+            ((-1, -16), (1, -12), (0, -12)),
+            ((-1, 12), (1, 16), (0, 12)),
+        ],
+    };
+    for &((xa, ya), (xb, yb), (ddx, ddy)) in huts {
+        if (xa..=xb).contains(&dx) && (ya..=yb).contains(&dy) {
+            return Some((v.ax + ddx, v.ay + ddy));
+        }
+    }
+    None
 }
 
 fn cactus_glyph(x: i32, y: i32) -> (char, Style) {
@@ -3226,17 +3846,25 @@ fn shore_splash(x: i32, row: i32, tick: u64) -> Option<(char, Style)> {
     Some((glyph, Style::default().fg(color).add_modifier(Modifier::BOLD)))
 }
 
-/// Returns the destination dim if this surface cell is a portal anchor.
-/// Sparse hash-gated per dim, with biome filters where it makes sense.
-/// None for cells that aren't a portal.
-pub fn dim_portal_for(x: i32, y: i32, seed: u32) -> Option<Dimension> {
-    // Bespoke first — these escape the village/water early-returns.
-    if (x, y) == SEWER_PORTAL_XY {
-        return Some(Dimension::Sewer);
-    }
-    if (x, y) == WRECKAGE_PORTAL_XY {
-        return Some(Dimension::Wreckage);
-    }
+/// Cell offsets (relative to anchor at 0,0) of the 11 stones that make up
+/// the 5w × 4h portal arch. Anchor sits at the bottom-center; player
+/// approaches from (0, +1) and presses `f` to travel.
+///
+///     ╔═══╗     y=-3
+///     ║   ║     y=-2
+///     ║   ║     y=-1
+///     ║ A ║     y= 0  (A = anchor)
+const PORTAL_FRAME_OFFSETS: &[(i32, i32)] = &[
+    (-2, -3), (-1, -3), (0, -3), (1, -3), (2, -3),
+    (-2, -2), (2, -2),
+    (-2, -1), (2, -1),
+    (-2, 0),  (2, 0),
+];
+
+/// Hash + biome candidate check for a procedural surface portal. Does NOT
+/// validate the surrounding 5x4 footprint — that's `dim_portal_for`'s job
+/// once we've decided the cell is a plausible anchor.
+fn dim_portal_candidate(x: i32, y: i32, seed: u32) -> Option<Dimension> {
     if in_village_zone(x, y) {
         return None;
     }
@@ -3248,34 +3876,120 @@ pub fn dim_portal_for(x: i32, y: i32, seed: u32) -> Option<Dimension> {
     }
     let b = cached_biome_at(x, y, seed);
     let h = hash2(x, y, seed.wrapping_add(0xD17F_02A1));
-    if h % 5000 == 13 && matches!(b, Biome::Desert) {
+    if h % 45000 == 13 && matches!(b, Biome::Desert) {
         return Some(Dimension::Pyramid);
     }
-    if h % 6000 == 23 && matches!(b, Biome::Desert | Biome::Scrub) {
+    if h % 55000 == 23 && matches!(b, Biome::Desert | Biome::Scrub) {
         return Some(Dimension::HotSpring);
     }
-    if h % 5000 == 17 && matches!(b, Biome::Tundra) {
+    if h % 45000 == 17 && matches!(b, Biome::Tundra) {
         return Some(Dimension::Iceshelf);
     }
-    if h % 5500 == 19 && matches!(b, Biome::Swamp) {
+    if h % 50000 == 19 && matches!(b, Biome::Swamp) {
         return Some(Dimension::SwampCave);
     }
-    if h % 7000 == 7 && matches!(b, Biome::Swamp) {
+    if h % 60000 == 7 && matches!(b, Biome::Swamp) {
         return Some(Dimension::BogCathedral);
     }
-    if h % 6000 == 31 && matches!(b, Biome::Meadow | Biome::Forest) {
+    if h % 55000 == 31 && matches!(b, Biome::Meadow | Biome::Forest) {
         return Some(Dimension::MirrorLake);
     }
-    // Crater and Colosseum can spawn anywhere on land, very rare.
-    if h % 9000 == 41 {
+    if h % 80000 == 41 {
         return Some(Dimension::Crater);
     }
-    if h % 12000 == 51 {
+    if h % 105000 == 51 {
         return Some(Dimension::Colosseum);
     }
-    // Sewer + Wreckage need special placement (village / dockside) — handled
-    // by the existing village layouts in a follow-up. AllBlue stays travel-only.
     None
+}
+
+/// Returns the destination dim if this surface cell is a portal anchor.
+/// Sparse hash-gated per dim, with biome filters where it makes sense.
+/// Procedural portals additionally require their full 5x4 stone-arch
+/// footprint plus southern approach lane to sit on clear land — without
+/// this the structure clips into water/villages. None for cells that
+/// aren't a portal.
+pub fn dim_portal_for(x: i32, y: i32, seed: u32) -> Option<Dimension> {
+    // Bespoke first — these escape the village/water early-returns and
+    // don't get a stone arch (they're flavor manholes / ocean rifts).
+    if (x, y) == SEWER_PORTAL_XY {
+        return Some(Dimension::Sewer);
+    }
+    if (x, y) == WRECKAGE_PORTAL_XY {
+        return Some(Dimension::Wreckage);
+    }
+    let dest = dim_portal_candidate(x, y, seed)?;
+    // Whole footprint must be on land, outside any village.
+    for &(dx, dy) in PORTAL_FRAME_OFFSETS {
+        let fx = x + dx;
+        let fy = y + dy;
+        if cached_water_body_at(fx, fy, seed) {
+            return None;
+        }
+        if in_village_zone(fx, fy) {
+            return None;
+        }
+    }
+    // Player must be able to walk up to the anchor from the south.
+    if cached_water_body_at(x, y + 1, seed) {
+        return None;
+    }
+    Some(dest)
+}
+
+/// True if `(x, y)` is a procedural arch-style portal anchor — i.e. a
+/// validated `dim_portal_for` hit that isn't one of the bespoke fixed
+/// coords. Used by `portal_frame_at` so the bespoke manhole/wreckage
+/// portals don't grow stone arches.
+fn arched_portal_at(x: i32, y: i32, seed: u32) -> Option<Dimension> {
+    if (x, y) == SEWER_PORTAL_XY || (x, y) == WRECKAGE_PORTAL_XY {
+        return None;
+    }
+    dim_portal_for(x, y, seed)
+}
+
+/// If `(x, y)` is a frame stone of some arched portal, return the
+/// destination dim and the cell's (dx, dy) offset from the anchor.
+fn portal_frame_at(x: i32, y: i32, seed: u32) -> Option<(Dimension, i32, i32)> {
+    for &(dx, dy) in PORTAL_FRAME_OFFSETS {
+        if let Some(dest) = arched_portal_at(x - dx, y - dy, seed) {
+            return Some((dest, dx, dy));
+        }
+    }
+    None
+}
+
+fn portal_frame_color(dest: Dimension) -> Color {
+    match dest {
+        Dimension::Pyramid => Color::Rgb(190, 150, 90),
+        Dimension::HotSpring => Color::Rgb(180, 140, 160),
+        Dimension::Iceshelf => Color::Rgb(170, 205, 230),
+        Dimension::SwampCave => Color::Rgb(95, 135, 85),
+        Dimension::BogCathedral => Color::Rgb(115, 110, 135),
+        Dimension::MirrorLake => Color::Rgb(195, 205, 230),
+        Dimension::Crater => Color::Rgb(155, 130, 200),
+        Dimension::Colosseum => Color::Rgb(220, 215, 200),
+        _ => Color::Rgb(170, 160, 165),
+    }
+}
+
+fn portal_frame_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
+    let (dest, dx, dy) = match portal_frame_at(x, y, seed) {
+        Some(t) => t,
+        None => return ('#', Style::default().fg(Color::Rgb(150, 145, 140))),
+    };
+    let g = match (dx, dy) {
+        (-2, -3) => '╔',
+        (2, -3) => '╗',
+        (_, -3) => '═',
+        _ => '║',
+    };
+    (
+        g,
+        Style::default()
+            .fg(portal_frame_color(dest))
+            .add_modifier(Modifier::BOLD),
+    )
 }
 
 // ---- specialty dim generators ---------------------------------------------
@@ -3481,6 +4195,51 @@ fn pyramid_get(x: i32, y: i32) -> Tile {
         LabCell::Corridor => Tile::Sand,
         LabCell::Wall => Tile::Wall,
     }
+}
+
+/// Lakebed Caves: a fully flooded cavern. Open cells default to mineral
+/// water; sparse stone islands give the player something to stand on
+/// while casting. Stalactites accent dry margins; every surface lakebed
+/// entrance projects through to a `MineExit` here, so the player always
+/// climbs back to the exact island they descended from. Each exit gets
+/// a 3x3 cave-floor pocket so they're not immediately walled or drowned.
+fn lakebed_get(x: i32, y: i32, seed: u32) -> Tile {
+    // Exits project through from the surface entrances — same (x, y).
+    if is_lakebed_entrance_anchor(x, y, seed) {
+        return Tile::MineExit;
+    }
+    for dx in -1..=1i32 {
+        for dy in -1..=1i32 {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            if is_lakebed_entrance_anchor(x + dx, y + dy, seed) {
+                return Tile::CaveFloor;
+            }
+        }
+    }
+    let lb = seed.wrapping_add(0x1A4E_BED0);
+    let open = cave_open_at(x, y, lb);
+    let r = hash2(x, y, lb.wrapping_add(0xCAFE_C0DE)) % 1000;
+    if !open {
+        // Wall margins seed stalactites and the occasional pebbled rock,
+        // but no ore — lakebed is a fishing dim, not a mining dim.
+        if r < 60 {
+            return Tile::Stalactite;
+        }
+        return Tile::CaveWall;
+    }
+    // Open cells: a stone island here and there, otherwise mineral water.
+    if r < 25 {
+        return Tile::Stalagmite;
+    }
+    if r < 60 {
+        return Tile::CaveFloor;
+    }
+    if r < 75 {
+        return Tile::Rock;
+    }
+    Tile::MineralWater
 }
 
 /// Swamp Cave: dark cave with peat water and twisted roots.

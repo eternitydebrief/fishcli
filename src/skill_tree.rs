@@ -110,8 +110,28 @@ impl SkillTree {
     /// Skill points the player has earned across the lifetime of the
     /// save. Comes from fishing level + future streams.
     pub fn earned(fishing_level: u32, achievements_unlocked: u32, mastery_milestones: u32) -> u32 {
-        // 1 per fishing level + 1 per achievement + 1 per mastery milestone.
-        fishing_level
+        // Tapered curve so the tree doesn't self-complete from levelling
+        // alone — players have to pick a build instead of a full sweep.
+        //   L  1- 30 : 1 per level         (30 pts)
+        //   L 31- 60 : 1 per 2 levels      (+15 -> 45 at L60)
+        //   L 61-120 : 1 per 3 levels      (+20 -> 65 at L120)
+        //   L121-240 : 1 per 5 levels      (+24 -> 89 at L240)
+        //   L241+    : 1 per 8 levels
+        // Achievements + mastery still grant 1 each so off-loop play still
+        // contributes meaningfully.
+        let l = fishing_level;
+        let level_pts = if l <= 30 {
+            l
+        } else if l <= 60 {
+            30 + (l - 30) / 2
+        } else if l <= 120 {
+            45 + (l - 60) / 3
+        } else if l <= 240 {
+            65 + (l - 120) / 5
+        } else {
+            89 + (l - 240) / 8
+        };
+        level_pts
             .saturating_add(achievements_unlocked)
             .saturating_add(mastery_milestones)
     }

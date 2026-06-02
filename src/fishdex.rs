@@ -109,6 +109,7 @@ impl Fishdex {
         caught: &[bool],
         caught_at: &[Option<(String, String)>],
         caught_context: &[Option<(String, String, String)>],
+        milestone_blurb: &str,
     ) {
         let area = frame.area();
         let total = fish().len();
@@ -125,7 +126,10 @@ impl Fishdex {
                 visible_idx.len()
             )
         } else {
-            format!(" fishdex ({}/{}) - j/k browse, / filter, esc/q leave ", caught_count, total)
+            format!(
+                " fishdex ({}/{}){milestone_blurb} - j/k browse, / filter, esc/q leave ",
+                caught_count, total
+            )
         };
         let outer = Block::default()
             .borders(Borders::ALL)
