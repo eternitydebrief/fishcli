@@ -286,6 +286,27 @@ impl Fishdex {
                         Style::default().fg(Color::LightYellow),
                     ),
                 ]));
+                // Cross-link: list every recipe whose ingredient list
+                // references this fish, so the player can scan from dex
+                // straight to cookbook intent.
+                let used_in: Vec<&str> = crate::recipes::recipes()
+                    .iter()
+                    .filter(|r| {
+                        r.ingredients
+                            .iter()
+                            .any(|(name, _)| name.eq_ignore_ascii_case(&f.name))
+                    })
+                    .map(|r| r.name.as_str())
+                    .collect();
+                if !used_in.is_empty() {
+                    lines.push(Line::from(vec![
+                        Span::raw("recipes:   "),
+                        Span::styled(
+                            used_in.join(", "),
+                            Style::default().fg(Color::LightMagenta),
+                        ),
+                    ]));
+                }
                 if f.unique {
                     lines.push(Line::from(Span::styled(
                         "UNIQUE - misc tab, cannot be sold or discarded",
