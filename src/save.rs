@@ -168,6 +168,10 @@ pub struct SaveData {
     pub fishdex_milestones_granted: u32,
     #[serde(default)]
     pub cookbook_milestones_granted: u32,
+    /// Chopped-tree map: anchor (x, y) -> respawn unix-secs. Persisted so
+    /// a clearing the player just cut stays cleared across a reload.
+    #[serde(default)]
+    pub chopped_trees: Vec<(i32, i32, u64)>,
 }
 
 fn default_stamina() -> f32 {
