@@ -530,6 +530,12 @@ impl Tile {
 pub struct World {
     pub seed: u32,
     pub dim: Dimension,
+    /// Chopped-tree state. Key = the tree's anchor cell (the trunk
+    /// origin). Value = unix-secs timestamp at which the tree is back.
+    /// Trees inside `chopped` whose timestamp hasn't elapsed yet skip
+    /// rendering: their trunk/canopy cells fall through to underlying
+    /// grass. Mirrors the vein cooldown map in spirit.
+    pub chopped: std::collections::HashMap<(i32, i32), u64>,
 }
 
 pub struct WorldView<'a> {
@@ -628,7 +634,32 @@ impl World {
         Self {
             seed,
             dim: Dimension::Surface,
+            chopped: std::collections::HashMap::new(),
         }
+    }
+
+    /// True when the tree anchored at (ax, ay) is currently chopped down
+    /// (waiting for its respawn timer). Used by the renderer + by chop
+    /// validation so a chopped tree can't be re-chopped before respawn.
+    pub fn is_tree_chopped(&self, ax: i32, ay: i32) -> bool {
+        match self.chopped.get(&(ax, ay)) {
+            Some(&until) => crate::mining::now_secs() < until,
+            None => false,
+        }
+    }
+
+    /// Mark the tree at anchor (ax, ay) as chopped. Respawns in
+    /// `secs` seconds of real wall-clock.
+    pub fn chop_tree(&mut self, ax: i32, ay: i32, secs: u64) {
+        let when = crate::mining::now_secs() + secs;
+        self.chopped.insert((ax, ay), when);
+    }
+
+    /// Drop entries whose respawn time has elapsed. Called occasionally so
+    /// the map doesn't grow unbounded over a long session.
+    pub fn prune_chopped(&mut self) {
+        let now = crate::mining::now_secs();
+        self.chopped.retain(|_, until| *until > now);
     }
 
     pub fn get(&self, x: i32, y: i32) -> Tile {
@@ -713,7 +744,15 @@ impl World {
             let biome = cached_biome_at(x, y, self.seed);
             let p = biome_params(biome);
             if let Some(part) = tree_at(x, y, self.seed, p.tree) {
-                return part;
+                // Chopped-tree gate: skip rendering this trunk/canopy if
+                // the anchor's respawn timer hasn't elapsed. Fall through
+                // to whatever else this cell would have been (grass/etc).
+                let still_there = find_tree_anchor(x, y, self.seed)
+                    .map(|(ax, ay, _, _)| !self.is_tree_chopped(ax, ay))
+                    .unwrap_or(true);
+                if still_there {
+                    return part;
+                }
             }
             if winfo.in_water {
                 return Tile::Water;
@@ -995,10 +1034,15 @@ impl World {
                         }
                     }
                 };
-                // Every fishable tile carries a near-black bg tinted toward
-                // its water hue so the player can pick out fishing spots at
-                // a glance. Cap at #121212 max per channel.
-                with_fishable_bg(glyph, water_bg_for(self.dim))
+                // Surface ocean: bg darkens with distance from shore and
+                // flips foggy past FOG_DEPTH for the endgame "Fog Sea".
+                // Specialty water dims still use their themed tint.
+                let bg = if matches!(self.dim, Dimension::Surface) {
+                    ocean_depth_color(ocean_depth_at(self, x, y))
+                } else {
+                    water_bg_for(self.dim)
+                };
+                with_fishable_bg(glyph, bg)
             }
             Tile::Sand => {
                 // Repurposed per dim: iceshelf = white snow, pyramid = gold
@@ -2098,6 +2142,12 @@ fn tree_at(x: i32, y: i32, seed: u32, density: f32) -> Option<Tile> {
     None
 }
 
+/// Public wrapper for the internal anchor finder. App needs it to mark
+/// the right tree as chopped from outside this module.
+pub fn find_tree_anchor_pub(x: i32, y: i32, seed: u32) -> Option<(i32, i32)> {
+    find_tree_anchor(x, y, seed).map(|(ax, ay, _, _)| (ax, ay))
+}
+
 fn find_tree_anchor(x: i32, y: i32, seed: u32) -> Option<(i32, i32, TreeSpecies, TreePart)> {
     for dy in 0..=2i32 {
         for dx in -1..=1i32 {
@@ -2712,6 +2762,66 @@ fn is_mine_entrance_anchor(x: i32, y: i32, seed: u32) -> bool {
     true
 }
 
+/// Manhattan-distance scan to the nearest non-water tile, capped at 24.
+/// Used by the fish picker (offshore weight bonus), boat depth gate,
+/// HUD readout, and the Fog Sea routing. Cheap enough to run several
+/// times per frame: expanding-ring over noise-driven tile lookups,
+/// exits the moment it hits land.
+pub fn ocean_depth_at(world: &World, x: i32, y: i32) -> u32 {
+    let cap: i32 = 24;
+    let is_water = |t: Tile| {
+        matches!(
+            t,
+            Tile::Water
+                | Tile::DeepWater
+                | Tile::MineralWater
+                | Tile::Seabed
+                | Tile::Kelp
+                | Tile::Anemone
+                | Tile::Dock
+        )
+    };
+    for r in 1..=cap {
+        for dx in -r..=r {
+            if !is_water(world.get(x + dx, y - r)) {
+                return r as u32;
+            }
+            if !is_water(world.get(x + dx, y + r)) {
+                return r as u32;
+            }
+        }
+        for dy in (-r + 1)..r {
+            if !is_water(world.get(x - r, y + dy)) {
+                return r as u32;
+            }
+            if !is_water(world.get(x + r, y + dy)) {
+                return r as u32;
+            }
+        }
+    }
+    cap as u32
+}
+
+/// Depth-darkened ocean tint. Shore stays the standard blue; each tile
+/// of offshore depth blends in toward near-black; past `FOG_DEPTH` the
+/// tile flips to the foggy ghost-water palette so the Fog Sea reads at
+/// a glance.
+pub const FOG_DEPTH: u32 = 32;
+pub fn ocean_depth_color(depth: u32) -> ratatui::style::Color {
+    use ratatui::style::Color;
+    if depth >= FOG_DEPTH {
+        // Cool foggy gray-violet for the Fog Sea.
+        return Color::Rgb(28, 28, 44);
+    }
+    // Linear darken from (8, 22, 42) at depth 0 down toward (2, 4, 10) at
+    // FOG_DEPTH. Stays in low-bg territory so glyphs still pop.
+    let t = (depth as f32 / FOG_DEPTH as f32).clamp(0.0, 1.0);
+    let r = (8.0 + (2.0 - 8.0) * t) as u8;
+    let g = (22.0 + (4.0 - 22.0) * t) as u8;
+    let b = (42.0 + (10.0 - 42.0) * t) as u8;
+    Color::Rgb(r, g, b)
+}
+
 /// Region noise that marks "lakebed cave zones" — patches of the world
 /// where the underground is mostly flooded. Cheap to evaluate (2 sines).
 pub fn lakebed_region(x: i32, y: i32, seed: u32) -> bool {
@@ -3250,7 +3360,10 @@ fn village_tile(x: i32, y: i32) -> Option<Tile> {
 const VILLAGE_OAKS: &[(i32, i32)] = &[
     (-44, 3), (44, 3),
     (-30, 3), (30, 3),
-    (-14, 3), (14, 3),
+    // Was (-14, 3) — its 5-wide canopy at y=1,0 covered the home
+    // Blacksmith at (-12, 1) and Smelter at (-12, 0). Shifted east so
+    // the canopy ends at x=-5 and the smithy is in the clear.
+    (-8, 3),  (14, 3),
     (-40, -10), (40, -10),
     (-12, -10), (12, -10),
 ];
