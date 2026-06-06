@@ -2607,10 +2607,6 @@ pub struct RiverHit {
     /// the glyph palette so the middle of the river reads as smoother
     /// flow than the rocky banks.
     pub edge_t: f32,
-    /// True when the channel is wide enough here that a bridge can plant
-    /// on it. The bridge gate also hashes against the world seed so the
-    /// crossings are rare.
-    pub wide_bed: bool,
 }
 
 /// Resolved river parameters for one candidate band. Derived once from
@@ -2730,7 +2726,6 @@ pub fn river_at(x: i32, y: i32, seed: u32) -> Option<RiverHit> {
         return Some(RiverHit {
             dir: (1.0 / len, dy_dx / len),
             edge_t: (dist.abs() / w).min(1.0),
-            wide_bed: w >= 8.0,
         });
     }
     // Band rivers — thinner, more common.
@@ -2757,7 +2752,6 @@ pub fn river_at(x: i32, y: i32, seed: u32) -> Option<RiverHit> {
         return Some(RiverHit {
             dir: (1.0 / len, dy_dx / len),
             edge_t: (dist.abs() / w).min(1.0),
-            wide_bed: w >= 6.0,
         });
     }
     None
@@ -2788,7 +2782,14 @@ pub fn river_flow_glyph(dir: (f32, f32), edge_t: f32, x: i32, y: i32, tick: u64)
     let fy = y as f32;
     let arc = fx * dir.0 + fy * dir.1;
     let perp = -fy * dir.0 + fx * dir.1;
-    let wave = (arc * 0.32 - tick as f32 * 0.05 + perp * 0.20).sin();
+    // Per-cell hash jitter breaks the long uniform stripes that appear
+    // on diagonal reaches: along a 45° tangent both arc and perp are
+    // constant for cells lying on the same diagonal, so without a
+    // per-cell salt every one of them picks the same glyph. ±π
+    // randomises the wave phase enough to mix '\' / '╲' / '~' inside
+    // the same diagonal sweep without breaking the downstream march.
+    let jitter = (hash2(x, y, 0xAA11_BB22) as f32 / u32::MAX as f32 - 0.5) * 2.5;
+    let wave = (arc * 0.32 - tick as f32 * 0.05 + perp * 0.20 + jitter).sin();
     let amp = wave.abs();
     let near_bank = edge_t > 0.70;
     let horizontal = dir.0.abs() > 2.0 * dir.1.abs();
@@ -2832,23 +2833,71 @@ pub fn river_flow_glyph(dir: (f32, f32), edge_t: f32, x: i32, y: i32, tick: u64)
     }
 }
 
+/// How far past each riverbank a bridge extends onto land so it reads
+/// as a connected crossing rather than a slab of planks floating in
+/// the middle of the water. 3 cells of abutment on each side.
+const BRIDGE_OVERHANG: f32 = 3.0;
+
 pub fn bridge_at(x: i32, y: i32, seed: u32) -> bool {
-    let Some(r) = river_at(x, y, seed) else {
-        return false;
-    };
-    if !r.wide_bed {
-        return false;
-    }
     let nearest = ((x as f32 / BRIDGE_SPACING as f32).round() as i32) * BRIDGE_SPACING;
     if (x - nearest).abs() > 1 {
         return false;
     }
-    let h = hash2(
-        nearest,
-        y.div_euclid(RIVER_BAND_H),
-        seed.wrapping_add(0xB21D_6E50),
-    );
-    h % 3 == 0
+    if y >= 5 {
+        return false;
+    }
+    let band = y.div_euclid(RIVER_BAND_H);
+    // Spine bands first — wide rivers are the only ones that bother to
+    // host a bridge anyway. Same band-scan as river_at but evaluated at
+    // x = nearest (the bridge centerline), not at the cell's x, so the
+    // bridge actually stays put across the channel as you walk along it.
+    for db in -2..=2 {
+        let sh = hash2(band + db, 0, seed.wrapping_add(0x5217_E001));
+        if sh % 11 != 0 {
+            continue;
+        }
+        let p = RiverParams::from_hash(band + db, sh, true);
+        if nearest < p.source_x {
+            continue;
+        }
+        let w = p.width(nearest);
+        if w < 8.0 {
+            continue;
+        }
+        let center = p.center_y(nearest);
+        if (y as f32 - center).abs() > w + BRIDGE_OVERHANG {
+            continue;
+        }
+        if in_village_zone(x, y) || village_anchor_for(x, y, seed).is_some() {
+            return false;
+        }
+        let h = hash2(nearest, band + db, seed.wrapping_add(0xB21D_6E50));
+        return h % 3 == 0;
+    }
+    for db in -1..=1 {
+        let h = hash2(band + db, 0, seed.wrapping_add(0x812E_7100));
+        if h % 6 != 0 {
+            continue;
+        }
+        let p = RiverParams::from_hash(band + db, h, false);
+        if nearest < p.source_x {
+            continue;
+        }
+        let w = p.width(nearest);
+        if w < 6.0 {
+            continue;
+        }
+        let center = p.center_y(nearest);
+        if (y as f32 - center).abs() > w + BRIDGE_OVERHANG {
+            continue;
+        }
+        if in_village_zone(x, y) || village_anchor_for(x, y, seed).is_some() {
+            return false;
+        }
+        let h2 = hash2(nearest, band + db, seed.wrapping_add(0xB21D_6E50));
+        return h2 % 3 == 0;
+    }
+    false
 }
 
 fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
