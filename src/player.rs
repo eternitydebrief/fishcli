@@ -21,6 +21,8 @@ pub struct Player {
     pub on_boat: bool,
     /// Required to mine ore veins. Bought from the Miner NPC.
     pub has_pickaxe: bool,
+    /// Required to catch bugs on biome tiles. Granted by an NPC quest reward.
+    pub has_bug_net: bool,
     /// Currently-equipped tackle (hat / vest / line / lure).
     pub tackle: crate::tackle::EquippedTackle,
     /// Bait stock + active bait.
@@ -75,6 +77,7 @@ impl Player {
             has_boat: false,
             on_boat: false,
             has_pickaxe: false,
+            has_bug_net: false,
             tackle: crate::tackle::EquippedTackle::default(),
             bait: crate::bait::BaitStock::default(),
             gear: crate::gear::EquippedGear::default(),

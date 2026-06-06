@@ -172,6 +172,14 @@ pub struct SaveData {
     /// a clearing the player just cut stays cleared across a reload.
     #[serde(default)]
     pub chopped_trees: Vec<(i32, i32, u64)>,
+    /// Per-bug-species mastery (catches), parallel to `bugs::defs()`.
+    /// APPEND-ONLY: never reorder `assets/bugs.json`.
+    #[serde(default)]
+    pub bugs_caught: Vec<u32>,
+    /// True once the Bug Net has been given to the player. Granted by NPC
+    /// quest reward (wired in a later commit).
+    #[serde(default)]
+    pub has_bug_net: bool,
 }
 
 fn default_stamina() -> f32 {

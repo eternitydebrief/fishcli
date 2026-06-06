@@ -345,6 +345,9 @@ pub struct App {
     /// milestones at 5/25/100 boost the dish's effect magnitude (additive
     /// to the buff's `magnitude` param). Length is auto-extended on load.
     pub cooking_mastery: Vec<u32>,
+    /// Per-bug-species catch count, parallel to `bugs::defs()`. Append-only;
+    /// length is zero-extended on load to match the current bug count.
+    pub bugs_caught: Vec<u32>,
     /// Tree anchor coords for the in-progress chopping minigame. Consumed
     /// (and cleared) on chop completion to mark exactly one tree as cut.
     pub pending_chop_anchor: Option<(i32, i32)>,
@@ -522,6 +525,7 @@ impl App {
             caught_context: vec![None; fishlist::fish().len()],
             mastery: vec![0; fishlist::fish().len()],
             cooking_mastery: vec![0; crate::recipes::recipes().len()],
+            bugs_caught: vec![0; crate::bugs::defs().len()],
             pending_chop_anchor: None,
             recipe_discovered: vec![false; crate::recipes::recipes().len()],
             discovery_queue: std::collections::VecDeque::new(),
@@ -737,6 +741,12 @@ impl App {
         self.skill_tree = data.skill_tree.clone();
         self.player.has_boat = data.has_boat;
         self.player.has_pickaxe = data.has_pickaxe;
+        self.player.has_bug_net = data.has_bug_net;
+        // Bugs caught: zero-extend to current bug count so JSON appends
+        // don't shift old saves' mastery counts onto the wrong species.
+        let nb = crate::bugs::defs().len();
+        self.bugs_caught = data.bugs_caught.clone();
+        self.bugs_caught.resize(nb, 0);
         if !data.mastery.is_empty() {
             let n = self.mastery.len();
             for (i, &v) in data.mastery.iter().enumerate().take(n) {
@@ -920,6 +930,8 @@ impl App {
                 .iter()
                 .map(|(&(x, y), &t)| (x, y, t))
                 .collect(),
+            bugs_caught: self.bugs_caught.clone(),
+            has_bug_net: self.player.has_bug_net,
         }
     }
 
