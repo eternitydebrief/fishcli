@@ -2967,7 +2967,44 @@ fn is_mine_entrance_anchor(x: i32, y: i32, seed: u32) -> bool {
 /// HUD readout, and the Fog Sea routing. Cheap enough to run several
 /// times per frame: expanding-ring over noise-driven tile lookups,
 /// exits the moment it hits land.
+// Direct-mapped thread-local cache for ocean_depth_at. The flood-search
+// otherwise calls World::get() up to ~1000 times per water cell, and the
+// player typically sees ~1500 water cells per frame — that was the entire
+// frametime budget.
+#[derive(Clone, Copy)]
+struct DepthSlot {
+    key: u64,
+    depth: u32,
+}
+thread_local! {
+    static DEPTH_CACHE: std::cell::RefCell<Vec<DepthSlot>> = std::cell::RefCell::new(
+        vec![DepthSlot { key: EMPTY_KEY, depth: 0 }; CACHE_SIZE]
+    );
+}
+
 pub fn ocean_depth_at(world: &World, x: i32, y: i32) -> u32 {
+    // Keyed by (x, y, dim) — dim shifts which dispatch World::get runs.
+    let key = pack_xy(x, y) ^ ((world.dim as u32 as u64) << 56);
+    let idx = cache_index(key);
+    if let Some(d) = DEPTH_CACHE.with(|c| {
+        let c = c.borrow();
+        let slot = c[idx];
+        if slot.key == key {
+            Some(slot.depth)
+        } else {
+            None
+        }
+    }) {
+        return d;
+    }
+    let depth = ocean_depth_compute(world, x, y);
+    DEPTH_CACHE.with(|c| {
+        c.borrow_mut()[idx] = DepthSlot { key, depth };
+    });
+    depth
+}
+
+fn ocean_depth_compute(world: &World, x: i32, y: i32) -> u32 {
     let cap: i32 = 24;
     let is_water = |t: Tile| {
         matches!(
