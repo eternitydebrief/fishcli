@@ -368,6 +368,7 @@ pub fn biome_at_noise(x: i32, y: i32, seed: u32) -> Biome {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
 pub enum Tile {
     Grass,
     Wall,
@@ -648,7 +649,7 @@ impl<'a> Widget for WorldView<'a> {
                 }
                 let tile = {
                     let _s = crate::perf::AddScope::new(&crate::perf::WORLD_TILE_GET_NS);
-                    self.world.get(wx, wy)
+                    self.world.get_cached(wx, wy)
                 };
                 // Bug overlay: deterministic per-day spawn on host-eligible
                 // tiles. The bug sits on top of the natural tile glyph so
@@ -707,6 +708,48 @@ impl<'a> Widget for WorldView<'a> {
 }
 
 
+// Global direct-mapped cache for World::get results. Shared across all
+// rayon workers and the pregen thread so a warmed cell is hot for every
+// reader. 2^22 slots × 8 bytes = 32 MB — heavy but explicitly authorised.
+//
+// Slot encoding (u64): [key_low: 32][gen: 24][tile_id+1: 8]. tile_id is
+// the Tile enum's #[repr(u8)] discriminant; we store id+1 so the all-zero
+// slot reads as "empty" regardless of gen.
+const GET_CACHE_BITS: u32 = 22;
+const GET_CACHE_SIZE: usize = 1 << GET_CACHE_BITS;
+const GET_CACHE_MASK: usize = GET_CACHE_SIZE - 1;
+
+static GET_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+static GET_CACHE: std::sync::OnceLock<Vec<std::sync::atomic::AtomicU64>> =
+    std::sync::OnceLock::new();
+
+fn get_cache() -> &'static [std::sync::atomic::AtomicU64] {
+    GET_CACHE.get_or_init(|| {
+        (0..GET_CACHE_SIZE)
+            .map(|_| std::sync::atomic::AtomicU64::new(0))
+            .collect()
+    })
+}
+
+fn get_full_key(x: i32, y: i32, dim: Dimension) -> u64 {
+    pack_xy(x, y) ^ ((dim as u64) << 60)
+}
+
+fn get_cache_index(packed: u64) -> usize {
+    let mut h = packed;
+    h ^= h >> 33;
+    h = h.wrapping_mul(0xff51_afd7_ed55_8ccd);
+    h ^= h >> 33;
+    (h as usize) & GET_CACHE_MASK
+}
+
+/// Bump the global generation. Every cached entry stamped with a prior
+/// gen is implicitly invalidated. Called after mutable world state
+/// changes that affect tile dispatch (chopped trees, dim-portal flips).
+pub fn bump_world_get_gen() {
+    GET_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
 impl World {
     pub fn new(seed: u32) -> Self {
         Self {
@@ -731,6 +774,51 @@ impl World {
     pub fn chop_tree(&mut self, ax: i32, ay: i32, secs: u64) {
         let when = crate::mining::now_secs() + secs;
         self.chopped.insert((ax, ay), when);
+        bump_world_get_gen();
+    }
+
+    /// Cached fast-path for `get`. Hits the global atomic cache; misses
+    /// fall back to the full layered dispatch and write the result back.
+    /// Fully thread-safe; concurrent writes to the same slot are benign
+    /// because the result is always recomputed on a miss.
+    pub fn get_cached(&self, x: i32, y: i32) -> Tile {
+        use std::sync::atomic::Ordering;
+        let key_full = get_full_key(x, y, self.dim);
+        let idx = get_cache_index(key_full);
+        let cache = get_cache();
+        let slot = cache[idx].load(Ordering::Relaxed);
+        let gen_now = GET_GEN.load(Ordering::Relaxed) & 0xFF_FFFF;
+        let stored_key = (slot >> 32) as u32;
+        let stored_gen = (slot >> 8) & 0xFF_FFFF;
+        let stored_id_plus_one = slot & 0xFF;
+        let key_low = (key_full & 0xFFFF_FFFF) as u32;
+        if slot != 0 && stored_key == key_low && stored_gen == gen_now {
+            // Safety: we only ever store ids that came from `tile as u8`,
+            // and Tile is `#[repr(u8)]` with contiguous unit variants.
+            let id = (stored_id_plus_one - 1) as u8;
+            return unsafe { std::mem::transmute::<u8, Tile>(id) };
+        }
+        let tile = self.get(x, y);
+        let id_plus_one = (tile as u8) as u64 + 1;
+        let new_slot = ((key_low as u64) << 32) | (gen_now << 8) | id_plus_one;
+        cache[idx].store(new_slot, Ordering::Relaxed);
+        tile
+    }
+
+    /// Pregenerate (warm) a (-r..r) × (-r..r) square of cells around the
+    /// origin in parallel. Each rayon worker walks its assigned chunk and
+    /// fills the shared cache. Blocks until done.
+    pub fn pregen_square(&self, r: i32) {
+        use rayon::prelude::*;
+        (-r..r).into_par_iter().for_each(|x| {
+            for y in -r..r {
+                let _ = self.get_cached(x, y);
+                // Also warm ocean depth + biome + water info for water cells
+                // so the inner render hot paths hit those caches too.
+                let _ = cached_biome_at(x, y, self.seed);
+                let _ = cached_water_info(x, y, self.seed);
+            }
+        });
     }
 
     /// Drop entries whose respawn time has elapsed. Called occasionally so
@@ -1115,7 +1203,7 @@ impl World {
                     Dimension::BogCathedral => cathedral_water_glyph(x, y, tick),
                     Dimension::Pyramid => tomb_pool_glyph(x, y, tick),
                     _ => {
-                        if matches!(self.get(x, y - 1), Tile::Sand) {
+                        if matches!(self.get_cached(x, y - 1), Tile::Sand) {
                             shore_anim(x, 1, tick)
                         } else {
                             water_anim(x, y, tick)
@@ -3820,21 +3908,17 @@ fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
     let t = tick as f32 * 0.012;
     let fx = x as f32;
     let fy = y as f32;
-    // sines give flow direction, the noise layer changes phase slowly so the
-    // shimmer reads as moving water without strobing.
-    let w1 = (fx * 0.731 + fy * 1.117 + t * 1.27).sin() * 0.4;
-    let w2 = (fx * 1.289 - fy * 0.583 + t * 0.94).sin() * 0.3;
-    let slow_noise =
-        (hash2(x, y, 0xA11_BABE) as f32 / u32::MAX as f32 - 0.5) * 1.2;
-    let fast_noise = (hash2(
-        x.wrapping_add((tick as i32 / 14).wrapping_mul(7919)),
-        y.wrapping_add((tick as i32 / 18).wrapping_mul(6113)),
-        0xBAD_C0DE,
-    ) as f32
-        / u32::MAX as f32
-        - 0.5)
-        * 1.6;
-    let h = w1 + w2 + slow_noise + fast_noise;
+    // Three layered sines at different frequencies and a static per-cell
+    // jitter give a smoothly flowing surface — every frame's height field
+    // continuously evolves from the prior frame because all four terms are
+    // continuous in `tick`, so the eye sees fluid motion instead of the
+    // old hashed-grid strobe.
+    let w1 = (fx * 0.731 + fy * 1.117 + t * 1.27).sin() * 0.55;
+    let w2 = (fx * 1.289 - fy * 0.583 + t * 0.94).sin() * 0.40;
+    let w3 = (fx * 0.231 + fy * 0.391 + t * 0.61).sin() * 0.35;
+    let cell_jitter =
+        (hash2(x, y, 0xA11_BABE) as f32 / u32::MAX as f32 - 0.5) * 0.6;
+    let h = w1 + w2 + w3 + cell_jitter;
     let (glyph, base) = if h > 1.6 {
         ('~', (110, 135, 155))
     } else if h > 0.8 {

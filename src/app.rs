@@ -762,6 +762,7 @@ impl App {
         }
         self.world = World::new(data.world_seed);
         self.world.dim = data.dim;
+        kick_off_pregen(data.world_seed);
         if data.rng_state != 0 {
             self.rng_state = data.rng_state;
         }
@@ -2404,6 +2405,7 @@ impl App {
                 self.narrator
                     .say("Try :w to save your progress whenever.");
                 self.scene = Scene::Overworld;
+                kick_off_pregen(seed);
             }
             KeyCode::Backspace => {
                 buf.pop();
@@ -6809,6 +6811,17 @@ fn active_quest_ids(done: &[String]) -> Vec<String> {
 /// Spawn a worker thread that drains autosave snapshots and writes them
 /// to disk. Coalesces: if multiple snapshots are pending, only the newest
 /// is written. Thread exits cleanly when the sender (App) is dropped.
+/// Spin a background thread that pre-warms the global world cache around
+/// the origin so the player's first few thousand cell views hit cache.
+/// Non-blocking — the game starts immediately and progressively speeds up
+/// as the warm completes.
+fn kick_off_pregen(seed: u32) {
+    std::thread::spawn(move || {
+        let w = crate::world::World::new(seed);
+        w.pregen_square(500);
+    });
+}
+
 fn spawn_autosaver() -> mpsc::Sender<SaveData> {
     let (tx, rx) = mpsc::channel::<SaveData>();
     std::thread::spawn(move || {
