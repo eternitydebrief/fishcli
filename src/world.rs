@@ -3908,20 +3908,33 @@ fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
     let t = tick as f32 * 0.012;
     let fx = x as f32;
     let fy = y as f32;
-    // Domain warp: perturb sample coords with their own sines so the
-    // height field's contour lines bend rather than tracing the obvious
-    // diagonals of the underlying frequency vectors. Then mix several
-    // sines with very different frequencies and directions (axis-aligned
-    // + diagonal, slow + fast) plus a strong per-cell jitter so no two
-    // neighbours read as a straight-line ridge.
-    let wx = fx + (fy * 0.27 + t * 0.83).sin() * 1.3;
-    let wy = fy + (fx * 0.31 + t * 0.71).sin() * 0.9;
-    let w1 = (wx * 0.43 + t * 0.95).sin() * 0.5;
-    let w2 = (wy * 0.61 + t * 0.78).sin() * 0.45;
-    let w3 = (wx * 0.27 + wy * 0.31 + t * 1.10).sin() * 0.35;
-    let w4 = (wx * 1.71 - wy * 1.33 + t * 0.42).sin() * 0.25;
+    // Two-pass domain warp: every warp input mixes BOTH axes so the height
+    // field can't bake in row/column banding ("circles on the same y").
+    let q_x = (fx * 0.13 + fy * 0.19 + t * 0.83).sin() * 1.5;
+    let q_y = (fx * 0.17 - fy * 0.11 + t * 0.71).sin() * 1.2;
+    let wx = fx + q_x + (q_y * 0.4 + t * 0.6).sin() * 0.8;
+    let wy = fy + q_y + (q_x * 0.4 - t * 0.7).sin() * 0.8;
+    // Each wave gets its own slow positional drift and a breathing amplitude
+    // so the blobs grow / shrink / wander / merge independently — none of
+    // them lock into a steady-state pattern with another.
+    let d1x = (t * 0.31).sin() * 5.0;
+    let d1y = (t * 0.43).cos() * 3.5;
+    let d2x = (t * 0.27).cos() * 4.0;
+    let d2y = (t * 0.36).sin() * 5.5;
+    let d3x = (t * 0.19 + 1.7).sin() * 6.0;
+    let d3y = (t * 0.23 + 0.9).cos() * 4.5;
+    let d4x = (t * 0.51).cos() * 2.5;
+    let d4y = (t * 0.47).sin() * 3.0;
+    let amp1 = 0.50 + 0.30 * (t * 0.21).sin();
+    let amp2 = 0.45 + 0.25 * (t * 0.29 + 1.3).sin();
+    let amp3 = 0.35 + 0.20 * (t * 0.17 + 0.6).cos();
+    let amp4 = 0.25 + 0.15 * (t * 0.37 + 2.1).sin();
+    let w1 = ((wx + d1x) * 0.43 + (wy + d1y) * 0.17 + t * 0.95).sin() * amp1;
+    let w2 = ((wx + d2x) * 0.13 + (wy + d2y) * 0.61 + t * 0.78).sin() * amp2;
+    let w3 = ((wx + d3x) * 0.27 - (wy + d3y) * 0.31 + t * 1.10).sin() * amp3;
+    let w4 = ((wx + d4x) * 1.71 + (wy + d4y) * 1.33 + t * 0.42).sin() * amp4;
     let cell_jitter =
-        (hash2(x, y, 0xA11_BABE) as f32 / u32::MAX as f32 - 0.5) * 0.9;
+        (hash2(x, y, 0xA11_BABE) as f32 / u32::MAX as f32 - 0.5) * 1.0;
     let h = w1 + w2 + w3 + w4 + cell_jitter;
     let (glyph, base) = if h > 1.6 {
         ('~', (110, 135, 155))
