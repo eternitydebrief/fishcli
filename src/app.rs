@@ -979,6 +979,66 @@ impl App {
     /// stamina (difficulty * 5), and grant a small permanent buff scaled
     /// to the species's difficulty. Unique fish (Fish, Five Elders) can't
     /// be cooked.
+    /// Process up to `count` fish of `name` into bait chunks. Each fish
+    /// yields `1 + difficulty/3` chunks, tagged `fish:<slug>` so the bait
+    /// shop and consume path see it. Unique / joke fish are refused.
+    fn do_process_fish(&mut self, arg: &str) {
+        // Parse "<count> <name>" or just "<name>" (default count=1).
+        let arg = arg.trim();
+        if arg.is_empty() {
+            self.narrator
+                .say("usage: :process <fish-name> [count].".to_string());
+            return;
+        }
+        let (count, name) = if let Some((head, rest)) = arg.split_once(' ') {
+            if let Ok(n) = head.parse::<u32>() {
+                (n.max(1), rest.trim())
+            } else {
+                (1u32, arg)
+            }
+        } else {
+            (1u32, arg)
+        };
+        // Find the first matching fish by case-insensitive name.
+        let mut processed = 0u32;
+        let mut yielded = 0u32;
+        let mut last_slug = String::new();
+        let mut last_diff = 0u8;
+        while processed < count {
+            let idx = self
+                .player
+                .inventory
+                .iter()
+                .position(|f| f.name.eq_ignore_ascii_case(name));
+            let Some(i) = idx else { break };
+            let f = self.player.inventory[i];
+            if f.unique || f.joke {
+                self.narrator
+                    .say(format!("{} can't be processed.", f.name));
+                return;
+            }
+            let yield_ = 1 + (f.difficulty as u32) / 3;
+            let slug = crate::bait::fish_slug(&f.name);
+            let bait_id = format!("fish:{slug}");
+            self.player.inventory.remove(i);
+            self.player.bait.add(&bait_id, yield_);
+            processed += 1;
+            yielded += yield_;
+            last_slug = slug;
+            last_diff = f.difficulty;
+        }
+        if processed == 0 {
+            self.narrator
+                .say(format!("No {name} in the basket to process."));
+            return;
+        }
+        let _ = last_slug;
+        let _ = last_diff;
+        self.narrator.say(format!(
+            "Processed {processed}x {name} -> +{yielded} bait chunk(s).",
+        ));
+    }
+
     /// Feed `n` fish from the basket to the crew. Each fish drops crew
     /// hunger by 3 (saturating at 0). Pulls from the front of the basket
     /// so the player can chain feedings without picking a species. Unique
@@ -2720,7 +2780,11 @@ impl App {
     }
 
     fn handle_bait_key(&mut self, code: KeyCode) {
-        let defs = crate::bait::defs();
+        let stock = &self.player.bait;
+        let defs: Vec<&'static crate::bait::BaitDef> = crate::bait::defs()
+            .iter()
+            .filter(|d| d.cost > 0 || stock.count(&d.id) > 0)
+            .collect();
         let n = defs.len();
         let Scene::BaitShop { cursor } = &mut self.scene else { return };
         match code {
@@ -2737,9 +2801,9 @@ impl App {
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if let Some(d) = defs.get(*cursor) {
-                    if crate::bait::is_bug_bait(&d.id) {
+                    if crate::bait::is_wild(&d.id) {
                         self.narrator
-                            .say(format!("{} is bug-caught, not sold here.", d.name));
+                            .say(format!("{} is wild, not sold here.", d.name));
                         return;
                     }
                     let gate = d.min_rod_tier();
@@ -3442,6 +3506,10 @@ impl App {
                 let n: u32 = arg.parse().unwrap_or(1).max(1);
                 self.do_feed_crew(n);
                 self.tutorial_advance(8);
+            }
+            cmd if cmd.starts_with("process") => {
+                let arg = cmd.strip_prefix("process").unwrap_or("").trim();
+                self.do_process_fish(arg);
             }
             cmd if cmd.starts_with("burn") => {
                 let arg = cmd.strip_prefix("burn").unwrap_or("").trim();
@@ -8893,7 +8961,10 @@ fn render_bait_shop(
         .border_style(Style::default().fg(Color::LightGreen));
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let defs = crate::bait::defs();
+    let defs: Vec<&'static crate::bait::BaitDef> = crate::bait::defs()
+        .iter()
+        .filter(|d| d.cost > 0 || stock.count(&d.id) > 0)
+        .collect();
     let mut lines: Vec<ratatui::text::Line> = Vec::new();
     let active_label = stock
         .active
@@ -8918,7 +8989,7 @@ fn render_bait_shop(
         } else {
             Style::default().fg(Color::White)
         };
-        let cost_label = if crate::bait::is_bug_bait(&d.id) {
+        let cost_label = if crate::bait::is_wild(&d.id) {
             "wild".to_string()
         } else {
             format!("{}$V", d.cost)

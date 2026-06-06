@@ -50,6 +50,36 @@ pub fn defs() -> &'static [BaitDef] {
             .filter(|v| v.get("id").and_then(|n| n.as_str()).is_some())
             .map(|v| serde_json::from_value(v).expect("bait entry malformed"))
             .collect();
+        // Fish-derived bait: every species becomes a "fish:<slug>" bait
+        // entry. Empty stock by default; populated when the player processes
+        // a fish via the `:process` command.
+        for f in crate::fishlist::fish() {
+            if f.unique || f.joke {
+                continue;
+            }
+            let slug = fish_slug(&f.name);
+            let pool_pull = f
+                .effective_pool_tags()
+                .first()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            // Magnitude scales with difficulty²: a diff-1 bluegill chunk
+            // gives a tiny pull (~0.4×); a diff-10 bluefin chunk gives 40×.
+            let pool_pull_mult =
+                if pool_pull.is_empty() { 0.0 } else { 0.4 * (f.difficulty as f32).powf(2.0) / 10.0 };
+            let generic_magnitude = 0.02 + (f.difficulty as f32) * 0.03;
+            out.push(BaitDef {
+                id: format!("fish:{slug}"),
+                name: format!("{} chunk", f.name),
+                description: String::new(),
+                cost: 0,
+                effect: "catch_speed".to_string(),
+                magnitude: generic_magnitude,
+                bite_speed: 0.0,
+                pool_pull,
+                pool_pull_mult,
+            });
+        }
         for bug in crate::bugs::defs() {
             // Map bug.generic_effect onto BaitDef.effect/magnitude. If the
             // bug's generic axis IS bite_speed we lift it into the new
@@ -87,6 +117,27 @@ pub fn def_by_id(id: &str) -> Option<&'static BaitDef> {
 /// The shop UI uses this to suppress the "buy" action for natural bait.
 pub fn is_bug_bait(id: &str) -> bool {
     id.starts_with("bug:")
+}
+
+/// True if this bait was synthesized from a processed fish (id begins with
+/// `fish:`). Processed via the `:process` command.
+pub fn is_fish_bait(id: &str) -> bool {
+    id.starts_with("fish:")
+}
+
+/// Wild bait covers anything not sold at the shop: bug-caught or fish-processed.
+pub fn is_wild(id: &str) -> bool {
+    is_bug_bait(id) || is_fish_bait(id)
+}
+
+/// Slugify a fish name for use as a `fish:<slug>` bait id.
+pub fn fish_slug(name: &str) -> String {
+    name.to_ascii_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
 }
 
 impl BaitDef {
