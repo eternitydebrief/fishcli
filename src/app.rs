@@ -396,8 +396,11 @@ pub struct App {
     /// Cells where a soil patch was dug today. Shares the day-rollover with
     /// `bugs_picked_today`.
     pub soil_dug_today: std::collections::HashSet<(crate::world::Dimension, i32, i32)>,
-    /// Cells whose forageable object was searched today. Shares day rollover.
-    pub foraged_today: std::collections::HashSet<(crate::world::Dimension, i32, i32)>,
+    /// Wall-clock cooldown per foraged cell: keyed by (dim, x, y), value is
+    /// the unix-seconds timestamp when the cell becomes searchable again.
+    /// 30 minutes per harvest. Survives day rollover — the cooldown is the
+    /// only gate, since a daily-only lock made the world feel barren.
+    pub foraged_cooldown: std::collections::HashMap<(crate::world::Dimension, i32, i32), u64>,
     /// Scales: persistent token currency. Drops at ~5% per fish catch.
     pub scales: u64,
     /// Per-axis token spend. Read via `scales_bonus(axis)` and applied
@@ -592,7 +595,7 @@ impl App {
             bugs_picked_today: std::collections::HashSet::new(),
             bugs_picked_day_id: 0,
             soil_dug_today: std::collections::HashSet::new(),
-            foraged_today: std::collections::HashSet::new(),
+            foraged_cooldown: std::collections::HashMap::new(),
             scales: 0,
             scales_spent: std::collections::BTreeMap::new(),
             prestige_count: 0,
@@ -827,13 +830,18 @@ impl App {
             self.bugs_picked_today = data.bugs_picked.iter().copied().collect();
             self.bugs_picked_day_id = today;
             self.soil_dug_today = data.soil_dug.iter().copied().collect();
-            self.foraged_today = data.foraged.iter().copied().collect();
         } else {
             self.bugs_picked_today.clear();
             self.soil_dug_today.clear();
-            self.foraged_today.clear();
             self.bugs_picked_day_id = today;
         }
+        // Forage cooldowns survive day rollover; they're wall-clock 30-min
+        // timers, not per-day locks.
+        self.foraged_cooldown = data
+            .foraged_cooldowns
+            .iter()
+            .map(|&(d, x, y, ready)| ((d, x, y), ready))
+            .collect();
         self.scales = data.scales;
         self.scales_spent = data.scales_spent.clone();
         self.prestige_count = data.prestige_count;
@@ -1032,7 +1040,12 @@ impl App {
             bugs_picked: self.bugs_picked_today.iter().copied().collect(),
             bugs_picked_day_id: self.bugs_picked_day_id,
             soil_dug: self.soil_dug_today.iter().copied().collect(),
-            foraged: self.foraged_today.iter().copied().collect(),
+            foraged: Vec::new(),
+            foraged_cooldowns: self
+                .foraged_cooldown
+                .iter()
+                .map(|(&(d, x, y), &ready)| (d, x, y, ready))
+                .collect(),
             scales: self.scales,
             scales_spent: self.scales_spent.clone(),
             prestige_count: self.prestige_count,
@@ -6122,16 +6135,20 @@ impl App {
         }
     }
 
-    /// Clear the picked-today set when the in-game day advances. Called
-    /// periodically from `tick()`.
+    /// Clear the per-day caches (bugs, soil) when the in-game day advances.
+    /// Called periodically from `tick()`. Forage cooldowns are wall-clock
+    /// and don't reset on day rollover.
     fn tick_bugs_day_rollover(&mut self) {
         let today = crate::gametime::game_days(self.total_play_secs());
         if today != self.bugs_picked_day_id {
             self.bugs_picked_today.clear();
             self.soil_dug_today.clear();
-            self.foraged_today.clear();
             self.bugs_picked_day_id = today;
         }
+        // Drop any cooldowns that have already expired so the map can't
+        // grow without bound across a long save.
+        let now = crate::mining::now_secs();
+        self.foraged_cooldown.retain(|_, &mut ready| ready > now);
     }
 
     /// Forage the faced cell for bait. Rocks / trees / cacti / flowers /
@@ -6139,14 +6156,19 @@ impl App {
     /// interaction was consumed.
     fn try_forage_at(&mut self, nx: i32, ny: i32) -> bool {
         let dim = self.world.dim;
-        if self.foraged_today.contains(&(dim, nx, ny)) {
-            return false;
-        }
         let tile = self.world.get(nx, ny);
         let biome = self.world.biome(nx, ny);
         let Some((action, table)) = crate::forage::forage_at(tile, biome, dim) else {
             return false;
         };
+        let key = (dim, nx, ny);
+        let now = crate::mining::now_secs();
+        if let Some(&ready) = self.foraged_cooldown.get(&key) {
+            if now < ready {
+                self.narrator.say(action.empty_line().to_string());
+                return true;
+            }
+        }
         let Some(bait_id) = crate::forage::pick(table, &mut self.rng_state) else {
             return false;
         };
@@ -6158,7 +6180,8 @@ impl App {
             bait_id.to_string()
         };
         self.player.bait.add(&full_id, 1);
-        self.foraged_today.insert((dim, nx, ny));
+        // 30 wall-clock minutes per harvest, matching the user's spec.
+        self.foraged_cooldown.insert(key, now + 30 * 60);
         let name = crate::bait::def_by_id(&full_id)
             .map(|d| d.name.clone())
             .unwrap_or_else(|| bait_id.to_string());

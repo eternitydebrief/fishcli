@@ -192,8 +192,14 @@ pub struct SaveData {
     pub soil_dug: Vec<(crate::world::Dimension, i32, i32)>,
     /// Cells whose forageable object (rock, tree, cactus, flower, pebble)
     /// has been searched today. Shares the day rollover.
+    /// Deprecated as of the 30-minute forage cooldown — kept for save
+    /// backward-compat but no longer written or read by the engine.
     #[serde(default)]
     pub foraged: Vec<(crate::world::Dimension, i32, i32)>,
+    /// Wall-clock cooldown per foraged cell: (dim, x, y, ready_at_unix_secs).
+    /// 30 minutes per harvest. Survives day rollover.
+    #[serde(default)]
+    pub foraged_cooldowns: Vec<(crate::world::Dimension, i32, i32, u64)>,
     /// Scales: a token currency dropped at low odds per catch. Spendable
     /// on small permanent stat bumps via the `:scales` menu, cap of 1000
     /// tokens per axis.
