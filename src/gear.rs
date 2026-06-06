@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Forgeable equipment: boots (feet), necklaces (neck), rings (ring), and
 //! capes (cape). Cape is achievement-only; the other three come out of the
 //! blacksmith's forge. Each slot holds an optional gear-id string that
@@ -38,15 +37,6 @@ impl Slot {
         }
     }
 
-    pub fn key(self) -> &'static str {
-        match self {
-            Slot::Feet => "feet",
-            Slot::Neck => "neck",
-            Slot::Ring => "ring",
-            Slot::Cape => "cape",
-            Slot::Pickaxe => "pickaxe",
-        }
-    }
 }
 
 /// Per-slot perks. Each field is a multiplier or pct delta that downstream
@@ -152,12 +142,6 @@ pub fn def_by_id(id: &str) -> Option<&'static GearDef> {
     defs().iter().find(|d| d.id == id)
 }
 
-pub fn defs_for_slot(slot: Slot) -> Vec<&'static GearDef> {
-    defs()
-        .iter()
-        .filter(|d| d.slot_enum() == Some(slot))
-        .collect()
-}
 
 /// Player's currently-equipped gear. Each slot holds an optional id of a
 /// `GearDef` in the catalog. None = nothing equipped in that slot.

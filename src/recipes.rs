@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Cooking recipes. JSON-driven (assets/recipes.json) so dish names,
 //! ingredient mixes, and stat effects can be rewritten without touching
 //! source. The effect string reuses the buffs format from `buffs.rs`
@@ -12,7 +11,6 @@ const RECIPES_JSON: &str = include_str!("../assets/recipes.json");
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Recipe {
-    pub id: String,
     pub name: String,
     /// (fish_name, qty)
     pub ingredients: Vec<(String, u32)>,
