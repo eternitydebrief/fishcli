@@ -553,6 +553,12 @@ pub struct WorldView<'a> {
     /// Wandering faceless figures in the Mines (Borin's "ones with no faces").
     /// Empty in every other dim. Painted as dim `o` glyphs.
     pub faceless: &'a [(i32, i32)],
+    /// Current in-game day index. Used to seed deterministic bug spawns so
+    /// a cell hosts the same bug all day and a fresh roll the next.
+    pub day_id: u64,
+    /// True during the Night / Midnight time-of-day phases. Drives whether
+    /// nocturnal bugs render.
+    pub is_night: bool,
 }
 
 impl<'a> Widget for WorldView<'a> {
@@ -617,6 +623,30 @@ impl<'a> Widget for WorldView<'a> {
                             .fg(Color::Rgb(70, 60, 60))
                             .add_modifier(Modifier::BOLD),
                     );
+                }
+                // Bug overlay: deterministic per-day spawn on host-eligible
+                // tiles. The bug sits on top of the natural tile glyph so
+                // the player sees a `,` / `*` / `v` etc dotted across the
+                // biome.
+                let tile = self.world.get(wx, wy);
+                if crate::bugs::tile_hosts_bugs(tile) {
+                    let biome = self.world.biome(wx, wy);
+                    if let Some(bug) = crate::bugs::bug_at(
+                        wx,
+                        wy,
+                        self.world.dim,
+                        biome,
+                        self.is_night,
+                        self.day_id,
+                        self.world.seed,
+                    ) {
+                        return (
+                            bug.render_char(),
+                            Style::default()
+                                .fg(bug.render_color())
+                                .add_modifier(Modifier::BOLD),
+                        );
+                    }
                 }
                 self.world.render_tile(wx, wy, self.tick)
             })

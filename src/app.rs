@@ -5529,6 +5529,13 @@ impl App {
                         player_on_boat: self.player.on_boat,
                         player_swimming: false,
                         faceless: &self.faceless,
+                        day_id: crate::gametime::game_days(self.total_play_secs()),
+                        is_night: matches!(
+                            crate::gametime::time_of_day(self.total_play_secs()),
+                            crate::gametime::TimeOfDay::Night
+                                | crate::gametime::TimeOfDay::Midnight
+                                | crate::gametime::TimeOfDay::Dusk
+                        ),
                     },
                     inner,
                 );

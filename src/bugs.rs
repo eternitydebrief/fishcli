@@ -155,3 +155,80 @@ pub fn def_by_id(id: &str) -> Option<&'static BugDef> {
 pub fn index_of(id: &str) -> Option<usize> {
     defs().iter().position(|d| d.id == id)
 }
+
+/// Tiles that bugs are willing to sit on (walkable nature/floor tiles only,
+/// excluding water, structures, and walls). Keeps bugs out of impossible
+/// spots like rooftops and ocean.
+pub fn tile_hosts_bugs(t: crate::world::Tile) -> bool {
+    use crate::world::Tile;
+    matches!(
+        t,
+        Tile::Grass
+            | Tile::Sand
+            | Tile::Pebble
+            | Tile::Flower
+            | Tile::CaveFloor
+            | Tile::Seabed
+            | Tile::DeepWater
+            | Tile::InfernoFloor
+    )
+}
+
+fn hash3(a: u32, b: u32, c: u32) -> u32 {
+    let mut h = a.wrapping_add(b.wrapping_mul(374_761_393));
+    h = h.wrapping_add(c.wrapping_mul(668_265_263));
+    h ^= h >> 13;
+    h = h.wrapping_mul(1_274_126_177);
+    h ^ (h >> 16)
+}
+
+/// Base per-cell probability a bug spawns on an eligible tile (~1 bug per 100
+/// eligible tiles). Combined with per-bug `rarity` weighting when multiple
+/// bugs share a (dim, biome, time-of-day) bucket.
+const SPAWN_RATE: f32 = 0.01;
+
+/// Deterministic spawn: returns the bug (if any) that lives on `(wx, wy)` in
+/// `dim`/`biome` for the given `day_id`. Fully derived from the cell, so the
+/// same cell always hosts the same bug for the whole day, and changes the
+/// next day. No state stored.
+pub fn bug_at(
+    wx: i32,
+    wy: i32,
+    dim: Dimension,
+    biome: Biome,
+    is_night: bool,
+    day_id: u64,
+    seed: u32,
+) -> Option<&'static BugDef> {
+    let cell_key = seed
+        .wrapping_add(day_id as u32)
+        .wrapping_add(day_id.rotate_left(11) as u32);
+    let h = hash3(cell_key, wx as u32, wy as u32);
+    let roll = (h % 10_000) as f32 / 10_000.0;
+    if roll > SPAWN_RATE {
+        return None;
+    }
+    // Pick which eligible bug occupies this cell, weighted by rarity.
+    let eligible: Vec<&'static BugDef> = defs()
+        .iter()
+        .filter(|b| b.eligible(dim, biome, is_night))
+        .collect();
+    if eligible.is_empty() {
+        return None;
+    }
+    let total: f32 = eligible.iter().map(|b| b.rarity).sum();
+    if total <= 0.0 {
+        return None;
+    }
+    let pick =
+        (hash3(cell_key ^ 0xDEAD_BEEF, wx as u32, wy as u32) % 1_000_000) as f32 / 1_000_000.0;
+    let mut target = pick * total;
+    for b in &eligible {
+        if target <= b.rarity {
+            return Some(*b);
+        }
+        target -= b.rarity;
+    }
+    eligible.last().copied()
+}
+
