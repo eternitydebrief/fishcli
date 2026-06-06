@@ -408,6 +408,12 @@ pub struct App {
     /// Bait consumed at cast time; applied (and cleared) on the next catch.
     /// Tuple is (effect_id, magnitude).
     pub bait_pending: Option<(String, f32)>,
+    /// Fraction subtracted from this cast's wait time, derived from the
+    /// bait's `bite_speed` axis at cast time. Cleared on cast end.
+    pub bait_pending_bite_speed: f32,
+    /// Pool the active bait pulls toward, with its weight multiplier. Read
+    /// during fish selection; cleared on cast end.
+    pub bait_pending_pool_pull: Option<(String, f32)>,
     /// Wandering faceless figures in the Mines. Empty when not in Mines or
     /// not yet spawned. Movement ticked in `tick`. NOT persisted.
     pub faceless: Vec<(i32, i32)>,
@@ -583,6 +589,8 @@ impl App {
             last_step_tick: 0,
             veins: crate::mining::VeinMap::new(),
             bait_pending: None,
+            bait_pending_bite_speed: 0.0,
+            bait_pending_pool_pull: None,
             faceless: Vec::new(),
             mining_boost_until: 0,
             pending_quit_at: None,
@@ -1777,7 +1785,10 @@ impl App {
                 let r = crate::fish::next_rand_f32(&mut self.rng_state);
                 let k = (1.0f32 - r * 0.9999).ln() / 0.75f32.ln();
                 let secs = (k.ceil() as u32).clamp(1, 30) as f32;
-                let scaled = secs * (1.0 - c.cast_strength * 0.5) * self.buffs.wait_mult();
+                let bite_mult = (1.0 - self.bait_pending_bite_speed.clamp(0.0, 0.6)).max(0.4);
+                let scaled = secs * (1.0 - c.cast_strength * 0.5)
+                    * self.buffs.wait_mult()
+                    * bite_mult;
                 c.wait_ticks_left = (scaled * 20.0).max(20.0) as u32;
                 c.phase = CastPhase::Waiting;
                 self.narrator
@@ -3937,6 +3948,8 @@ impl App {
                         }
                     }
                     self.bait_pending = None;
+                    self.bait_pending_bite_speed = 0.0;
+                    self.bait_pending_pool_pull = None;
                     // Each catch gives a small fixed dose of stamina back
                     // — 5..=10, jittered per catch. Scaled by Relaxed.
                     let r = crate::fish::next_rand_f32(&mut self.rng_state);
@@ -4537,6 +4550,25 @@ impl App {
                     .as_ref()
                     .and_then(|id| crate::bait::def_by_id(id))
                     .map(|b| (b.effect.clone(), b.magnitude, b.name.clone()));
+                // Snapshot the active bait's secondary axes (bite_speed,
+                // pool_pull) before consume, so the necklace skip-bait branch
+                // keeps them too.
+                let (bait_bite_speed, bait_pool_pull) = {
+                    if let Some(active_id) = self.player.bait.active.clone() {
+                        if let Some(d) = crate::bait::def_by_id(&active_id) {
+                            let pp = if !d.pool_pull.is_empty() && d.pool_pull_mult > 0.0 {
+                                Some((d.pool_pull.clone(), d.pool_pull_mult))
+                            } else {
+                                None
+                            };
+                            (d.bite_speed, pp)
+                        } else {
+                            (0.0, None)
+                        }
+                    } else {
+                        (0.0, None)
+                    }
+                };
                 let (bait_used, bait_effect) = if skip_bait {
                     if let Some((_, _, name)) = &bait_effect_peek {
                         self.narrator
@@ -4554,6 +4586,8 @@ impl App {
                 if let Some(b) = bait_used {
                     self.narrator.say(format!("Bait: {} consumed.", b.name));
                 }
+                self.bait_pending_bite_speed = bait_bite_speed;
+                self.bait_pending_pool_pull = bait_pool_pull;
                 let rare_boost = bait_effect
                     .as_ref()
                     .map(|(e, _)| e == "rare_chance")

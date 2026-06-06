@@ -16,8 +16,23 @@ pub struct BaitDef {
     pub name: String,
     pub description: String,
     pub cost: u64,
+    /// Primary axis: one of `catch_speed | rare_chance | valu_mult | xp_mult`.
+    /// Wired through the existing single-effect bait path. Kept as-is so old
+    /// `assets/bait.json` entries load unchanged.
     pub effect: String,
     pub magnitude: f32,
+    /// Fraction of cast wait-time to subtract (0.0..0.6). Applied multiplicatively
+    /// to the geometric wait roll.
+    #[serde(default)]
+    pub bite_speed: f32,
+    /// Free-form fish-pool tag this bait attracts (matches a tag added to
+    /// fish entries in commit 8). Empty string = no pool pull.
+    #[serde(default)]
+    pub pool_pull: String,
+    /// Multiplier applied to the rarity weight of fish tagged with `pool_pull`.
+    /// 1.5 mild, 3.0 strong, 5.0 extreme. 0 = no pull.
+    #[serde(default)]
+    pub pool_pull_mult: f32,
 }
 
 static DEFS: OnceLock<Vec<BaitDef>> = OnceLock::new();
@@ -36,10 +51,14 @@ pub fn defs() -> &'static [BaitDef] {
             .map(|v| serde_json::from_value(v).expect("bait entry malformed"))
             .collect();
         for bug in crate::bugs::defs() {
-            // Bugs without a generic effect still land in stock so the
-            // player can carry them around for pool_pull use later; show
-            // them with magnitude 0 + a placeholder effect string.
-            let (effect, magnitude) = if bug.generic_effect.is_empty() {
+            // Map bug.generic_effect onto BaitDef.effect/magnitude. If the
+            // bug's generic axis IS bite_speed we lift it into the new
+            // bite_speed field instead so the wait-time path picks it up.
+            let mut bite_speed = 0.0;
+            let (effect, magnitude) = if bug.generic_effect == "bite_speed" {
+                bite_speed = bug.generic_magnitude;
+                ("pool_pull".to_string(), 0.0)
+            } else if bug.generic_effect.is_empty() {
                 ("pool_pull".to_string(), 0.0)
             } else {
                 (bug.generic_effect.clone(), bug.generic_magnitude)
@@ -51,6 +70,9 @@ pub fn defs() -> &'static [BaitDef] {
                 cost: 0,
                 effect,
                 magnitude,
+                bite_speed,
+                pool_pull: bug.pool_pull.clone(),
+                pool_pull_mult: bug.magnitude,
             });
         }
         out
