@@ -156,6 +156,29 @@ pub fn index_of(id: &str) -> Option<usize> {
     defs().iter().position(|d| d.id == id)
 }
 
+/// True if `(x, y)` in `dim`/`biome` is a soil patch — a rare grass cell
+/// where the bug net can be used to dig up worms. Deterministic from the
+/// world seed so a patch never moves.
+pub fn soil_at(x: i32, y: i32, dim: Dimension, biome: Biome, seed: u32) -> bool {
+    if !matches!(dim, Dimension::Surface) {
+        return false;
+    }
+    if !matches!(
+        biome,
+        Biome::Meadow | Biome::Forest | Biome::Swamp | Biome::Scrub
+    ) {
+        return false;
+    }
+    let h = hash3(seed.wrapping_add(0x501_7101), x as u32, y as u32);
+    (h % 1000) < 5 // ~0.5% of eligible cells
+}
+
+/// Tile types that a soil patch can replace visually. Restricting to Grass
+/// keeps soil out of trees/buildings/water.
+pub fn tile_hosts_soil(t: crate::world::Tile) -> bool {
+    matches!(t, crate::world::Tile::Grass)
+}
+
 /// Tiles that bugs are willing to sit on (walkable nature/floor tiles only,
 /// excluding water, structures, and walls). Keeps bugs out of impossible
 /// spots like rooftops and ocean.

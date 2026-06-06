@@ -563,6 +563,9 @@ pub struct WorldView<'a> {
     /// current dim). Suppresses the bug glyph so a caught bug doesn't pop
     /// right back.
     pub bugs_picked: &'a [(i32, i32)],
+    /// Cells where a soil patch has already been dug today (filtered to the
+    /// current dim). Suppresses the soil overlay until tomorrow.
+    pub soil_dug: &'a [(i32, i32)],
 }
 
 impl<'a> Widget for WorldView<'a> {
@@ -650,6 +653,19 @@ impl<'a> Widget for WorldView<'a> {
                             bug.render_char(),
                             Style::default()
                                 .fg(bug.render_color())
+                                .add_modifier(Modifier::BOLD),
+                        );
+                    }
+                }
+                if crate::bugs::tile_hosts_soil(tile)
+                    && !self.soil_dug.iter().any(|&(px, py)| px == wx && py == wy)
+                {
+                    let biome = self.world.biome(wx, wy);
+                    if crate::bugs::soil_at(wx, wy, self.world.dim, biome, self.world.seed) {
+                        return (
+                            ':',
+                            Style::default()
+                                .fg(Color::Rgb(120, 80, 50))
                                 .add_modifier(Modifier::BOLD),
                         );
                     }

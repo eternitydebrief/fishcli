@@ -186,6 +186,10 @@ pub struct SaveData {
     pub bugs_picked: Vec<(crate::world::Dimension, i32, i32)>,
     #[serde(default)]
     pub bugs_picked_day_id: u64,
+    /// Cells where a soil patch was dug today. Shares the day rollover with
+    /// `bugs_picked`.
+    #[serde(default)]
+    pub soil_dug: Vec<(crate::world::Dimension, i32, i32)>,
 }
 
 fn default_stamina() -> f32 {

@@ -359,6 +359,9 @@ pub struct App {
     /// In-game day-id the picked set was last populated for. On day rollover
     /// the set is dropped and rebuilt.
     pub bugs_picked_day_id: u64,
+    /// Cells where a soil patch was dug today. Shares the day-rollover with
+    /// `bugs_picked_today`.
+    pub soil_dug_today: std::collections::HashSet<(crate::world::Dimension, i32, i32)>,
     /// Tree anchor coords for the in-progress chopping minigame. Consumed
     /// (and cleared) on chop completion to mark exactly one tree as cut.
     pub pending_chop_anchor: Option<(i32, i32)>,
@@ -539,6 +542,7 @@ impl App {
             bugs_caught: vec![0; crate::bugs::defs().len()],
             bugs_picked_today: std::collections::HashSet::new(),
             bugs_picked_day_id: 0,
+            soil_dug_today: std::collections::HashSet::new(),
             pending_chop_anchor: None,
             recipe_discovered: vec![false; crate::recipes::recipes().len()],
             discovery_queue: std::collections::VecDeque::new(),
@@ -766,8 +770,10 @@ impl App {
         if data.bugs_picked_day_id == today {
             self.bugs_picked_today = data.bugs_picked.iter().copied().collect();
             self.bugs_picked_day_id = today;
+            self.soil_dug_today = data.soil_dug.iter().copied().collect();
         } else {
             self.bugs_picked_today.clear();
+            self.soil_dug_today.clear();
             self.bugs_picked_day_id = today;
         }
         if !data.mastery.is_empty() {
@@ -957,6 +963,7 @@ impl App {
             has_bug_net: self.player.has_bug_net,
             bugs_picked: self.bugs_picked_today.iter().copied().collect(),
             bugs_picked_day_id: self.bugs_picked_day_id,
+            soil_dug: self.soil_dug_today.iter().copied().collect(),
         }
     }
 
@@ -4238,6 +4245,9 @@ impl App {
         if self.try_catch_bug_at(nx, ny) {
             return;
         }
+        if self.try_dig_soil_at(nx, ny) {
+            return;
+        }
         if let Some(npc) = npc::npc_at_dim(nx, ny, self.world.dim, self.world.seed) {
             if npc.id == "sailor" {
                 self.interact_sailor();
@@ -5496,8 +5506,37 @@ impl App {
         let today = crate::gametime::game_days(self.total_play_secs());
         if today != self.bugs_picked_day_id {
             self.bugs_picked_today.clear();
+            self.soil_dug_today.clear();
             self.bugs_picked_day_id = today;
         }
+    }
+
+    /// Dig a soil patch on the faced cell. Returns true if the dig was
+    /// performed (consumes the `f` key). Yields 1-3 earthworm bait per
+    /// patch; the patch refreshes the next in-game day.
+    fn try_dig_soil_at(&mut self, nx: i32, ny: i32) -> bool {
+        if !self.player.has_bug_net {
+            return false;
+        }
+        let dim = self.world.dim;
+        if self.soil_dug_today.contains(&(dim, nx, ny)) {
+            return false;
+        }
+        let tile = self.world.get(nx, ny);
+        if !crate::bugs::tile_hosts_soil(tile) {
+            return false;
+        }
+        let biome = self.world.biome(nx, ny);
+        if !crate::bugs::soil_at(nx, ny, dim, biome, self.world.seed) {
+            return false;
+        }
+        let roll = crate::fish::next_rand_f32(&mut self.rng_state);
+        let yield_ = 1 + (roll * 3.0) as u32; // 1..=3
+        self.player.bait.add("earthworm", yield_);
+        self.soil_dug_today.insert((dim, nx, ny));
+        self.narrator
+            .say(format!("You dig up {} earthworm(s).", yield_));
+        true
     }
 
     /// Apply a finished bug-catch result. Called from `tick()` once the
@@ -5672,6 +5711,12 @@ impl App {
                     .filter(|(d, _, _)| *d == dim_now)
                     .map(|(_, x, y)| (*x, *y))
                     .collect();
+                let soil_dim: Vec<(i32, i32)> = self
+                    .soil_dug_today
+                    .iter()
+                    .filter(|(d, _, _)| *d == dim_now)
+                    .map(|(_, x, y)| (*x, *y))
+                    .collect();
                 frame.render_widget(
                     WorldView {
                         world: &self.world,
@@ -5689,6 +5734,7 @@ impl App {
                                 | crate::gametime::TimeOfDay::Dusk
                         ),
                         bugs_picked: &picked_dim,
+                        soil_dug: &soil_dim,
                     },
                     inner,
                 );
