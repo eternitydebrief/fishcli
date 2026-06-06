@@ -239,6 +239,7 @@ pub fn pick_fish_full<'a>(
     rod_tier: u32,
     ocean_depth: u32,
     bait_pool_pull: Option<(&str, f32)>,
+    force_no_trash: bool,
 ) -> &'a FishDef {
     let gated = |f: &FishDef| {
         // Unique / pool fish ignore level+rod gates so The Rod's pool
@@ -347,7 +348,11 @@ pub fn pick_fish_full<'a>(
             .filter(|f| !f.joke || f.unique)
             .collect();
         let progress = ((fishing_level + rod_tier) as f32 / 200.0).clamp(0.0, 1.0);
-        let trash_chance = 0.33 - 0.32 * progress;
+        let trash_chance = if force_no_trash {
+            0.0
+        } else {
+            0.33 - 0.32 * progress
+        };
         let want_trash = next_rand_f32(rng) < trash_chance;
         match (want_trash, trash.is_empty(), real.is_empty()) {
             (true, false, _) => trash,

@@ -265,6 +265,9 @@ pub struct CastState {
     pub cast_strength: f32,
     pub wait_ticks_left: u32,
     pub bite_ticks_left: u32,
+    /// True when the bobber landed inside an active hotspot patch.
+    /// Boosts catch speed and zeroes out the trash gate.
+    pub hotspot: bool,
 }
 
 /// Horizontal movement interval (ticks/step). Smaller because terminal cells
@@ -2076,9 +2079,12 @@ impl App {
     }
 
     fn cast_action(&mut self) {
-        // Pre-compute the scales-side of bite_speed before we take a mutable
-        // borrow of `self.cast` so the &self method call doesn't conflict.
+        // Pre-compute &self-needing bits before taking a mutable borrow on
+        // self.cast. Without this the re-roll path can't reach the weather
+        // / play-secs helpers without a borrow conflict.
         let scales_bite_speed = self.scales_bonus("bite_speed");
+        let pre_weather = self.current_weather();
+        let pre_total_secs = self.total_play_secs();
         let Some(c) = self.cast.as_mut() else { return; };
         match c.phase {
             CastPhase::Casting => {
@@ -2103,6 +2109,44 @@ impl App {
                     }
                 }
                 c.bobber = (self.player.x + fx * bd, self.player.y + fy * bd);
+                c.hotspot = crate::world::is_hotspot(c.bobber.0, c.bobber.1, self.world.seed);
+                // On a hotspot strike, re-roll the previously-picked fish
+                // (which may already be junk) under a no-trash gate so the
+                // promised "no garbage" guarantee actually holds.
+                if c.hotspot && c.fish.joke {
+                    let (bx, by) = c.bobber;
+                    let biome_label =
+                        biome_at(bx, by, self.world.seed).label().to_string();
+                    let water = water_kind_at(&self.world, bx, by).to_string();
+                    let depth = if water == "ocean" {
+                        ocean_depth_at(&self.world, bx, by)
+                    } else {
+                        0
+                    };
+                    let rare_window = crate::gametime::time_of_day(pre_total_secs)
+                        .is_rare_window()
+                        || crate::weather::weather_modifiers(pre_weather).rare_pct
+                            > 0.0;
+                    let bait_pool_pull = self
+                        .bait_pending_pool_pull
+                        .as_ref()
+                        .map(|(t, m)| (t.as_str(), *m));
+                    c.fish = crate::fish::pick_fish_full(
+                        &mut self.rng_state,
+                        fishlist::fish(),
+                        &biome_label,
+                        &water,
+                        None,
+                        rare_window,
+                        Some(pre_weather.value()),
+                        self.stats.fish_caught,
+                        self.skills.fishing_level(),
+                        self.player.rods.max_owned,
+                        depth,
+                        bait_pool_pull,
+                        true,
+                    );
+                }
                 // geometric wait length
                 let r = crate::fish::next_rand_f32(&mut self.rng_state);
                 let k = (1.0f32 - r * 0.9999).ln() / 0.75f32.ln();
@@ -2119,11 +2163,15 @@ impl App {
                 c.phase = CastPhase::Waiting;
                 self.narrator
                     .say(format!("Cast lands {} tiles out. Waiting...", bd));
+                if c.hotspot {
+                    self.narrator.say("Struck a hotspot!".to_string());
+                }
             }
             CastPhase::Biting => {
                 let fish = c.fish;
                 let (bx, by) = c.bobber;
                 let cast_strength = c.cast_strength;
+                let hotspot = c.hotspot;
                 let biome = biome_at(bx, by, self.world.seed).label().to_string();
                 let water = water_kind_at(&self.world, bx, by).to_string();
                 self.pending_catch_loc = Some((biome, water));
@@ -2144,8 +2192,12 @@ impl App {
                 } else {
                     0.0
                 };
-                let extra_speed =
-                    w_mods.catch_speed_pct + dim_bonus_pct + bait_catch_speed + combo_chain_bonus;
+                let hotspot_bonus = if hotspot { 0.25 } else { 0.0 };
+                let extra_speed = w_mods.catch_speed_pct
+                    + dim_bonus_pct
+                    + bait_catch_speed
+                    + combo_chain_bonus
+                    + hotspot_bonus;
                 let bait_label = self
                     .player
                     .bait
@@ -5136,6 +5188,7 @@ impl App {
                     self.player.rods.max_owned,
                     depth,
                     bait_pool_pull,
+                    false,
                 );
                 self.narrator.say("Casting line - aim for the green!");
                 self.stats.casts += 1;
@@ -5148,6 +5201,7 @@ impl App {
                     cast_strength: 0.0,
                     wait_ticks_left: 0,
                     bite_ticks_left: 0,
+                    hotspot: false,
                 });
             }
             _ => {
@@ -5174,6 +5228,7 @@ impl App {
                         self.player.rods.max_owned,
                         0,
                         None,
+                        false,
                     );
                     self.narrator
                         .say(format!("THE ROD pierces reality. Pool: {}.", pool_override.as_deref().unwrap_or("?")));
@@ -5187,6 +5242,7 @@ impl App {
                         cast_strength: 0.0,
                         wait_ticks_left: 0,
                         bite_ticks_left: 0,
+                        hotspot: false,
                     });
                 } else {
                     self.narrator.say("Nothing to interact with.");

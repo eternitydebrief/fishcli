@@ -1196,7 +1196,7 @@ impl World {
                 // Specialty dims override the standard ocean blue with a
                 // themed tint so each one reads at a glance.
                 let _s = crate::perf::AddScope::new(&crate::perf::WORLD_WATER_ANIM_NS);
-                let glyph = match self.dim {
+                let mut glyph = match self.dim {
                     Dimension::Sewer => sewer_water_glyph(x, y, tick),
                     Dimension::SwampCave => swamp_water_glyph(x, y, tick),
                     Dimension::Wreckage => wreckage_water_glyph(x, y, tick),
@@ -1210,6 +1210,12 @@ impl World {
                         }
                     }
                 };
+                // Hotspot patches stamp a 3x4 spinner over the water using
+                // the same fg color, so they read as "the water itself is
+                // alive here" rather than a foreign overlay.
+                if let Some((_, _, dx, dy)) = hotspot_at(x, y, self.seed) {
+                    glyph.0 = hotspot_glyph(dx, dy, tick);
+                }
                 // Surface ocean: bg darkens with distance from shore and
                 // flips foggy past FOG_DEPTH for the endgame "Fog Sea".
                 // Specialty water dims still use their themed tint.
@@ -3140,6 +3146,85 @@ pub fn ocean_depth_color(depth: u32) -> ratatui::style::Color {
     let g = (22.0 + (4.0 - 22.0) * t) as u8;
     let b = (42.0 + (10.0 - 42.0) * t) as u8;
     Color::Rgb(r, g, b)
+}
+
+// ---- water hotspots ---------------------------------------------------
+//
+// Sparse 3-wide x 4-tall patches on the water surface that pulse with a
+// spinner animation. Catching a fish whose bobber sits on a hotspot fires
+// the +25% catch-speed bonus and skips the trash roll. Hotspot anchors
+// are deterministic from the world seed so a player can spot one and
+// throw at it deliberately.
+
+pub const HOTSPOT_W: i32 = 3;
+pub const HOTSPOT_H: i32 = 4;
+
+/// Phase offsets that run clockwise around the 3x4 patch's outer ring,
+/// then fold inward. Drives the per-cell spinner offset so the active
+/// glyph appears to spiral.
+const HOTSPOT_PHASE: [[u8; 3]; 4] = [
+    [0, 1, 2],
+    [9, 10, 3],
+    [8, 11, 4],
+    [7, 6, 5],
+];
+
+/// 16-cell windowing grid; one hotspot may anchor inside each cell.
+const HOTSPOT_CELL_W: i32 = 28;
+const HOTSPOT_CELL_H: i32 = 20;
+
+/// If (x, y) sits inside an active hotspot, return its top-left anchor
+/// and the (dx, dy) offset within the 3x4 patch. Iterates the player's
+/// own cell plus the 8 neighbors so a hotspot anchored near a cell
+/// boundary still reads correctly.
+pub fn hotspot_at(x: i32, y: i32, seed: u32) -> Option<(i32, i32, i32, i32)> {
+    let cx = x.div_euclid(HOTSPOT_CELL_W);
+    let cy = y.div_euclid(HOTSPOT_CELL_H);
+    for dcy in -1..=1 {
+        for dcx in -1..=1 {
+            let ccx = cx + dcx;
+            let ccy = cy + dcy;
+            let h = hash2(ccx, ccy, seed.wrapping_add(0xFEED_5EED));
+            // Roughly 1 in 4 grid cells gets a hotspot. Sparse enough to
+            // feel like a find, common enough to actually encounter.
+            if h % 4 != 0 {
+                continue;
+            }
+            let span_x = (HOTSPOT_CELL_W - HOTSPOT_W).max(1);
+            let span_y = (HOTSPOT_CELL_H - HOTSPOT_H).max(1);
+            let ox = ((h >> 4) as i32).rem_euclid(span_x);
+            let oy = ((h >> 12) as i32).rem_euclid(span_y);
+            let ax = ccx * HOTSPOT_CELL_W + ox;
+            let ay = ccy * HOTSPOT_CELL_H + oy;
+            let dx = x - ax;
+            let dy = y - ay;
+            if dx >= 0 && dx < HOTSPOT_W && dy >= 0 && dy < HOTSPOT_H {
+                return Some((ax, ay, dx, dy));
+            }
+        }
+    }
+    None
+}
+
+pub fn is_hotspot(x: i32, y: i32, seed: u32) -> bool {
+    hotspot_at(x, y, seed).is_some()
+}
+
+/// Pick the spinner glyph for one cell of a hotspot at this anim tick.
+/// The same foreground color is reused from the underlying water style;
+/// only the character changes so the hotspot blends with the water.
+pub fn hotspot_glyph(dx: i32, dy: i32, tick: u64) -> char {
+    let phase = HOTSPOT_PHASE[dy as usize][dx as usize] as u64;
+    // 12-frame cycle so each cell takes its turn as the active spinner;
+    // tick / 2 slows the wheel to ~10 frames/sec at 20 fps.
+    let frame = (tick / 2 + phase) % 12;
+    match frame {
+        0 => '◉',
+        1 => '◎',
+        2 => '○',
+        3 => '·',
+        _ => '.',
+    }
 }
 
 /// Region noise that marks "lakebed cave zones" — patches of the world
