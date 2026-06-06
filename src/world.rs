@@ -2516,37 +2516,14 @@ fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
 
 fn tree_at(x: i32, y: i32, seed: u32, density: f32) -> Option<Tile> {
     let _ = density;
-    // First pass: the dy=0..=2 / dx=-1..=1 box covers Bush, Round, Pine
-    // — the species that make up the bulk of the forest. Most cells hit
-    // this box (or miss it entirely) so the cheap path is fast.
-    for dy in 0..=2i32 {
-        for dx in -1..=1i32 {
-            let ax = x + dx;
-            let ay = y + dy;
-            let local_density = biome_params(cached_biome_at(ax, ay, seed)).tree;
-            if !is_tree_anchor(ax, ay, seed, local_density) {
-                continue;
-            }
-            let sp = tree_species(ax, ay, seed);
-            for &(ox, oy, part) in tree_offsets(sp) {
-                if ax + ox == x && ay + oy == y {
-                    return Some(match part {
-                        TreePart::Trunk => Tile::TreeTrunk,
-                        TreePart::Canopy => Tile::TreeCanopy,
-                    });
-                }
-            }
-        }
-    }
-    // Second pass: only the outlying cells that exclusively belong to
-    // BigOak / TallPine (dy=3 or 4, plus dx=-2 anywhere in the scan).
-    // tree_species is a cheap hash + match; skip the anchor work if the
-    // candidate isn't one of the big species.
-    for dy in 0..=4i32 {
+    // Scan from the southern-most candidate down. The first anchor whose
+    // footprint covers (x, y) wins, so when two trees overlap the one
+    // further south occludes the one further north — matches the
+    // "draw bottom-row first" Z-order convention. The wider BigOak /
+    // TallPine outer cells are checked before the cheaper inner box so
+    // a big southern tree can shadow a small northern one.
+    for dy in (3..=4i32).rev() {
         for dx in -2..=1i32 {
-            if dx >= -1 && dy <= 2 {
-                continue; // already covered above
-            }
             let ax = x + dx;
             let ay = y + dy;
             let sp = tree_species(ax, ay, seed);
@@ -2557,6 +2534,33 @@ fn tree_at(x: i32, y: i32, seed: u32, density: f32) -> Option<Tile> {
             if !is_tree_anchor(ax, ay, seed, local_density) {
                 continue;
             }
+            for &(ox, oy, part) in tree_offsets(sp) {
+                if ax + ox == x && ay + oy == y {
+                    return Some(match part {
+                        TreePart::Trunk => Tile::TreeTrunk,
+                        TreePart::Canopy => Tile::TreeCanopy,
+                    });
+                }
+            }
+        }
+    }
+    for dy in (0..=2i32).rev() {
+        for dx in -2..=1i32 {
+            let ax = x + dx;
+            let ay = y + dy;
+            // dx=-2 only matters for BigOak / TallPine outer cells —
+            // skip it on the cheap path so we don't double-pay.
+            if dx == -2 {
+                let sp = tree_species(ax, ay, seed);
+                if !matches!(sp, TreeSpecies::BigOak | TreeSpecies::TallPine) {
+                    continue;
+                }
+            }
+            let local_density = biome_params(cached_biome_at(ax, ay, seed)).tree;
+            if !is_tree_anchor(ax, ay, seed, local_density) {
+                continue;
+            }
+            let sp = tree_species(ax, ay, seed);
             for &(ox, oy, part) in tree_offsets(sp) {
                 if ax + ox == x && ay + oy == y {
                     return Some(match part {
@@ -2597,29 +2601,10 @@ pub fn tree_yield_mult_at(x: i32, y: i32, seed: u32) -> f32 {
 }
 
 fn find_tree_anchor(x: i32, y: i32, seed: u32) -> Option<(i32, i32, TreeSpecies, TreePart)> {
-    // Mirror tree_at's two-pass scan: cheap 9-cell box first, then a
-    // narrow widening pass only for BigOak / TallPine outlying cells.
-    for dy in 0..=2i32 {
-        for dx in -1..=1i32 {
-            let ax = x + dx;
-            let ay = y + dy;
-            let density = biome_params(cached_biome_at(ax, ay, seed)).tree;
-            if !is_tree_anchor(ax, ay, seed, density) {
-                continue;
-            }
-            let sp = tree_species(ax, ay, seed);
-            for &(ox, oy, part) in tree_offsets(sp) {
-                if ax + ox == x && ay + oy == y {
-                    return Some((ax, ay, sp, part));
-                }
-            }
-        }
-    }
-    for dy in 0..=4i32 {
+    // Same southern-priority scan as tree_at — needed so the chop
+    // lookup picks the same anchor the renderer drew.
+    for dy in (3..=4i32).rev() {
         for dx in -2..=1i32 {
-            if dx >= -1 && dy <= 2 {
-                continue;
-            }
             let ax = x + dx;
             let ay = y + dy;
             let sp = tree_species(ax, ay, seed);
@@ -2630,6 +2615,28 @@ fn find_tree_anchor(x: i32, y: i32, seed: u32) -> Option<(i32, i32, TreeSpecies,
             if !is_tree_anchor(ax, ay, seed, density) {
                 continue;
             }
+            for &(ox, oy, part) in tree_offsets(sp) {
+                if ax + ox == x && ay + oy == y {
+                    return Some((ax, ay, sp, part));
+                }
+            }
+        }
+    }
+    for dy in (0..=2i32).rev() {
+        for dx in -2..=1i32 {
+            let ax = x + dx;
+            let ay = y + dy;
+            if dx == -2 {
+                let sp = tree_species(ax, ay, seed);
+                if !matches!(sp, TreeSpecies::BigOak | TreeSpecies::TallPine) {
+                    continue;
+                }
+            }
+            let density = biome_params(cached_biome_at(ax, ay, seed)).tree;
+            if !is_tree_anchor(ax, ay, seed, density) {
+                continue;
+            }
+            let sp = tree_species(ax, ay, seed);
             for &(ox, oy, part) in tree_offsets(sp) {
                 if ax + ox == x && ay + oy == y {
                     return Some((ax, ay, sp, part));
