@@ -2421,20 +2421,48 @@ fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
 }
 
 fn tree_at(x: i32, y: i32, seed: u32, density: f32) -> Option<Tile> {
-    // dy/dx scan range covers the largest possible tree footprint:
-    // BigOak's canopy reaches dx=2 right, dx=-1 left, dy=-4 up.
-    for dy in 0..=4i32 {
-        for dx in -2..=1i32 {
+    let _ = density;
+    // First pass: the dy=0..=2 / dx=-1..=1 box covers Bush, Round, Pine
+    // — the species that make up the bulk of the forest. Most cells hit
+    // this box (or miss it entirely) so the cheap path is fast.
+    for dy in 0..=2i32 {
+        for dx in -1..=1i32 {
             let ax = x + dx;
             let ay = y + dy;
             let local_density = biome_params(cached_biome_at(ax, ay, seed)).tree;
-            // anchor uses biome's own density (an anchor is local to its own biome)
-            // density param is for the cell-of-interest; not used here
-            let _ = density;
             if !is_tree_anchor(ax, ay, seed, local_density) {
                 continue;
             }
             let sp = tree_species(ax, ay, seed);
+            for &(ox, oy, part) in tree_offsets(sp) {
+                if ax + ox == x && ay + oy == y {
+                    return Some(match part {
+                        TreePart::Trunk => Tile::TreeTrunk,
+                        TreePart::Canopy => Tile::TreeCanopy,
+                    });
+                }
+            }
+        }
+    }
+    // Second pass: only the outlying cells that exclusively belong to
+    // BigOak / TallPine (dy=3 or 4, plus dx=-2 anywhere in the scan).
+    // tree_species is a cheap hash + match; skip the anchor work if the
+    // candidate isn't one of the big species.
+    for dy in 0..=4i32 {
+        for dx in -2..=1i32 {
+            if dx >= -1 && dy <= 2 {
+                continue; // already covered above
+            }
+            let ax = x + dx;
+            let ay = y + dy;
+            let sp = tree_species(ax, ay, seed);
+            if !matches!(sp, TreeSpecies::BigOak | TreeSpecies::TallPine) {
+                continue;
+            }
+            let local_density = biome_params(cached_biome_at(ax, ay, seed)).tree;
+            if !is_tree_anchor(ax, ay, seed, local_density) {
+                continue;
+            }
             for &(ox, oy, part) in tree_offsets(sp) {
                 if ax + ox == x && ay + oy == y {
                     return Some(match part {
@@ -2475,8 +2503,10 @@ pub fn tree_yield_mult_at(x: i32, y: i32, seed: u32) -> f32 {
 }
 
 fn find_tree_anchor(x: i32, y: i32, seed: u32) -> Option<(i32, i32, TreeSpecies, TreePart)> {
-    for dy in 0..=4i32 {
-        for dx in -2..=1i32 {
+    // Mirror tree_at's two-pass scan: cheap 9-cell box first, then a
+    // narrow widening pass only for BigOak / TallPine outlying cells.
+    for dy in 0..=2i32 {
+        for dx in -1..=1i32 {
             let ax = x + dx;
             let ay = y + dy;
             let density = biome_params(cached_biome_at(ax, ay, seed)).tree;
@@ -2484,6 +2514,28 @@ fn find_tree_anchor(x: i32, y: i32, seed: u32) -> Option<(i32, i32, TreeSpecies,
                 continue;
             }
             let sp = tree_species(ax, ay, seed);
+            for &(ox, oy, part) in tree_offsets(sp) {
+                if ax + ox == x && ay + oy == y {
+                    return Some((ax, ay, sp, part));
+                }
+            }
+        }
+    }
+    for dy in 0..=4i32 {
+        for dx in -2..=1i32 {
+            if dx >= -1 && dy <= 2 {
+                continue;
+            }
+            let ax = x + dx;
+            let ay = y + dy;
+            let sp = tree_species(ax, ay, seed);
+            if !matches!(sp, TreeSpecies::BigOak | TreeSpecies::TallPine) {
+                continue;
+            }
+            let density = biome_params(cached_biome_at(ax, ay, seed)).tree;
+            if !is_tree_anchor(ax, ay, seed, density) {
+                continue;
+            }
             for &(ox, oy, part) in tree_offsets(sp) {
                 if ax + ox == x && ay + oy == y {
                     return Some((ax, ay, sp, part));
@@ -2888,6 +2940,12 @@ pub fn proc_village_merchant_id_at(x: i32, y: i32, seed: u32) -> Option<&'static
 }
 
 fn village_anchor_for(x: i32, y: i32, seed: u32) -> Option<PVillage> {
+    // Villages anchor at ay <= -8 and the biggest footprint reaches 46
+    // cells from the anchor on every axis. So any cell at y > 38 can't
+    // possibly be inside a village — skip the 9-cell hash sweep.
+    if y > 38 {
+        return None;
+    }
     let cx = x.div_euclid(PV_CELL_W);
     let cy = y.div_euclid(PV_CELL_H);
     for dcy in -1..=1 {
@@ -3319,14 +3377,15 @@ const HOTSPOT_CELL_W: i32 = 28;
 const HOTSPOT_CELL_H: i32 = 20;
 
 /// If (x, y) sits inside an active hotspot, return its top-left anchor
-/// and the (dx, dy) offset within the 3x4 patch. Iterates the player's
-/// own cell plus the 8 neighbors so a hotspot anchored near a cell
-/// boundary still reads correctly.
+/// and the (dx, dy) offset within the patch. Only checks the (cx-1, cy)
+/// / (cx, cy) pair on each axis — anchors in (cx+1, *) or (*, cy+1)
+/// can't extend left/up into the current cell, so those 5 neighbors are
+/// always misses and the check skips them.
 pub fn hotspot_at(x: i32, y: i32, seed: u32) -> Option<(i32, i32, i32, i32)> {
     let cx = x.div_euclid(HOTSPOT_CELL_W);
     let cy = y.div_euclid(HOTSPOT_CELL_H);
-    for dcy in -1..=1 {
-        for dcx in -1..=1 {
+    for dcy in [-1i32, 0] {
+        for dcx in [-1i32, 0] {
             let ccx = cx + dcx;
             let ccy = cy + dcy;
             let h = hash2(ccx, ccy, seed.wrapping_add(0xFEED_5EED));
