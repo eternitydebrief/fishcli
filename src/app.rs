@@ -56,22 +56,35 @@ struct EncyclopediaMilestone {
 }
 
 const FISHDEX_MILES: &[EncyclopediaMilestone] = &[
-    EncyclopediaMilestone { threshold:  25, label: "Apprentice Naturalist", valu:    500, skill_points: 1, permanent_effect: None },
-    EncyclopediaMilestone { threshold:  50, label: "Field Cataloguer",      valu:   2_000, skill_points: 1, permanent_effect: Some("luck:0.01") },
-    EncyclopediaMilestone { threshold: 100, label: "Hundred Hands",         valu:   5_000, skill_points: 2, permanent_effect: Some("price_mult:0.02") },
-    EncyclopediaMilestone { threshold: 200, label: "Bestiary Keeper",       valu:  15_000, skill_points: 3, permanent_effect: Some("luck:0.03") },
-    EncyclopediaMilestone { threshold: 350, label: "Living Library",        valu:  50_000, skill_points: 5, permanent_effect: Some("price_mult:0.05") },
-    EncyclopediaMilestone { threshold: 500, label: "World Compendium",      valu: 200_000, skill_points: 8, permanent_effect: Some("price_mult:0.08") },
-    EncyclopediaMilestone { threshold: 700, label: "All Things That Swim",  valu: 1_000_000, skill_points: 15, permanent_effect: Some("price_mult:0.15") },
+    EncyclopediaMilestone { threshold:   25, label: "Apprentice Naturalist", valu:       500, skill_points:  1, permanent_effect: None },
+    EncyclopediaMilestone { threshold:   50, label: "Field Cataloguer",      valu:     2_000, skill_points:  1, permanent_effect: Some("luck:0.01") },
+    EncyclopediaMilestone { threshold:  100, label: "Hundred Hands",         valu:     5_000, skill_points:  2, permanent_effect: Some("price_mult:0.02") },
+    EncyclopediaMilestone { threshold:  200, label: "Bestiary Keeper",       valu:    15_000, skill_points:  3, permanent_effect: Some("luck:0.03") },
+    EncyclopediaMilestone { threshold:  350, label: "Living Library",        valu:    60_000, skill_points:  5, permanent_effect: Some("price_mult:0.05") },
+    EncyclopediaMilestone { threshold:  500, label: "World Compendium",      valu:   250_000, skill_points:  8, permanent_effect: Some("price_mult:0.08") },
+    EncyclopediaMilestone { threshold:  700, label: "All Things That Swim",  valu: 1_200_000, skill_points: 15, permanent_effect: Some("price_mult:0.15") },
+    // post-700 long-tail rewards. each tier compounds the prior price/luck
+    // buffs so a player who's chased every species sees their valu/hour
+    // climb meaningfully even past the base fishdex.
+    EncyclopediaMilestone { threshold:  900, label: "Cartographer of Scales",valu: 3_000_000, skill_points: 20, permanent_effect: Some("price_mult:0.10") },
+    EncyclopediaMilestone { threshold: 1100, label: "Shoalwarden",           valu: 6_000_000, skill_points: 25, permanent_effect: Some("luck:0.05") },
+    EncyclopediaMilestone { threshold: 1300, label: "Codex Eternal",         valu:12_000_000, skill_points: 30, permanent_effect: Some("price_mult:0.12") },
+    EncyclopediaMilestone { threshold: 1500, label: "Many-Gilled God",       valu:30_000_000, skill_points: 50, permanent_effect: Some("price_mult:0.20") },
 ];
 
 const COOKBOOK_MILES: &[EncyclopediaMilestone] = &[
-    EncyclopediaMilestone { threshold:  1, label: "First Mastery",     valu:    500, skill_points: 1, permanent_effect: None },
-    EncyclopediaMilestone { threshold:  3, label: "Apprentice Cook",   valu:  2_000, skill_points: 1, permanent_effect: Some("price_mult:0.01") },
-    EncyclopediaMilestone { threshold:  6, label: "Journeyman Cook",   valu:  8_000, skill_points: 2, permanent_effect: Some("wait_mult:-0.01") },
-    EncyclopediaMilestone { threshold: 10, label: "Master Cook",       valu: 30_000, skill_points: 3, permanent_effect: Some("price_mult:0.03") },
-    EncyclopediaMilestone { threshold: 15, label: "Grand Chef",        valu: 100_000, skill_points: 5, permanent_effect: Some("walk_speed:0.02") },
-    EncyclopediaMilestone { threshold: 20, label: "Pantheon Palate",   valu: 500_000, skill_points: 10, permanent_effect: Some("price_mult:0.10") },
+    EncyclopediaMilestone { threshold:   1, label: "First Mastery",     valu:     500, skill_points:  1, permanent_effect: None },
+    EncyclopediaMilestone { threshold:   3, label: "Apprentice Cook",   valu:   2_000, skill_points:  1, permanent_effect: Some("price_mult:0.01") },
+    EncyclopediaMilestone { threshold:   6, label: "Journeyman Cook",   valu:   8_000, skill_points:  2, permanent_effect: Some("wait_mult:-0.01") },
+    EncyclopediaMilestone { threshold:  10, label: "Master Cook",       valu:  30_000, skill_points:  3, permanent_effect: Some("price_mult:0.03") },
+    EncyclopediaMilestone { threshold:  15, label: "Grand Chef",        valu: 100_000, skill_points:  5, permanent_effect: Some("walk_speed:0.02") },
+    EncyclopediaMilestone { threshold:  20, label: "Pantheon Palate",   valu: 500_000, skill_points: 10, permanent_effect: Some("price_mult:0.10") },
+    // post-20 milestones reward true cookbook completionists. Total
+    // recipes will keep growing as the game adds more — these scale
+    // alongside without requiring fresh code per tier.
+    EncyclopediaMilestone { threshold:  30, label: "Iron Spatula",      valu: 1_500_000, skill_points: 15, permanent_effect: Some("xp_mult:0.05") },
+    EncyclopediaMilestone { threshold:  50, label: "Hearth Sovereign",  valu: 5_000_000, skill_points: 25, permanent_effect: Some("price_mult:0.15") },
+    EncyclopediaMilestone { threshold:  80, label: "Last Course",       valu:15_000_000, skill_points: 40, permanent_effect: Some("global_xp_mult:0.10") },
 ];
 
 pub enum Scene {
