@@ -4605,6 +4605,10 @@ impl App {
                 } else {
                     0
                 };
+                let bait_pool_pull = self
+                    .bait_pending_pool_pull
+                    .as_ref()
+                    .map(|(tag, mult)| (tag.as_str(), *mult));
                 let f = crate::fish::pick_fish_full(
                     &mut self.rng_state,
                     fishlist::fish(),
@@ -4617,6 +4621,7 @@ impl App {
                     self.skills.fishing_level(),
                     self.player.rods.max_owned,
                     depth,
+                    bait_pool_pull,
                 );
                 self.narrator.say("Casting line - aim for the green!");
                 self.stats.casts += 1;
@@ -4654,6 +4659,7 @@ impl App {
                         self.skills.fishing_level(),
                         self.player.rods.max_owned,
                         0,
+                        None,
                     );
                     self.narrator
                         .say(format!("THE ROD pierces reality. Pool: {}.", pool_override.as_deref().unwrap_or("?")));

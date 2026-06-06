@@ -36,6 +36,11 @@ pub struct FishDef {
     /// "Blizzard", "Sandstorm", "Scorching", "Fog", "Windy",
     /// "Thunderstorm", "Heat Wave", "Cloudy".
     pub preferred_weather: Vec<String>,
+    /// Free-form pool tags this species belongs to for bait pool_pull
+    /// matching. Empty = use the auto-derived defaults from biomes/waters
+    /// (see `effective_pool_tags`). Override per-fish in `assets/fish.json`
+    /// when you want a specific bait to target a specific species set.
+    pub pool_tags: Vec<String>,
 }
 
 impl Default for FishDef {
@@ -53,6 +58,7 @@ impl Default for FishDef {
             unique: false,
             pool: Vec::new(),
             preferred_weather: Vec::new(),
+            pool_tags: Vec::new(),
         }
     }
 }
@@ -143,6 +149,57 @@ impl FishDef {
         }
     }
 
+    /// Effective pool tags for bait `pool_pull` matching. Uses the explicit
+    /// `pool_tags` field if non-empty, otherwise auto-derives from the
+    /// fish's biomes + waters using a fixed table. Tag names line up with
+    /// the bug pool_pull values in `assets/bugs.json`.
+    pub fn effective_pool_tags(&self) -> Vec<&'static str> {
+        if !self.pool_tags.is_empty() {
+            return self
+                .pool_tags
+                .iter()
+                .filter_map(|s| auto_tag_name(s.as_str()))
+                .collect();
+        }
+        let mut out: Vec<&'static str> = Vec::new();
+        let has_water = |w: &str| self.waters.iter().any(|s| s.eq_ignore_ascii_case(w));
+        let has_biome = |b: &str| self.biomes.iter().any(|s| s.eq_ignore_ascii_case(b));
+        if has_water("ocean") {
+            out.push("saltwater");
+        }
+        if has_water("well") {
+            out.push("cavern");
+        }
+        let freshwater = self.waters.is_empty()
+            || has_water("lake")
+            || has_water("pond")
+            || has_water("puddle");
+        if freshwater {
+            if has_biome("Meadow") || self.biomes.is_empty() {
+                out.push("freshwater_surface");
+            }
+            if has_biome("Forest") {
+                out.push("freshwater_shaded");
+            }
+            if has_biome("Rocky") {
+                out.push("river");
+            }
+            if has_biome("Scrub") {
+                out.push("warm_water");
+            }
+            if has_biome("Desert") {
+                out.push("oasis");
+            }
+            if has_biome("Tundra") {
+                out.push("cold_water");
+            }
+            if has_biome("Swamp") {
+                out.push("swamp");
+            }
+        }
+        out
+    }
+
     pub fn matches(&self, biome: &str, water: &str) -> bool {
         let biome_ok = self.biomes.is_empty()
             || self
@@ -181,6 +238,7 @@ pub fn pick_fish_full<'a>(
     fishing_level: u32,
     rod_tier: u32,
     ocean_depth: u32,
+    bait_pool_pull: Option<(&str, f32)>,
 ) -> &'a FishDef {
     let gated = |f: &FishDef| {
         // Unique / pool fish ignore level+rod gates so The Rod's pool
@@ -253,7 +311,20 @@ pub fn pick_fish_full<'a>(
         } else {
             1.0
         };
-        w * ease_boost * depth_mult
+        let bait_pull_mult = match bait_pool_pull {
+            Some((tag, mult)) if mult > 0.0 => {
+                if f.effective_pool_tags()
+                    .iter()
+                    .any(|t| t.eq_ignore_ascii_case(tag))
+                {
+                    1.0 + mult
+                } else {
+                    1.0
+                }
+            }
+            _ => 1.0,
+        };
+        w * ease_boost * depth_mult * bait_pull_mult
     };
     // Trash gate. Junk fish (boots, cans, soda bottles) now live in a
     // separate pre-roll sub-pool instead of competing on weight with real
@@ -302,6 +373,29 @@ pub fn pick_fish_full<'a>(
         }
     }
     candidates[candidates.len() - 1]
+}
+
+/// Pass-through alias for explicit pool_tags entries. Returns a static slice
+/// matching the input if it's one of the known tags; falls back to None for
+/// unrecognized strings so typos in fish.json don't silently mis-pull.
+fn auto_tag_name(s: &str) -> Option<&'static str> {
+    match s.to_ascii_lowercase().as_str() {
+        "freshwater_surface" => Some("freshwater_surface"),
+        "freshwater_shaded" => Some("freshwater_shaded"),
+        "river" => Some("river"),
+        "warm_water" => Some("warm_water"),
+        "oasis" => Some("oasis"),
+        "cold_water" => Some("cold_water"),
+        "swamp" => Some("swamp"),
+        "saltwater" => Some("saltwater"),
+        "cavern" => Some("cavern"),
+        "lakebed" => Some("lakebed"),
+        "cathedral" => Some("cathedral"),
+        "abyssal" => Some("abyssal"),
+        "infernal" => Some("infernal"),
+        "divine" => Some("divine"),
+        _ => None,
+    }
 }
 
 pub fn next_rand_f32(s: &mut u32) -> f32 {
