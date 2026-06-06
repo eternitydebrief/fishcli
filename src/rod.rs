@@ -13,14 +13,16 @@ impl RodDef {
     /// Price in valu to buy this rod. Cubic + quadratic curve tuned so the
     /// full 200-rod ladder takes hundreds of hours of cumulative income to
     /// climb. Early rods are tens-of-valu cheap; tier 200 costs millions.
+    /// The cubic term is dampened to 0.7 so endgame rod-buying is still
+    /// a multi-hundred-hour grind but doesn't outright dwarf every other
+    /// income source. Approximate (post-dampen) cumulative costs:
     ///   tier   1 → ~80
-    ///   tier  11 → ~5k     (cumulative ~20k)
-    ///   tier  50 → ~200k   (cumulative ~3M)
-    ///   tier 100 → ~1.3M   (cumulative ~33M)
-    ///   tier 200 → ~9M     (cumulative ~485M)
+    ///   tier  50 → ~150k   (cumulative ~2M)
+    ///   tier 100 → ~1.0M   (cumulative ~25M)
+    ///   tier 200 → ~6.4M   (cumulative ~340M)
     pub fn price(&self) -> u64 {
         let t = self.tier as u64;
-        (t * t * t) + (30 * t * t) + 50
+        ((t * t * t) * 7 / 10) + (30 * t * t) + 50
     }
 
     /// Multiplier applied to fish speed in the minigame. Each tier shaves
@@ -74,17 +76,19 @@ pub struct OwnedRods {
 /// any non-unique non-joke fish of that difficulty before this rod tier is
 /// buyable. Tiers below 26 (the easy on-ramp) are ungated; tiers 201/202
 /// (Fishing Rod, The Rod) have their own custom Pantheon gates and skip
-/// this check. Keeps players from money-saving past whole biomes.
+/// this check. Keeps players from money-saving past whole biomes — but
+/// late-game bands ask for fewer catches because the underlying species
+/// are rarer and the player is already committed.
 pub fn mastery_gate(tier: u32) -> Option<(u8, u32)> {
     match tier {
         0..=25 => None,
-        26..=50 => Some((2, 5)),
-        51..=75 => Some((3, 5)),
-        76..=100 => Some((4, 5)),
-        101..=130 => Some((5, 5)),
-        131..=160 => Some((6, 5)),
-        161..=180 => Some((7, 5)),
-        181..=200 => Some((8, 5)),
+        26..=50 => Some((2, 4)),
+        51..=75 => Some((3, 4)),
+        76..=100 => Some((4, 3)),
+        101..=130 => Some((5, 3)),
+        131..=160 => Some((6, 2)),
+        161..=180 => Some((7, 2)),
+        181..=200 => Some((8, 2)),
         _ => None,
     }
 }
