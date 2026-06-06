@@ -40,5 +40,7 @@
 
   { "id": "shipwright-rank", "title": "Hull Climb", "kind": "hull_tier",       "tiers": [ { "target": 1, "reward_points": 1 }, { "target": 2, "reward_points": 1 }, { "target": 3, "reward_points": 2 }, { "target": 4, "reward_points": 3 }, { "target": 5, "reward_points": 5 }, { "target": 6, "reward_points": 8 } ] },
 
-  { "id": "curator",   "title": "Curator",      "kind": "encyclopedia_level", "tiers": [ { "target": 1, "reward_points": 1 }, { "target": 5, "reward_points": 2 }, { "target": 10, "reward_points": 3 }, { "target": 15, "reward_points": 5 }, { "target": 20, "reward_points": 8 } ] }
+  { "id": "curator",   "title": "Curator",      "kind": "encyclopedia_level", "tiers": [ { "target": 1, "reward_points": 1 }, { "target": 5, "reward_points": 2 }, { "target": 10, "reward_points": 3 }, { "target": 15, "reward_points": 5 }, { "target": 20, "reward_points": 8 } ] },
+
+  { "id": "streak",    "title": "On Fire",      "kind": "max_catch_streak",   "tiers": [ { "target": 10, "reward_points": 1 }, { "target": 25, "reward_points": 2 }, { "target": 50, "reward_points": 3 }, { "target": 100, "reward_points": 5 }, { "target": 250, "reward_points": 8 }, { "target": 500, "reward_points": 12 }, { "target": 1000, "reward_points": 20 } ] }
 ]

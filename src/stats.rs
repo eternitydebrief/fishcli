@@ -22,6 +22,13 @@ pub struct Stats {
     /// Number of trees the player has felled (each `:chop` minigame win).
     #[serde(default)]
     pub trees_felled: u64,
+    /// Consecutive successful catches without an escape. Resets to 0 on
+    /// the fish escaping the minigame.
+    #[serde(default)]
+    pub catch_streak: u64,
+    /// Highest `catch_streak` ever reached in this save. Monotonic.
+    #[serde(default)]
+    pub max_catch_streak: u64,
 }
 
 /// Skill XP totals. Levels are derived from xp via [`xp_to_level`].

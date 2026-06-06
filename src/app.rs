@@ -2018,6 +2018,13 @@ impl App {
                     self.cast = None;
                     self.narrator.say(format!("The {name} slipped off the hook."));
                     self.stats.fish_escaped += 1;
+                    if self.stats.catch_streak > 0 {
+                        self.narrator.say(format!(
+                            "Streak broken at {}.",
+                            self.stats.catch_streak
+                        ));
+                        self.stats.catch_streak = 0;
+                    }
                 }
             }
         }
@@ -4338,6 +4345,10 @@ impl App {
                     let relax = (5.0 + r * 5.0) * self.skill_tree.stamina_fish_regen_mult();
                     self.grant_stamina(relax);
                     self.stats.fish_caught += 1;
+                    self.stats.catch_streak = self.stats.catch_streak.saturating_add(1);
+                    if self.stats.catch_streak > self.stats.max_catch_streak {
+                        self.stats.max_catch_streak = self.stats.catch_streak;
+                    }
                     // Crew hunger ticks up on every catch made while aboard
                     // the boat. Saturating at 100; the cast-block kicks in
                     // when it hits 100 so the player must :feed before the
@@ -4440,6 +4451,13 @@ impl App {
                     self.narrator
                         .say("It slipped the line. You'll never know what.".to_string());
                     self.stats.fish_escaped += 1;
+                    if self.stats.catch_streak > 0 {
+                        self.narrator.say(format!(
+                            "Streak broken at {}.",
+                            self.stats.catch_streak
+                        ));
+                        self.stats.catch_streak = 0;
+                    }
                 } else {
                     self.narrator.say("You leave the line slack and step away.");
                 }
@@ -5611,6 +5629,7 @@ impl App {
             cooking_level: self.skills.cooking_level(),
             woodcutting_level: self.skills.woodcutting_level(),
             hull_tier: self.player.hull_tier,
+            max_catch_streak: self.stats.max_catch_streak,
             already_unlocked: &self.achievements.unlocked,
         };
         let new_unlocks = crate::achievements::newly_unlocked(&snap);
@@ -6514,6 +6533,7 @@ impl App {
                 cooking_level: self.skills.cooking_level(),
                 woodcutting_level: self.skills.woodcutting_level(),
                 hull_tier: self.player.hull_tier,
+                max_catch_streak: self.stats.max_catch_streak,
                 already_unlocked: &self.achievements.unlocked,
             };
             render_achievements(frame, cursor, &snap, &self.achievements);
@@ -6663,6 +6683,13 @@ impl App {
                     render_pinned_task(frame, q, progress);
                 }
             }
+        }
+        if self.stats.catch_streak > 0 {
+            render_streak_chip(
+                frame,
+                self.stats.catch_streak,
+                self.stats.max_catch_streak,
+            );
         }
     }
 }
@@ -6912,6 +6939,44 @@ fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
         bg
     };
     (g, Style::default().fg(fg).bg(final_bg).add_modifier(Modifier::BOLD))
+}
+
+/// Small chip pinned to the top-right of the viewport showing the current
+/// catch streak. Renders in a low-saturation fiery orange so it reads as
+/// "on fire" without overwhelming the rest of the HUD. Hidden when the
+/// player has no active streak.
+fn render_streak_chip(frame: &mut Frame, current: u64, best: u64) {
+    let area = viewport(frame);
+    let body = if best > current {
+        format!(" >>> streak {current}  (best {best}) ")
+    } else {
+        format!(" >>> streak {current} ")
+    };
+    let w = (body.len() as u16 + 2).min(area.width);
+    let h = 3u16.min(area.height);
+    if w < 6 || h < 3 {
+        return;
+    }
+    let rect = Rect {
+        x: area.x + area.width.saturating_sub(w),
+        y: area.y,
+        width: w,
+        height: h,
+    };
+    frame.render_widget(Clear, rect);
+    // Low-sat fiery orange — close to a banked-coal tone, not a saturated
+    // alert orange. Stands out from the cyan/yellow borders used elsewhere.
+    let fire = Color::Rgb(200, 110, 50);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(fire));
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    let line = ratatui::text::Line::from(ratatui::text::Span::styled(
+        body,
+        Style::default().fg(fire).add_modifier(Modifier::BOLD),
+    ));
+    frame.render_widget(Paragraph::new(vec![line]), inner);
 }
 
 fn render_pinned_task(frame: &mut Frame, q: &quest::QuestDef, progress: u32) {
