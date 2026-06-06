@@ -4299,6 +4299,7 @@ impl App {
         }
         if fish_ref.fossilized {
             self.player.fossils.push(fish_ref);
+            self.stats.fossils_caught = self.stats.fossils_caught.saturating_add(1);
         } else {
             self.player.inventory.push(fish_ref);
         }
@@ -4406,6 +4407,8 @@ impl App {
                         for _ in 0..actual_copies {
                             if fish_ref.fossilized {
                                 self.player.fossils.push(fish_ref);
+                                self.stats.fossils_caught =
+                                    self.stats.fossils_caught.saturating_add(1);
                             } else {
                                 self.player.inventory.push(fish_ref);
                             }
@@ -5822,6 +5825,8 @@ impl App {
             hull_tier: self.player.hull_tier,
             max_catch_streak: self.stats.max_catch_streak,
             shiny_catches: self.stats.shiny_catches,
+            fossils_caught: self.stats.fossils_caught,
+            fossils_unearthed: self.stats.fossils_unearthed,
             already_unlocked: &self.achievements.unlocked,
         };
         let new_unlocks = crate::achievements::newly_unlocked(&snap);
@@ -6319,6 +6324,7 @@ impl App {
         // Remove the head fossil and add the living version to the basket.
         self.player.fossils.remove(0);
         self.player.inventory.push(living);
+        self.stats.fossils_unearthed = self.stats.fossils_unearthed.saturating_add(1);
         // Auto-discover the living counterpart too — it's a "first catch"
         // moment for the species in the encyclopedia even though no rod
         // was involved.
@@ -6853,6 +6859,8 @@ impl App {
                 hull_tier: self.player.hull_tier,
                 max_catch_streak: self.stats.max_catch_streak,
                 shiny_catches: self.stats.shiny_catches,
+                fossils_caught: self.stats.fossils_caught,
+                fossils_unearthed: self.stats.fossils_unearthed,
                 already_unlocked: &self.achievements.unlocked,
             };
             render_achievements(frame, cursor, &snap, &self.achievements);

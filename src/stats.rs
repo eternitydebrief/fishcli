@@ -34,6 +34,13 @@ pub struct Stats {
     /// mechanically — the whole point is the dopamine of the roll.
     #[serde(default)]
     pub shiny_catches: u64,
+    /// Lifetime fossilized catches (from the mines). Drives the Fossil
+    /// Hunter achievement chain.
+    #[serde(default)]
+    pub fossils_caught: u64,
+    /// Lifetime fossils the archeologist has unearthed for you.
+    #[serde(default)]
+    pub fossils_unearthed: u64,
 }
 
 /// Skill XP totals. Levels are derived from xp via [`xp_to_level`].

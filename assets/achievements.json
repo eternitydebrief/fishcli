@@ -44,5 +44,8 @@
 
   { "id": "streak",    "title": "On Fire",      "kind": "max_catch_streak",   "tiers": [ { "target": 10, "reward_points": 1 }, { "target": 25, "reward_points": 2 }, { "target": 50, "reward_points": 3 }, { "target": 100, "reward_points": 5 }, { "target": 250, "reward_points": 8 }, { "target": 500, "reward_points": 12 }, { "target": 1000, "reward_points": 20 } ] },
 
-  { "id": "shimmer",   "title": "Shimmer",      "kind": "shiny_catches",      "tiers": [ { "target": 1, "reward_points": 2 }, { "target": 5, "reward_points": 3 }, { "target": 25, "reward_points": 5 }, { "target": 100, "reward_points": 8 }, { "target": 500, "reward_points": 12 }, { "target": 1000, "reward_points": 20 }, { "target": 8192, "reward_points": 50 } ] }
+  { "id": "shimmer",   "title": "Shimmer",      "kind": "shiny_catches",      "tiers": [ { "target": 1, "reward_points": 2 }, { "target": 5, "reward_points": 3 }, { "target": 25, "reward_points": 5 }, { "target": 100, "reward_points": 8 }, { "target": 500, "reward_points": 12 }, { "target": 1000, "reward_points": 20 }, { "target": 8192, "reward_points": 50 } ] },
+
+  { "id": "fossil-hunter","title": "Fossil Hunter","kind": "fossils_caught", "tiers": [ { "target": 1, "reward_points": 1 }, { "target": 5, "reward_points": 2 }, { "target": 25, "reward_points": 3 }, { "target": 100, "reward_points": 5 }, { "target": 500, "reward_points": 8 }, { "target": 1000, "reward_points": 12 } ] },
+  { "id": "unearther",    "title": "Unearther",    "kind": "fossils_unearthed","tiers": [ { "target": 1, "reward_points": 1 }, { "target": 5, "reward_points": 2 }, { "target": 25, "reward_points": 3 }, { "target": 100, "reward_points": 5 }, { "target": 500, "reward_points": 8 } ] }
 ]
