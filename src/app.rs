@@ -1923,7 +1923,17 @@ impl App {
                     self.world.dim,
                     crate::world::Dimension::AllBlue
                 ) { 0.10 } else { 0.0 };
-                let extra_speed = w_mods.catch_speed_pct + dim_bonus_pct;
+                let bait_catch_speed = match &self.bait_pending {
+                    Some((e, m)) if e == "catch_speed" => *m,
+                    _ => 0.0,
+                };
+                let combo_chain_bonus = if self.buffs.combo_chain_left > 0 {
+                    self.buffs.combo_chain_mult
+                } else {
+                    0.0
+                };
+                let extra_speed =
+                    w_mods.catch_speed_pct + dim_bonus_pct + bait_catch_speed + combo_chain_bonus;
                 let bait_label = self
                     .player
                     .bait
@@ -4120,6 +4130,14 @@ impl App {
                     self.bait_pending = None;
                     self.bait_pending_bite_speed = 0.0;
                     self.bait_pending_pool_pull = None;
+                    // Combo chain ticks down after each cast resolves.
+                    if self.buffs.combo_chain_left > 0 {
+                        self.buffs.combo_chain_left -= 1;
+                        if self.buffs.combo_chain_left == 0 {
+                            self.buffs.combo_chain_mult = 0.0;
+                            self.narrator.say("Combo chain expired.".to_string());
+                        }
+                    }
                     // Scales drop: ~5% per catch. Token currency is its own
                     // axis-shaped slow-burn upgrade — see `:scales`.
                     if crate::fish::next_rand_f32(&mut self.rng_state) < 0.05 {
@@ -4764,6 +4782,17 @@ impl App {
                 }
                 self.bait_pending_bite_speed = bait_bite_speed;
                 self.bait_pending_pool_pull = bait_pool_pull;
+                // Combo-chain bait: arms a 3-cast catch_speed buff. Any
+                // existing chain is overwritten (the new bait dictates the
+                // magnitude).
+                if let Some((e, m)) = &bait_effect {
+                    if e == "combo_chain" {
+                        self.buffs.combo_chain_left = 3;
+                        self.buffs.combo_chain_mult = *m;
+                        self.narrator
+                            .say(format!("Combo chain armed: +{:.0}% catch speed for 3 casts.", m * 100.0));
+                    }
+                }
                 let rare_boost = bait_effect
                     .as_ref()
                     .map(|(e, _)| e == "rare_chance")

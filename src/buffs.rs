@@ -17,6 +17,15 @@ pub struct Buffs {
     pub walk_speed_bonus: f32,
     /// Catch-rarity boost for rarer/harder fish. Currently stored for later.
     pub luck_bonus: f32,
+    /// Casts remaining on the combo-chain bait buff. Set by a bait with
+    /// effect == "combo_chain"; decremented after each cast resolves.
+    /// While > 0, `combo_chain_mult` adds to the catch_speed in the
+    /// fishing minigame.
+    #[serde(default)]
+    pub combo_chain_left: u32,
+    /// Additive catch_speed bonus while `combo_chain_left > 0`.
+    #[serde(default)]
+    pub combo_chain_mult: f32,
 }
 
 impl Buffs {
