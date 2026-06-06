@@ -1149,10 +1149,16 @@ impl App {
         }
     }
 
-    /// Prestige: requires ≥95% fishdex completion across non-unique non-joke
-    /// species. On commit, resets skill-tree allocations and bumps the
-    /// prestige counter (each stack grants +5% global xp_mult, applied in
-    /// `prestige_xp_mult`).
+    /// Prestige: the fishdex threshold scales DOWN with stacks so the
+    /// re-grind shrinks each loop. First prestige asks for 95% completion;
+    /// after that the bar drops by 3% per existing stack, floored at 70%.
+    /// On commit, resets skill-tree allocations and bumps the prestige
+    /// counter (each stack grants +5% global xp_mult).
+    fn prestige_required_pct(&self) -> f32 {
+        let dropped = self.prestige_count.min(8) as f32 * 0.03;
+        (0.95 - dropped).max(0.70)
+    }
+
     fn do_prestige(&mut self) {
         let total = fishlist::fish()
             .iter()
@@ -1169,9 +1175,11 @@ impl App {
             return;
         }
         let pct = (caught as f32) / (total as f32);
-        if pct < 0.95 {
+        let need = self.prestige_required_pct();
+        if pct < need {
             self.narrator.say(format!(
-                "Prestige requires 95% fishdex: {caught}/{total} ({:.0}%).",
+                "Prestige requires {:.0}% fishdex: {caught}/{total} ({:.0}%).",
+                need * 100.0,
                 pct * 100.0
             ));
             return;
