@@ -2778,57 +2778,69 @@ const BRIDGE_SPACING: i32 = 80;
 /// bank — so the bed-centre reads as fast smooth current and the banks
 /// read as rougher edge water.
 pub fn river_flow_glyph(dir: (f32, f32), edge_t: f32, x: i32, y: i32, tick: u64) -> char {
+    // Glyph selection is driven primarily by a per-cell hash so adjacent
+    // cells never share the same character — that's what was producing
+    // the "\\\\\\\\\" and "╲╲╲╲╲╲╲" wallpaper stripes on diagonal reaches.
+    // A slow tick-driven crest wave passes through and biases the
+    // palette toward heavier glyphs (the actual visible "swell"); the
+    // tangent direction picks WHICH palette so the river still reads as
+    // flowing along its bend.
     let fx = x as f32;
     let fy = y as f32;
     let arc = fx * dir.0 + fy * dir.1;
     let perp = -fy * dir.0 + fx * dir.1;
-    // Per-cell hash jitter breaks the long uniform stripes that appear
-    // on diagonal reaches: along a 45° tangent both arc and perp are
-    // constant for cells lying on the same diagonal, so without a
-    // per-cell salt every one of them picks the same glyph. ±π
-    // randomises the wave phase enough to mix '\' / '╲' / '~' inside
-    // the same diagonal sweep without breaking the downstream march.
-    let jitter = (hash2(x, y, 0xAA11_BB22) as f32 / u32::MAX as f32 - 0.5) * 2.5;
-    let wave = (arc * 0.32 - tick as f32 * 0.05 + perp * 0.20 + jitter).sin();
-    let amp = wave.abs();
-    let near_bank = edge_t > 0.70;
+    let wave = (arc * 0.20 - tick as f32 * 0.05 + perp * 0.12).sin();
+    let crest = wave > 0.55;
+    let h = hash2(x, y, 0xAA11_BB22) as usize;
+    let near_bank = edge_t > 0.75;
     let horizontal = dir.0.abs() > 2.0 * dir.1.abs();
     let vertical = dir.1.abs() > 2.0 * dir.0.abs();
     if horizontal {
         if near_bank {
-            if amp > 0.55 { '~' } else { '-' }
-        } else if amp > 0.85 {
-            if wave > 0.0 { '≈' } else { '~' }
-        } else if amp > 0.45 {
-            '~'
+            const P: &[char] = &['~', '-', '~', '-', '.', ',', '~', '─'];
+            P[h % P.len()]
+        } else if crest {
+            const P: &[char] = &['≈', '~', '≈', '~'];
+            P[h % P.len()]
         } else {
-            '─'
+            const P: &[char] = &['~', '-', '~', '─', '~', '-', '~', '─'];
+            P[h % P.len()]
         }
     } else if vertical {
         if near_bank {
-            if amp > 0.55 { '¦' } else { '|' }
-        } else if amp > 0.85 {
-            '╎'
-        } else if amp > 0.45 {
-            '¦'
+            const P: &[char] = &['|', '¦', '|', '.', ',', '|', '│', '¦'];
+            P[h % P.len()]
+        } else if crest {
+            const P: &[char] = &['╎', '¦', '╎', '¦'];
+            P[h % P.len()]
         } else {
-            '│'
+            const P: &[char] = &['|', '¦', '|', '│', '|', '¦', '│', '|'];
+            P[h % P.len()]
         }
     } else if dir.0 * dir.1 > 0.0 {
+        // SE / NW diagonal — palette leans `\` / `╲` but mixes in flat
+        // and bank glyphs so cells along the same diagonal don't share
+        // the same char.
         if near_bank {
-            '~'
-        } else if amp > 0.55 {
-            '╲'
+            const P: &[char] = &['~', '\\', '-', '.', '\\', '~', ',', '~'];
+            P[h % P.len()]
+        } else if crest {
+            const P: &[char] = &['╲', '\\', '╲', '~'];
+            P[h % P.len()]
         } else {
-            '\\'
+            const P: &[char] = &['\\', '~', '\\', '-', '╲', '~', '\\', '─'];
+            P[h % P.len()]
         }
     } else {
         if near_bank {
-            '~'
-        } else if amp > 0.55 {
-            '╱'
+            const P: &[char] = &['~', '/', '-', '.', '/', '~', ',', '~'];
+            P[h % P.len()]
+        } else if crest {
+            const P: &[char] = &['╱', '/', '╱', '~'];
+            P[h % P.len()]
         } else {
-            '/'
+            const P: &[char] = &['/', '~', '/', '-', '╱', '~', '/', '─'];
+            P[h % P.len()]
         }
     }
 }
