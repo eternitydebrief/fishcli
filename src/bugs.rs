@@ -210,6 +210,41 @@ fn hash3(a: u32, b: u32, c: u32) -> u32 {
 /// bugs share a (dim, biome, time-of-day) bucket.
 const SPAWN_RATE: f32 = 0.01;
 
+// Thread-local cache of the eligible-bug filter result keyed by
+// (dim, biome, is_night). Filtering the global defs list per render cell
+// was the dominant cost of the bug overlay; this cuts it to one filter
+// per (dim, biome) bucket per worker.
+thread_local! {
+    static ELIG_CACHE: std::cell::RefCell<
+        Option<(Dimension, Biome, bool, Vec<&'static BugDef>, f32)>,
+    > = const { std::cell::RefCell::new(None) };
+}
+
+fn with_eligible<R>(
+    dim: Dimension,
+    biome: Biome,
+    is_night: bool,
+    f: impl FnOnce(&[&'static BugDef], f32) -> R,
+) -> R {
+    ELIG_CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        let needs_rebuild = match &*c {
+            Some((d, b, n, _, _)) => *d != dim || *b != biome || *n != is_night,
+            None => true,
+        };
+        if needs_rebuild {
+            let v: Vec<&'static BugDef> = defs()
+                .iter()
+                .filter(|b| b.eligible(dim, biome, is_night))
+                .collect();
+            let total: f32 = v.iter().map(|b| b.rarity).sum();
+            *c = Some((dim, biome, is_night, v, total));
+        }
+        let (_, _, _, v, total) = c.as_ref().unwrap();
+        f(v.as_slice(), *total)
+    })
+}
+
 /// Deterministic spawn: returns the bug (if any) that lives on `(wx, wy)` in
 /// `dim`/`biome` for the given `day_id`. Fully derived from the cell, so the
 /// same cell always hosts the same bug for the whole day, and changes the
@@ -231,27 +266,20 @@ pub fn bug_at(
     if roll > SPAWN_RATE {
         return None;
     }
-    // Pick which eligible bug occupies this cell, weighted by rarity.
-    let eligible: Vec<&'static BugDef> = defs()
-        .iter()
-        .filter(|b| b.eligible(dim, biome, is_night))
-        .collect();
-    if eligible.is_empty() {
-        return None;
-    }
-    let total: f32 = eligible.iter().map(|b| b.rarity).sum();
-    if total <= 0.0 {
-        return None;
-    }
-    let pick =
-        (hash3(cell_key ^ 0xDEAD_BEEF, wx as u32, wy as u32) % 1_000_000) as f32 / 1_000_000.0;
-    let mut target = pick * total;
-    for b in &eligible {
-        if target <= b.rarity {
-            return Some(*b);
+    with_eligible(dim, biome, is_night, |eligible, total| {
+        if eligible.is_empty() || total <= 0.0 {
+            return None;
         }
-        target -= b.rarity;
-    }
-    eligible.last().copied()
+        let pick =
+            (hash3(cell_key ^ 0xDEAD_BEEF, wx as u32, wy as u32) % 1_000_000) as f32 / 1_000_000.0;
+        let mut target = pick * total;
+        for b in eligible {
+            if target <= b.rarity {
+                return Some(*b);
+            }
+            target -= b.rarity;
+        }
+        eligible.last().copied()
+    })
 }
 

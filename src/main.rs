@@ -36,6 +36,7 @@ mod mastery_challenges;
 mod mining;
 mod notes;
 mod npc;
+mod perf;
 mod player;
 mod procedural_quests;
 mod quest;

@@ -126,6 +126,8 @@ pub enum Scene {
     /// Lure-bench crafting menu. j/k pick a recipe, enter crafts (consumes
     /// bait inputs + valu, writes to BaitStock).
     LureBench { cursor: usize },
+    /// Per-frame perf instrumentation viewer. esc/q leaves.
+    Perf,
     /// Blacksmith menu. Reached by pressing `f` on a Blacksmith NPC.
     /// Branches to Smelt / Forge / sell-ore / sell-gear / leave.
     Blacksmith {
@@ -2187,6 +2189,7 @@ impl App {
     }
 
     pub fn tick(&mut self) {
+        let _tick_scope = crate::perf::Scope::new("tick.total");
         self.anim_tick = self.anim_tick.wrapping_add(1);
         if self.biome_popup_ticks > 0 {
             self.biome_popup_ticks -= 1;
@@ -3023,6 +3026,11 @@ impl App {
                 _ => {}
             },
             Scene::BugCatch(_) => self.handle_bug_catch_key(code),
+            Scene::Perf => {
+                if matches!(code, KeyCode::Esc | KeyCode::Char('q')) {
+                    self.scene = Scene::Overworld;
+                }
+            }
             Scene::LureBench { cursor } => {
                 let recipes = crate::lure_recipes::recipes();
                 let n = recipes.len();
@@ -3765,6 +3773,10 @@ impl App {
             }
             "scales" => {
                 self.scene = Scene::Scales { cursor: 0 };
+                self.mode = Mode::Insert;
+            }
+            "perf" | "performancemenu" => {
+                self.scene = Scene::Perf;
                 self.mode = Mode::Insert;
             }
             "prestige" => {
@@ -6196,6 +6208,7 @@ impl App {
     }
 
     pub fn render(&mut self, frame: &mut Frame) {
+        let _frame_scope = crate::perf::Scope::new("render.total");
         let term = frame.area();
         if term.width < MIN_W || term.height < MIN_H {
             render_too_small(frame, term);
@@ -6217,6 +6230,7 @@ impl App {
                     .border_style(Style::default().fg(Color::Cyan));
                 let inner = block.inner(area);
                 frame.render_widget(block, area);
+                let _world_scope = crate::perf::Scope::new("render.world");
                 let dim_now = self.world.dim;
                 let picked_dim: Vec<(i32, i32)> = self
                     .bugs_picked_today
@@ -6497,6 +6511,7 @@ impl App {
                 &self.player.bait,
                 self.player.valu,
             ),
+            Scene::Perf => render_perf(frame),
         }
 
         if let Scene::Gear { slot_idx, item_idx } = &self.scene {
@@ -9782,6 +9797,52 @@ fn render_cookbook(
         Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }),
         inner,
     );
+}
+
+fn render_perf(frame: &mut Frame) {
+    let area = viewport(frame);
+    frame.render_widget(Clear, area);
+    let snap = crate::perf::snapshot();
+    let title = format!(" perf — {} phases — esc/q close ", snap.len());
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(Color::LightMagenta));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let mut rows: Vec<(&'static str, u64, u64, u64, u64)> = snap
+        .iter()
+        .map(|(name, r)| (*name, r.mean(), r.p95(), r.max(), r.last()))
+        .collect();
+    rows.sort_by(|a, b| b.1.cmp(&a.1));
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        format!(
+            "  {:<28} {:>9} {:>9} {:>9} {:>9}",
+            "phase", "mean(us)", "p95(us)", "max(us)", "last(us)"
+        ),
+        Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(ratatui::text::Line::from(""));
+    for (name, mean, p95, max, last) in rows {
+        let hot = mean >= 5_000;
+        let style = if hot {
+            Style::default().fg(Color::Rgb(220, 110, 60)).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+            format!("  {name:<28} {mean:>9} {p95:>9} {max:>9} {last:>9}"),
+            style,
+        )));
+    }
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        "  hot rows highlighted (mean >= 5ms). budget = 50ms/frame at 20fps.",
+        Style::default().fg(Color::DarkGray),
+    )));
+    let p = Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false });
+    frame.render_widget(p, inner);
 }
 
 fn render_lure_bench(
