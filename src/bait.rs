@@ -69,10 +69,16 @@ pub fn defs() -> &'static [BaitDef] {
                 .first()
                 .map(|s| s.to_string())
                 .unwrap_or_default();
-            // Magnitude scales with difficulty²: a diff-1 bluegill chunk
-            // gives a tiny pull (~0.4×); a diff-10 bluefin chunk gives 40×.
-            let pool_pull_mult =
-                if pool_pull.is_empty() { 0.0 } else { 0.4 * (f.difficulty as f32).powf(2.0) / 10.0 };
+            // Magnitude scales with difficulty but capped so the pull
+            // doesn't completely override the picker's other weights.
+            // Curve: linear-ish ramp from ~0.4× at diff 1 to ~2.0× at
+            // diff 10. The old quadratic curve let a chunked diff-10
+            // species pull at 40×, which trivialised the pool gates.
+            let pool_pull_mult = if pool_pull.is_empty() {
+                0.0
+            } else {
+                (0.3 + (f.difficulty as f32) * 0.18).min(2.0)
+            };
             let generic_magnitude = 0.02 + (f.difficulty as f32) * 0.03;
             out.push(BaitDef {
                 id: format!("fish:{slug}"),
