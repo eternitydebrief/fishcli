@@ -23,6 +23,7 @@ mod gametime;
 mod gear;
 mod house;
 mod inspect_text;
+mod landmarks;
 mod lure_recipes;
 mod weather;
 mod fishdex;

@@ -374,6 +374,9 @@ pub struct App {
     pub scales_spent: std::collections::BTreeMap<String, u32>,
     /// Times the player has prestiged. +5% global xp_mult per stack.
     pub prestige_count: u32,
+    /// Landmark capes the player has already unlocked. Read on tick to
+    /// decide which `landmarks::landmarks()` entries still need firing.
+    pub landmarks_unlocked: Vec<String>,
     /// Tree anchor coords for the in-progress chopping minigame. Consumed
     /// (and cleared) on chop completion to mark exactly one tree as cut.
     pub pending_chop_anchor: Option<(i32, i32)>,
@@ -564,6 +567,7 @@ impl App {
             scales: 0,
             scales_spent: std::collections::BTreeMap::new(),
             prestige_count: 0,
+            landmarks_unlocked: Vec::new(),
             pending_chop_anchor: None,
             recipe_discovered: vec![false; crate::recipes::recipes().len()],
             discovery_queue: std::collections::VecDeque::new(),
@@ -802,6 +806,7 @@ impl App {
         self.scales = data.scales;
         self.scales_spent = data.scales_spent.clone();
         self.prestige_count = data.prestige_count;
+        self.landmarks_unlocked = data.landmarks_unlocked.clone();
         if !data.mastery.is_empty() {
             let n = self.mastery.len();
             for (i, &v) in data.mastery.iter().enumerate().take(n) {
@@ -993,6 +998,7 @@ impl App {
             scales: self.scales,
             scales_spent: self.scales_spent.clone(),
             prestige_count: self.prestige_count,
+            landmarks_unlocked: self.landmarks_unlocked.clone(),
         }
     }
 
@@ -1000,6 +1006,72 @@ impl App {
     /// stamina (difficulty * 5), and grant a small permanent buff scaled
     /// to the species's difficulty. Unique fish (Fish, Five Elders) can't
     /// be cooked.
+    /// Sum the landmark-reward bonus for an axis across every unlocked cape.
+    pub fn landmark_bonus(&self, axis: &str) -> f32 {
+        let mut acc = 0.0f32;
+        for id in &self.landmarks_unlocked {
+            if let Some(l) = crate::landmarks::def_by_id(id) {
+                acc += match axis {
+                    "xp_mult" => l.reward.xp_mult,
+                    "valu_mult" => l.reward.valu_mult,
+                    "rare_chance" => l.reward.rare_chance,
+                    _ => 0.0,
+                };
+            }
+        }
+        acc
+    }
+
+    /// Per-tick landmark check. Fires any unmet landmark whose criteria now
+    /// hold, narrates the unlock, and records the id so it stays unlocked.
+    fn check_landmarks(&mut self) {
+        let total = fishlist::fish()
+            .iter()
+            .filter(|f| !f.unique && !f.joke)
+            .count()
+            .max(1);
+        let caught = fishlist::fish()
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| !f.unique && !f.joke)
+            .filter(|(i, _)| self.caught.get(*i).copied().unwrap_or(false))
+            .count();
+        let pct = ((caught as f32) / (total as f32) * 100.0) as u8;
+        let mut visited: Vec<&'static str> = Vec::new();
+        if self.visited_atlantis { visited.push("Atlantis"); }
+        if self.visited_inferno { visited.push("Inferno"); }
+        if self.visited_mines { visited.push("Mines"); }
+        // Surface dims with sentinel-string match by current/visited dim.
+        // For "All Blue" we treat the lifetime visit as "have we ever been".
+        // No dedicated flag yet, so derive from current dim:
+        if matches!(self.world.dim, crate::world::Dimension::AllBlue) {
+            visited.push("All Blue");
+        }
+        let snap = crate::landmarks::Snapshot {
+            catches: self.stats.fish_caught,
+            fishdex_pct: pct,
+            rod_tier: self.player.rods.max_owned,
+            bugs_caught: self.bugs_caught.iter().map(|&c| c as u64).sum(),
+            play_hours: self.total_play_secs() / 3600,
+            visited_dim_labels: visited,
+        };
+        for l in crate::landmarks::landmarks() {
+            if self.landmarks_unlocked.iter().any(|id| id == &l.id) {
+                continue;
+            }
+            if crate::landmarks::criteria_met(&l.criteria, &snap) {
+                self.landmarks_unlocked.push(l.id.clone());
+                self.narrator.say(format!(
+                    "*** Landmark: {} unlocked. (+{:.0}% xp, +{:.0}% valu, +{:.0}% rare) ***",
+                    l.name,
+                    l.reward.xp_mult * 100.0,
+                    l.reward.valu_mult * 100.0,
+                    l.reward.rare_chance * 100.0,
+                ));
+            }
+        }
+    }
+
     /// Prestige: requires ≥95% fishdex completion across non-unique non-joke
     /// species. On commit, resets skill-tree allocations and bumps the
     /// prestige counter (each stack grants +5% global xp_mult, applied in
@@ -2128,6 +2200,7 @@ impl App {
             self.tick_cape_payout();
             self.tick_market_day_rollover();
             self.tick_bugs_day_rollover();
+            self.check_landmarks();
         }
         if let Some(t) = self.pending_quit_at {
             if self.anim_tick >= t {
@@ -4220,13 +4293,15 @@ impl App {
                     let dim_bonus = self.dim_bonus_mult();
                     let scales_xp = 1.0 + self.scales_bonus("xp_mult");
                     let prestige_xp = self.prestige_xp_mult();
+                    let landmark_xp = 1.0 + self.landmark_bonus("xp_mult");
                     let gained = ((base_xp as f32)
                         * self.skill_tree.global_xp_mult()
                         * tackle_xp
                         * bait_xp
                         * dim_bonus
                         * scales_xp
-                        * prestige_xp) as u64;
+                        * prestige_xp
+                        * landmark_xp) as u64;
                     let gained = gained.max(1);
                     // Bait valu_mult: pay a one-time bonus equal to the fish's
                     // sell price * magnitude, right now (so the player doesn't
@@ -5571,7 +5646,8 @@ impl App {
             * self.skill_tree.valu_mult()
             * biome_mult
             * (1.0 + self.player.tackle.sum_effect("valu_mult"))
-            * (1.0 + self.scales_bonus("valu_mult"));
+            * (1.0 + self.scales_bonus("valu_mult"))
+            * (1.0 + self.landmark_bonus("valu_mult"));
         let mut sold = 0u64;
         let mut total = 0u64;
         for f in self.player.inventory.iter() {
@@ -5640,7 +5716,8 @@ impl App {
             * self.skill_tree.valu_mult()
             * biome_mult
             * (1.0 + self.player.tackle.sum_effect("valu_mult"))
-            * (1.0 + self.scales_bonus("valu_mult"));
+            * (1.0 + self.scales_bonus("valu_mult"))
+            * (1.0 + self.landmark_bonus("valu_mult"));
         let mut out: Vec<(String, u64, u64)> = Vec::new();
         for f in self.player.inventory.iter().filter(|f| !f.unique) {
             let mbonus = self.mastery_value_bonus(f);
@@ -5685,7 +5762,8 @@ impl App {
             * self.skill_tree.valu_mult()
             * biome_mult
             * (1.0 + self.player.tackle.sum_effect("valu_mult"))
-            * (1.0 + self.scales_bonus("valu_mult"));
+            * (1.0 + self.scales_bonus("valu_mult"))
+            * (1.0 + self.landmark_bonus("valu_mult"));
         let mut sold = 0u64;
         let mut total = 0u64;
         let mut keep: Vec<&'static crate::fish::FishDef> =

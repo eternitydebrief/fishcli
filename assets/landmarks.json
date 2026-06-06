@@ -1,0 +1,19 @@
+[
+  { "_comment": "schema: { id (kebab-case), name (cape title - user-editable), criteria { kind: 'catches'|'fishdex_pct'|'rod_tier'|'visited_dim'|'bugs_caught'|'play_hours', target: <int>, target_str: <str optional> }, reward { xp_mult: f32, valu_mult: f32, rare_chance: f32 }. Unlocks fire once and persist. Names/descriptions are user-editable narrative." },
+
+  { "id": "first-cast",       "name": "Apprentice Cape",  "criteria": { "kind": "catches",      "target":      1 }, "reward": { "xp_mult": 0.01, "valu_mult": 0.00, "rare_chance": 0.00 } },
+  { "id": "century",          "name": "Hundred Cape",     "criteria": { "kind": "catches",      "target":    100 }, "reward": { "xp_mult": 0.02, "valu_mult": 0.01, "rare_chance": 0.00 } },
+  { "id": "thousand",         "name": "Thousand Cape",    "criteria": { "kind": "catches",      "target":   1000 }, "reward": { "xp_mult": 0.02, "valu_mult": 0.02, "rare_chance": 0.01 } },
+  { "id": "myriad",           "name": "Myriad Cape",      "criteria": { "kind": "catches",      "target":  10000 }, "reward": { "xp_mult": 0.03, "valu_mult": 0.03, "rare_chance": 0.02 } },
+  { "id": "dex-25",           "name": "Quarter Cape",     "criteria": { "kind": "fishdex_pct",  "target":     25 }, "reward": { "xp_mult": 0.02, "valu_mult": 0.02, "rare_chance": 0.01 } },
+  { "id": "dex-50",           "name": "Half Cape",        "criteria": { "kind": "fishdex_pct",  "target":     50 }, "reward": { "xp_mult": 0.03, "valu_mult": 0.03, "rare_chance": 0.02 } },
+  { "id": "dex-100",          "name": "Compleat Cape",    "criteria": { "kind": "fishdex_pct",  "target":    100 }, "reward": { "xp_mult": 0.10, "valu_mult": 0.10, "rare_chance": 0.05 } },
+  { "id": "rod-50",           "name": "Mid-Rod Cape",     "criteria": { "kind": "rod_tier",     "target":     50 }, "reward": { "xp_mult": 0.02, "valu_mult": 0.02, "rare_chance": 0.01 } },
+  { "id": "rod-100",          "name": "Centurion Rod Cape","criteria":{ "kind": "rod_tier",     "target":    100 }, "reward": { "xp_mult": 0.03, "valu_mult": 0.03, "rare_chance": 0.02 } },
+  { "id": "rod-200",          "name": "Apex Rod Cape",    "criteria": { "kind": "rod_tier",     "target":    200 }, "reward": { "xp_mult": 0.05, "valu_mult": 0.05, "rare_chance": 0.04 } },
+  { "id": "atlantis-arrival", "name": "Sea Pilgrim Cape", "criteria": { "kind": "visited_dim",  "target":      1, "target_str": "Atlantis" }, "reward": { "xp_mult": 0.02, "valu_mult": 0.02, "rare_chance": 0.02 } },
+  { "id": "inferno-arrival",  "name": "Smokewalker Cape", "criteria": { "kind": "visited_dim",  "target":      1, "target_str": "Inferno"  }, "reward": { "xp_mult": 0.02, "valu_mult": 0.02, "rare_chance": 0.02 } },
+  { "id": "allblue-arrival",  "name": "Beyond Cape",      "criteria": { "kind": "visited_dim",  "target":      1, "target_str": "All Blue" }, "reward": { "xp_mult": 0.05, "valu_mult": 0.05, "rare_chance": 0.05 } },
+  { "id": "bug-50",           "name": "Bug Tread Cape",   "criteria": { "kind": "bugs_caught",  "target":     50 }, "reward": { "xp_mult": 0.01, "valu_mult": 0.01, "rare_chance": 0.01 } },
+  { "id": "bug-500",          "name": "Entomologist Cape","criteria": { "kind": "bugs_caught",  "target":    500 }, "reward": { "xp_mult": 0.03, "valu_mult": 0.02, "rare_chance": 0.02 } }
+]

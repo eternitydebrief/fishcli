@@ -204,6 +204,11 @@ pub struct SaveData {
     /// tree allocations and grants a permanent +5% global xp_mult.
     #[serde(default)]
     pub prestige_count: u32,
+    /// Landmark cape IDs unlocked so far. Checked against current snapshot
+    /// every ~1s; missing ones whose criteria now hold fire and grant
+    /// their reward.
+    #[serde(default)]
+    pub landmarks_unlocked: Vec<String>,
 }
 
 fn default_stamina() -> f32 {
