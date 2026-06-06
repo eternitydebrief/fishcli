@@ -3904,6 +3904,53 @@ fn shade(base: (u8, u8, u8), x: i32, y: i32, salt: u32, range: i32) -> Color {
     )
 }
 
+/// Hash a lattice point to a value in -1..1. Plain value noise (not true
+/// Perlin gradients) — visually similar, cheaper, no axis bias.
+#[inline]
+fn lattice_value(xi: i32, yi: i32, zi: i32, seed: u32) -> f32 {
+    let h = hash2(
+        xi.wrapping_add(zi.wrapping_mul(73_856_093)),
+        yi.wrapping_add(zi.wrapping_mul(19_349_663)),
+        seed,
+    );
+    (h as f32 / u32::MAX as f32) * 2.0 - 1.0
+}
+
+#[inline]
+fn smoothstep(t: f32) -> f32 {
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// 3D value noise via trilinear interpolation between hashed lattice points.
+/// Returns approximately -1..1. Used by water_anim to add an axis-free
+/// noise layer that morphs continuously through time.
+fn value_noise_3d(x: f32, y: f32, z: f32, seed: u32) -> f32 {
+    let xi = x.floor() as i32;
+    let yi = y.floor() as i32;
+    let zi = z.floor() as i32;
+    let xf = x - xi as f32;
+    let yf = y - yi as f32;
+    let zf = z - zi as f32;
+    let u = smoothstep(xf);
+    let v = smoothstep(yf);
+    let w = smoothstep(zf);
+    let n000 = lattice_value(xi, yi, zi, seed);
+    let n100 = lattice_value(xi + 1, yi, zi, seed);
+    let n010 = lattice_value(xi, yi + 1, zi, seed);
+    let n110 = lattice_value(xi + 1, yi + 1, zi, seed);
+    let n001 = lattice_value(xi, yi, zi + 1, seed);
+    let n101 = lattice_value(xi + 1, yi, zi + 1, seed);
+    let n011 = lattice_value(xi, yi + 1, zi + 1, seed);
+    let n111 = lattice_value(xi + 1, yi + 1, zi + 1, seed);
+    let nx00 = n000 * (1.0 - u) + n100 * u;
+    let nx10 = n010 * (1.0 - u) + n110 * u;
+    let nx01 = n001 * (1.0 - u) + n101 * u;
+    let nx11 = n011 * (1.0 - u) + n111 * u;
+    let ny0 = nx00 * (1.0 - v) + nx10 * v;
+    let ny1 = nx01 * (1.0 - v) + nx11 * v;
+    ny0 * (1.0 - w) + ny1 * w
+}
+
 fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
     let t = tick as f32 * 0.012;
     let fx = x as f32;
@@ -3942,9 +3989,13 @@ fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
     // long-wave ridge at the per-cell scale so the eye can't trace a line.
     let turb1 = (wx * 2.71 + wy * 3.11 + t * 1.60).sin() * 0.15;
     let turb2 = (wx * 4.29 - wy * 3.73 + t * 1.20).sin() * 0.10;
+    // Value-noise layer (Perlin-style): low-frequency smooth blobs with
+    // no axis bias, interpolated over time so they morph continuously.
+    let n_slow = value_noise_3d(fx * 0.13, fy * 0.13, t * 0.30, 0xC0FF_EE_01) * 0.45;
+    let n_med = value_noise_3d(fx * 0.31, fy * 0.31, t * 0.55, 0xC0FF_EE_02) * 0.25;
     let cell_jitter =
         (hash2(x, y, 0xA11_BABE) as f32 / u32::MAX as f32 - 0.5) * 1.0;
-    let h = w1 + w2 + w3 + w4 + turb1 + turb2 + cell_jitter;
+    let h = w1 + w2 + w3 + w4 + turb1 + turb2 + n_slow + n_med + cell_jitter;
     let (glyph, base) = if h > 1.6 {
         ('~', (110, 135, 155))
     } else if h > 0.8 {
