@@ -1159,7 +1159,19 @@ impl App {
         (0.95 - dropped).max(0.70)
     }
 
-    fn do_prestige(&mut self) {
+    /// Prestige keeps every form of knowledge: the fishdex `caught` flags,
+    /// per-species mastery, bug mastery, recipe_discovered, cooking_mastery,
+    /// achievements, encyclopedia milestones already granted, lifetime
+    /// stats, skill xp totals, inventory (basket, fossils, items, bait,
+    /// rods, gear, tackle), valu, wood, hull tier, landmarks_unlocked,
+    /// pickaxe / boat / bug-net possession.
+    ///
+    /// Only skill_tree allocations are reset (so the player can re-pick a
+    /// build with the +5% xp_mult bonus). When `regen_map` is true we also
+    /// pick a fresh world seed and wipe coord-tied caches (seen tiles,
+    /// chopped trees, forage cooldowns, vein cooldowns, faceless, bugs/
+    /// soil tracked today).
+    fn do_prestige(&mut self, regen_map: bool) {
         let total = fishlist::fish()
             .iter()
             .filter(|f| !f.unique && !f.joke)
@@ -1186,10 +1198,35 @@ impl App {
         }
         self.skill_tree = crate::skill_tree::SkillTree::default();
         self.prestige_count = self.prestige_count.saturating_add(1);
-        self.narrator.say(format!(
-            "*** PRESTIGE {}. Skill tree reset; +5% global xp permanent. ***",
-            self.prestige_count
-        ));
+        if regen_map {
+            // Derive a fresh seed from the player name AND the new stack
+            // count so each prestige loop produces a different world.
+            let base = seed_from_name(&self.player.name);
+            let new_seed = base.wrapping_mul(2_654_435_761)
+                .wrapping_add(self.prestige_count.wrapping_mul(0xC0FF_EE17));
+            let new_seed = if new_seed == 0 { 1 } else { new_seed };
+            self.world = World::new(new_seed);
+            self.rng_state = new_seed ^ 0xC0FF_EE42;
+            // wipe everything tied to specific world coordinates
+            self.seen_cells.clear();
+            self.foraged_cooldown.clear();
+            self.bugs_picked_today.clear();
+            self.soil_dug_today.clear();
+            self.veins.clear();
+            self.faceless.clear();
+            self.player.x = 0;
+            self.player.y = 2;
+            kick_off_pregen(new_seed);
+            self.narrator.say(format!(
+                "*** PRESTIGE {}. Skill tree reset. Map reborn. +5% global xp permanent. ***",
+                self.prestige_count
+            ));
+        } else {
+            self.narrator.say(format!(
+                "*** PRESTIGE {}. Skill tree reset; +5% global xp permanent. ***",
+                self.prestige_count
+            ));
+        }
     }
 
     /// Permanent global xp mult from prestige stacks. +5% per stack.
@@ -3984,7 +4021,10 @@ impl App {
                 self.mode = Mode::Insert;
             }
             "prestige" => {
-                self.do_prestige();
+                self.do_prestige(false);
+            }
+            "prestige newmap" | "prestige regen" | "prestige reroll" => {
+                self.do_prestige(true);
             }
             cmd if cmd.starts_with("cook ") || cmd == "cook" => {
                 let name = cmd.strip_prefix("cook").unwrap_or("").trim();
