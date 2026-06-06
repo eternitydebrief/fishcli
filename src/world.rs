@@ -2310,18 +2310,13 @@ fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
             }
             // Lobed shape: main ellipse plus two satellite ellipses at
             // small offsets so shorelines bulge and indent instead of
-            // tracing a clean oval. Per-cell noise modulates the radius
-            // by ±8% so the very edge is bumpy too.
+            // tracing a clean oval.
             let lobe1_dx = (((h >> 24) & 0xF) as i32) - 8;
             let lobe1_dy = (((h >> 4) & 0x7) as i32) - 3;
             let lobe2_dx = (((h >> 16) & 0xF) as i32) - 8;
             let lobe2_dy = (((h >> 8) & 0x7) as i32) - 3;
             let lobe_rx = (rx * 3 / 5).max(2);
             let lobe_ry = (ry * 3 / 5).max(1);
-            let edge_noise = ((hash2(x, y, seed.wrapping_add(0xCAFE_F00D)) % 1000) as f32
-                / 1000.0
-                - 0.5)
-                * 0.16;
             let dxf = (x - ax) as f32 / rx.max(1) as f32;
             let dyf = (y - ay) as f32 / ry.max(1) as f32;
             let d_main = dxf * dxf + dyf * dyf;
@@ -2331,7 +2326,7 @@ fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
             let l2x = (x - (ax + lobe2_dx)) as f32 / lobe_rx.max(1) as f32;
             let l2y = (y - (ay + lobe2_dy)) as f32 / lobe_ry.max(1) as f32;
             let d_l2 = l2x * l2x + l2y * l2y;
-            let d = d_main.min(d_l1).min(d_l2) + edge_noise;
+            let d = d_main.min(d_l1).min(d_l2);
             if d <= 1.0 {
                 info.in_water = true;
                 if d > 0.82 {
