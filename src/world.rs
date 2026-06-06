@@ -2913,8 +2913,11 @@ fn village_anchor_for(x: i32, y: i32, seed: u32) -> Option<PVillage> {
                 _ => VillageKind::Floating,
             };
             let radius = match kind {
-                VillageKind::Hamlet => 18,
-                VillageKind::Town => 35,
+                VillageKind::Hamlet => 22,
+                VillageKind::Town => {
+                    let (hw, hh) = town_half_extents(h);
+                    hw.max(hh) + 4
+                }
                 VillageKind::Floating => 28,
             };
             if (x - ax).abs() <= radius && (y - ay).abs() <= radius {
@@ -2930,82 +2933,165 @@ fn procedural_village_tile(x: i32, y: i32, seed: u32) -> Option<Tile> {
     let dx = x - v.ax;
     let dy = y - v.ay;
     match v.kind {
-        VillageKind::Hamlet => hamlet_tile(dx, dy),
-        VillageKind::Town => town_tile(dx, dy),
+        VillageKind::Hamlet => hamlet_tile(dx, dy, v.hash),
+        VillageKind::Town => town_tile(dx, dy, v.hash),
         VillageKind::Floating => floating_tile(dx, dy),
     }
 }
 
-fn hamlet_tile(dx: i32, dy: i32) -> Option<Tile> {
-    // 3 small huts around a central well — all are someone's house.
-    let huts = &[
-        ((-10, -7), (-6, -5), (-8, -5), Tile::DoorHouse),
-        ((6, -7), (10, -5), (8, -5), Tile::DoorHouse),
-        ((-2, 5), (2, 7), (0, 7), Tile::DoorHouse),
+/// Town footprint half-width / half-height. Picked from the village
+/// hash so each town has its own size — small ones are ~24 wide, big
+/// ones up to ~70 wide. The walled rectangle uses these as the inner
+/// extent; the wall row sits one tile beyond.
+fn town_half_extents(vhash: u32) -> (i32, i32) {
+    // 5 size buckets — tuned so the largest comfortably hosts 15-20
+    // procedural houses while staying inside the village radius gate.
+    let (hw, hh) = match (vhash >> 18) % 5 {
+        0 => (12, 6),  // tiny
+        1 => (18, 9),  // small (legacy size)
+        2 => (24, 12), // medium
+        3 => (32, 16), // large
+        _ => (42, 20), // huge
+    };
+    (hw, hh)
+}
+
+/// House slot grid for procedural towns. Slot dimensions chosen so the
+/// largest house (8x5) fits with a one-cell gap on each side, leaving
+/// room for paths.
+const HOUSE_SLOT_W: i32 = 10;
+const HOUSE_SLOT_H: i32 = 7;
+
+/// What's at (dx, dy) inside a procedural house? Returns None when the
+/// slot at this position carries no house or the cell falls outside the
+/// chosen footprint. Walls run along the perimeter, roof on the top
+/// row, and the door sits middle-bottom (or middle-side for shops).
+fn town_house_at(dx: i32, dy: i32, vhash: u32) -> Option<Tile> {
+    // Reserve the central cross-paths so the village stays walkable
+    // regardless of which house footprints get rolled into adjacent
+    // slots. The path strip is 3 cells wide (dx in {-1,0,1}).
+    if dx.abs() <= 1 || dy.abs() <= 1 {
+        return None;
+    }
+    let sx = dx.div_euclid(HOUSE_SLOT_W);
+    let sy = dy.div_euclid(HOUSE_SLOT_H);
+    // central plaza stays empty
+    if sx == 0 && sy == 0 {
+        return None;
+    }
+    let slot_hash = hash2(sx, sy, vhash.wrapping_add(0xB0A7_5E11));
+    // density gate — ~70% of slots host a house
+    if slot_hash % 10 < 3 {
+        return None;
+    }
+    // pick footprint. Smaller is more common so towns aren't full of
+    // mansions. Each slot is 10x7, so even the 8x5 max fits with margin.
+    let (hw, hh) = match (slot_hash >> 4) % 7 {
+        0 | 1 => (4, 3),
+        2 | 3 => (5, 3),
+        4 => (6, 4),
+        5 => (7, 4),
+        _ => (8, 5),
+    };
+    // anchor the house in the top-left of the slot (after a one-cell
+    // gap so adjacent houses don't share walls).
+    let lx = dx.rem_euclid(HOUSE_SLOT_W);
+    let ly = dy.rem_euclid(HOUSE_SLOT_H);
+    if lx < 1 || ly < 1 || lx >= 1 + hw || ly >= 1 + hh {
+        return None;
+    }
+    let in_x = lx - 1;
+    let in_y = ly - 1;
+    // door kind: most are homes, one in eight is a rod shop, one in
+    // twelve is a fishing school. Shops aren't gated to specific slots
+    // so each town's economy lays out differently.
+    let door_kind = match (slot_hash >> 12) % 24 {
+        0..=1 => Tile::DoorRod,
+        2 => Tile::DoorSchool,
+        _ => Tile::DoorHouse,
+    };
+    if in_y == 0 {
+        return Some(Tile::Roof);
+    }
+    if in_y == hh - 1 && in_x == hw / 2 {
+        return Some(door_kind);
+    }
+    Some(Tile::Wall)
+}
+
+fn hamlet_tile(dx: i32, dy: i32, vhash: u32) -> Option<Tile> {
+    // 3-5 huts around a central well; each picks its own footprint from
+    // the village hash so no two hamlets look identical.
+    let count = 3 + ((vhash >> 22) % 3) as usize; // 3..=5
+    let offsets: &[(i32, i32)] = &[
+        (-9, -7),
+        (8, -7),
+        (-1, 6),
+        (-12, 1),
+        (11, 1),
     ];
-    for &((xa, ya), (xb, yb), (dxx, dyy), door) in huts {
-        if (xa..=xb).contains(&dx) && (ya..=yb).contains(&dy) {
-            if (dx, dy) == (dxx, dyy) {
-                return Some(door);
-            }
-            if dy == ya {
-                return Some(Tile::Roof);
-            }
-            return Some(Tile::Wall);
+    for (i, &(hx, hy)) in offsets.iter().enumerate().take(count) {
+        let slot_hash = hash2(i as i32, 0, vhash.wrapping_add(0xC0FF_EE01));
+        let (hw, hh) = match slot_hash % 4 {
+            0 => (4, 3),
+            1 => (5, 3),
+            2 => (6, 4),
+            _ => (7, 4),
+        };
+        let in_x = dx - hx;
+        let in_y = dy - hy;
+        if in_x < 0 || in_y < 0 || in_x >= hw || in_y >= hh {
+            continue;
         }
+        if in_y == 0 {
+            return Some(Tile::Roof);
+        }
+        if in_y == hh - 1 && in_x == hw / 2 {
+            return Some(Tile::DoorHouse);
+        }
+        return Some(Tile::Wall);
     }
     if (dx, dy) == (0, 0) {
         return Some(Tile::Well);
     }
-    // path: short corridors to each hut
     if dx.abs() <= 1 && (-4..=4).contains(&dy) {
         return Some(Tile::Path);
     }
-    if dy.abs() <= 1 && (-8..=8).contains(&dx) {
+    if dy.abs() <= 1 && (-10..=10).contains(&dx) {
         return Some(Tile::Path);
     }
     None
 }
 
-fn town_tile(dx: i32, dy: i32) -> Option<Tile> {
-    // walled town: rectangle from (-18, -10) to (18, 10)
-    if dx == -18 || dx == 18 {
-        if (-10..=10).contains(&dy) && !(-2..=2).contains(&dy) {
+fn town_tile(dx: i32, dy: i32, vhash: u32) -> Option<Tile> {
+    let (hw, hh) = town_half_extents(vhash);
+    // walled rectangle from (-hw, -hh) to (hw, hh) with gates at the four
+    // cardinal midpoints (gates are 5 cells wide so the player can walk
+    // through without ducking).
+    if dx == -hw || dx == hw {
+        if (-hh..=hh).contains(&dy) && !(-2..=2).contains(&dy) {
             return Some(Tile::Wall);
         }
     }
-    if dy == -10 || dy == 10 {
-        if (-18..=18).contains(&dx) && !(-2..=2).contains(&dx) {
+    if dy == -hh || dy == hh {
+        if (-hw..=hw).contains(&dx) && !(-2..=2).contains(&dx) {
             return Some(Tile::Wall);
         }
     }
-    // 5 houses inside — one rod shop + one school per town, rest are homes.
-    let huts = &[
-        ((-15, -7), (-11, -5), (-13, -5), Tile::DoorRod),
-        ((-5, -7), (-1, -5), (-3, -5), Tile::DoorHouse),
-        ((5, -7), (9, -5), (7, -5), Tile::DoorSchool),
-        ((-9, 5), (-5, 7), (-7, 7), Tile::DoorHouse),
-        ((5, 5), (9, 7), (7, 7), Tile::DoorHouse),
-    ];
-    for &((xa, ya), (xb, yb), (dxx, dyy), door) in huts {
-        if (xa..=xb).contains(&dx) && (ya..=yb).contains(&dy) {
-            if (dx, dy) == (dxx, dyy) {
-                return Some(door);
-            }
-            if dy == ya {
-                return Some(Tile::Roof);
-            }
-            return Some(Tile::Wall);
+    // procedural houses inside the walls
+    if dx.abs() < hw && dy.abs() < hh {
+        if let Some(t) = town_house_at(dx, dy, vhash) {
+            return Some(t);
         }
     }
     if (dx, dy) == (0, 0) {
         return Some(Tile::Well);
     }
-    // main cross paths
-    if dx.abs() <= 1 && (-9..=9).contains(&dy) {
+    // main cross paths through the gates
+    if dx.abs() <= 1 && (-(hh - 1)..=hh - 1).contains(&dy) {
         return Some(Tile::Path);
     }
-    if dy.abs() <= 1 && (-17..=17).contains(&dx) {
+    if dy.abs() <= 1 && (-(hw - 1)..=hw - 1).contains(&dx) {
         return Some(Tile::Path);
     }
     None
