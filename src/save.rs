@@ -190,6 +190,16 @@ pub struct SaveData {
     /// `bugs_picked`.
     #[serde(default)]
     pub soil_dug: Vec<(crate::world::Dimension, i32, i32)>,
+    /// Scales: a token currency dropped at low odds per catch. Spendable
+    /// on small permanent stat bumps via the `:scales` menu, cap of 1000
+    /// tokens per axis.
+    #[serde(default)]
+    pub scales: u64,
+    /// Tokens spent per stat axis. Caps at 1000 per key. Each unit grants
+    /// +0.05% on the named axis (rare_chance / catch_speed / valu_mult /
+    /// xp_mult / bite_speed).
+    #[serde(default)]
+    pub scales_spent: std::collections::BTreeMap<String, u32>,
 }
 
 fn default_stamina() -> f32 {

@@ -121,6 +121,8 @@ pub enum Scene {
     /// Bug-net micro-game. The player faced a bug tile and pressed `f`.
     /// Space attempts the catch when the cursor is inside the target zone.
     BugCatch(crate::bug_catch::BugCatch),
+    /// Scales spend menu. j/k pick an axis, enter spends 1 scale.
+    Scales { cursor: usize },
     /// Blacksmith menu. Reached by pressing `f` on a Blacksmith NPC.
     /// Branches to Smelt / Forge / sell-ore / sell-gear / leave.
     Blacksmith {
@@ -362,6 +364,11 @@ pub struct App {
     /// Cells where a soil patch was dug today. Shares the day-rollover with
     /// `bugs_picked_today`.
     pub soil_dug_today: std::collections::HashSet<(crate::world::Dimension, i32, i32)>,
+    /// Scales: persistent token currency. Drops at ~5% per fish catch.
+    pub scales: u64,
+    /// Per-axis token spend. Read via `scales_bonus(axis)` and applied
+    /// additively in the appropriate stat path.
+    pub scales_spent: std::collections::BTreeMap<String, u32>,
     /// Tree anchor coords for the in-progress chopping minigame. Consumed
     /// (and cleared) on chop completion to mark exactly one tree as cut.
     pub pending_chop_anchor: Option<(i32, i32)>,
@@ -549,6 +556,8 @@ impl App {
             bugs_picked_today: std::collections::HashSet::new(),
             bugs_picked_day_id: 0,
             soil_dug_today: std::collections::HashSet::new(),
+            scales: 0,
+            scales_spent: std::collections::BTreeMap::new(),
             pending_chop_anchor: None,
             recipe_discovered: vec![false; crate::recipes::recipes().len()],
             discovery_queue: std::collections::VecDeque::new(),
@@ -784,6 +793,8 @@ impl App {
             self.soil_dug_today.clear();
             self.bugs_picked_day_id = today;
         }
+        self.scales = data.scales;
+        self.scales_spent = data.scales_spent.clone();
         if !data.mastery.is_empty() {
             let n = self.mastery.len();
             for (i, &v) in data.mastery.iter().enumerate().take(n) {
@@ -972,6 +983,8 @@ impl App {
             bugs_picked: self.bugs_picked_today.iter().copied().collect(),
             bugs_picked_day_id: self.bugs_picked_day_id,
             soil_dug: self.soil_dug_today.iter().copied().collect(),
+            scales: self.scales,
+            scales_spent: self.scales_spent.clone(),
         }
     }
 
@@ -979,6 +992,23 @@ impl App {
     /// stamina (difficulty * 5), and grant a small permanent buff scaled
     /// to the species's difficulty. Unique fish (Fish, Five Elders) can't
     /// be cooked.
+    /// Permanent additive bonus for a scales-spendable axis. 0.0005 per
+    /// token spent on the matching axis, capped at 1000 tokens per axis
+    /// (i.e. max +50% per axis).
+    pub fn scales_bonus(&self, axis: &str) -> f32 {
+        let spent = self.scales_spent.get(axis).copied().unwrap_or(0).min(1000);
+        (spent as f32) * 0.0005
+    }
+
+    /// Axes the player can spend scales on.
+    pub const SCALES_AXES: &'static [&'static str] = &[
+        "rare_chance",
+        "catch_speed",
+        "valu_mult",
+        "xp_mult",
+        "bite_speed",
+    ];
+
     /// Total mastery (catches) across all non-unique, non-joke fish of the
     /// given difficulty band. Used by the rod-mastery gate.
     fn mastery_count_at_difficulty(&self, diff: u8) -> u32 {
@@ -1834,6 +1864,9 @@ impl App {
     }
 
     fn cast_action(&mut self) {
+        // Pre-compute the scales-side of bite_speed before we take a mutable
+        // borrow of `self.cast` so the &self method call doesn't conflict.
+        let scales_bite_speed = self.scales_bonus("bite_speed");
         let Some(c) = self.cast.as_mut() else { return; };
         match c.phase {
             CastPhase::Casting => {
@@ -1863,7 +1896,8 @@ impl App {
                 let k = (1.0f32 - r * 0.9999).ln() / 0.75f32.ln();
                 let secs = (k.ceil() as u32).clamp(1, 30) as f32;
                 let total_bite_speed = (self.bait_pending_bite_speed
-                    + self.player.tackle.sum_effect("bite_speed"))
+                    + self.player.tackle.sum_effect("bite_speed")
+                    + scales_bite_speed)
                     .clamp(0.0, 0.7);
                 let bite_mult = (1.0 - total_bite_speed).max(0.3);
                 let scaled = secs * (1.0 - c.cast_strength * 0.5)
@@ -2805,6 +2839,39 @@ impl App {
                 _ => {}
             },
             Scene::BugCatch(_) => self.handle_bug_catch_key(code),
+            Scene::Scales { cursor } => {
+                let n = Self::SCALES_AXES.len();
+                match code {
+                    KeyCode::Esc | KeyCode::Char('q') => self.scene = Scene::Overworld,
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        if n > 0 {
+                            *cursor = (*cursor + 1).min(n - 1);
+                        }
+                    }
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        *cursor = cursor.saturating_sub(1);
+                    }
+                    KeyCode::Enter | KeyCode::Char(' ') => {
+                        let idx = *cursor;
+                        if let Some(axis) = Self::SCALES_AXES.get(idx) {
+                            let spent = self.scales_spent.get(*axis).copied().unwrap_or(0);
+                            if spent >= 1000 {
+                                self.narrator
+                                    .say(format!("{axis} is already maxed (1000/1000)."));
+                            } else if self.scales == 0 {
+                                self.narrator.say("No scales to spend.".to_string());
+                            } else {
+                                self.scales -= 1;
+                                self.scales_spent
+                                    .entry((*axis).to_string())
+                                    .and_modify(|v| *v += 1)
+                                    .or_insert(1);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 
@@ -3492,6 +3559,10 @@ impl App {
                 self.scene = Scene::Stats;
                 self.mode = Mode::Insert;
             }
+            "scales" => {
+                self.scene = Scene::Scales { cursor: 0 };
+                self.mode = Mode::Insert;
+            }
             cmd if cmd.starts_with("cook ") || cmd == "cook" => {
                 let name = cmd.strip_prefix("cook").unwrap_or("").trim();
                 if name.is_empty() {
@@ -4026,11 +4097,13 @@ impl App {
                         _ => 1.0,
                     };
                     let dim_bonus = self.dim_bonus_mult();
+                    let scales_xp = 1.0 + self.scales_bonus("xp_mult");
                     let gained = ((base_xp as f32)
                         * self.skill_tree.global_xp_mult()
                         * tackle_xp
                         * bait_xp
-                        * dim_bonus) as u64;
+                        * dim_bonus
+                        * scales_xp) as u64;
                     let gained = gained.max(1);
                     // Bait valu_mult: pay a one-time bonus equal to the fish's
                     // sell price * magnitude, right now (so the player doesn't
@@ -4047,6 +4120,12 @@ impl App {
                     self.bait_pending = None;
                     self.bait_pending_bite_speed = 0.0;
                     self.bait_pending_pool_pull = None;
+                    // Scales drop: ~5% per catch. Token currency is its own
+                    // axis-shaped slow-burn upgrade — see `:scales`.
+                    if crate::fish::next_rand_f32(&mut self.rng_state) < 0.05 {
+                        self.scales = self.scales.saturating_add(1);
+                        self.narrator.say("A scale catches in the line. (+1 scale)".to_string());
+                    }
                     // Each catch gives a small fixed dose of stamina back
                     // — 5..=10, jittered per catch. Scaled by Relaxed.
                     let r = crate::fish::next_rand_f32(&mut self.rng_state);
@@ -5345,7 +5424,8 @@ impl App {
         let mult = self.buffs.price_mult()
             * self.skill_tree.valu_mult()
             * biome_mult
-            * (1.0 + self.player.tackle.sum_effect("valu_mult"));
+            * (1.0 + self.player.tackle.sum_effect("valu_mult"))
+            * (1.0 + self.scales_bonus("valu_mult"));
         let mut sold = 0u64;
         let mut total = 0u64;
         for f in self.player.inventory.iter() {
@@ -5413,7 +5493,8 @@ impl App {
         let mult = self.buffs.price_mult()
             * self.skill_tree.valu_mult()
             * biome_mult
-            * (1.0 + self.player.tackle.sum_effect("valu_mult"));
+            * (1.0 + self.player.tackle.sum_effect("valu_mult"))
+            * (1.0 + self.scales_bonus("valu_mult"));
         let mut out: Vec<(String, u64, u64)> = Vec::new();
         for f in self.player.inventory.iter().filter(|f| !f.unique) {
             let mbonus = self.mastery_value_bonus(f);
@@ -5457,7 +5538,8 @@ impl App {
         let mult = self.buffs.price_mult()
             * self.skill_tree.valu_mult()
             * biome_mult
-            * (1.0 + self.player.tackle.sum_effect("valu_mult"));
+            * (1.0 + self.player.tackle.sum_effect("valu_mult"))
+            * (1.0 + self.scales_bonus("valu_mult"));
         let mut sold = 0u64;
         let mut total = 0u64;
         let mut keep: Vec<&'static crate::fish::FishDef> =
@@ -6109,6 +6191,12 @@ impl App {
                 // prevents reading other fields of self.
             }
             Scene::BugCatch(b) => render_bug_catch(frame, b, self.anim_tick),
+            Scene::Scales { cursor } => render_scales(
+                frame,
+                *cursor,
+                self.scales,
+                &self.scales_spent,
+            ),
         }
 
         if let Scene::Gear { slot_idx, item_idx } = &self.scene {
@@ -9347,6 +9435,47 @@ fn render_cookbook(
         Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }),
         inner,
     );
+}
+
+fn render_scales(
+    frame: &mut Frame,
+    cursor: usize,
+    bank: u64,
+    spent: &std::collections::BTreeMap<String, u32>,
+) {
+    let area = viewport(frame);
+    frame.render_widget(Clear, area);
+    let title = format!(" scales — j/k pick — enter spend 1 — esc leave — bank {bank} ");
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(Color::LightCyan));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    lines.push(ratatui::text::Line::from(""));
+    for (i, axis) in App::SCALES_AXES.iter().enumerate() {
+        let s = spent.get(*axis).copied().unwrap_or(0);
+        let prefix = if i == cursor { "> " } else { "  " };
+        let pct = (s as f32) * 0.05;
+        let line = format!("{prefix}{axis:14} {s:4}/1000  +{pct:.2}%");
+        let style = if i == cursor {
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(40, 40, 40))
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(line, style)));
+    }
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+        "  each spent scale = +0.05% on the chosen axis. cap 1000 / axis.",
+        Style::default().fg(Color::DarkGray),
+    )));
+    let p = Paragraph::new(lines);
+    frame.render_widget(p, inner);
 }
 
 fn render_bug_catch(frame: &mut Frame, b: &crate::bug_catch::BugCatch, tick: u64) {
