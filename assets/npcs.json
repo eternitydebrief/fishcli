@@ -13,7 +13,12 @@
       "\"Mornin'. Been fishin' these waters longer than you've been breathing.\"",
       "\"It is so damn good to see another fisherman around here. Our population is minuscule, I tell ya.\"",
       "\"Just a tip, don't ignore the wells. They're not just for water.\""
-    ]
+    ],
+    "responses": {
+      "bug_net_hint":    "Old Angler: \"Bring me {need} more catches, then ask about the net.\"",
+      "bug_net_grant":   "*** Old Angler hands you a Bug Net. Walk over a bug with f to catch it. ***",
+      "bug_net_owned":   "Old Angler: \"Net's serving you well?\""
+    }
   },
   {
     "id": "kid",

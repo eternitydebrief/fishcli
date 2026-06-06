@@ -4217,6 +4217,12 @@ impl App {
                 self.interact_miner();
                 return;
             }
+            if npc.id == "old-angler" {
+                if self.interact_old_angler() {
+                    return;
+                }
+                // fall through to generic dialogue otherwise
+            }
             if npc.id == "blacksmith" || npc.id == "blacksmith-template" {
                 self.scene = Scene::Blacksmith { cursor: 0 };
                 self.mode = Mode::Insert;
@@ -5382,6 +5388,30 @@ impl App {
         self.player.has_pickaxe = true;
         self.narrator
             .say(npc.response("sold", &[("cost", PICKAXE_COST.to_string())]));
+    }
+
+    /// Old Angler hands the player a Bug Net once they've reached a small
+    /// catch threshold. Returns true if the interaction was consumed (and
+    /// the caller should NOT fall through to the generic dialogue scene).
+    fn interact_old_angler(&mut self) -> bool {
+        const BUG_NET_CATCH_GATE: u64 = 25;
+        let Some(npc) = npc::npcs().iter().find(|n| n.id == "old-angler") else { return false };
+        if self.player.has_bug_net {
+            // Existing dialogue still triggers most talks; only flag the
+            // first re-visit with the "owned" line so the player knows the
+            // angler tracks it.
+            self.narrator.say(npc.response("bug_net_owned", &[]));
+            return false;
+        }
+        if self.stats.fish_caught < BUG_NET_CATCH_GATE {
+            let need = BUG_NET_CATCH_GATE - self.stats.fish_caught;
+            self.narrator
+                .say(npc.response("bug_net_hint", &[("need", need.to_string())]));
+            return false;
+        }
+        self.player.has_bug_net = true;
+        self.narrator.say(npc.response("bug_net_grant", &[]));
+        true
     }
 
     fn interact_shipwright(&mut self) {
