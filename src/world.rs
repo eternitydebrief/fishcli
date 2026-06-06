@@ -3156,17 +3156,16 @@ pub fn ocean_depth_color(depth: u32) -> ratatui::style::Color {
 // are deterministic from the world seed so a player can spot one and
 // throw at it deliberately.
 
-pub const HOTSPOT_W: i32 = 3;
-pub const HOTSPOT_H: i32 = 4;
+pub const HOTSPOT_W: i32 = 4;
+pub const HOTSPOT_H: i32 = 3;
 
-/// Phase offsets that run clockwise around the 3x4 patch's outer ring,
-/// then fold inward. Drives the per-cell spinner offset so the active
-/// glyph appears to spiral.
-const HOTSPOT_PHASE: [[u8; 3]; 4] = [
-    [0, 1, 2],
-    [9, 10, 3],
-    [8, 11, 4],
-    [7, 6, 5],
+/// Phase offsets that run clockwise around the 4x3 patch's outer ring,
+/// then fold inward through the two inner cells. Drives the per-cell
+/// spinner offset so the active glyph appears to spiral.
+const HOTSPOT_PHASE: [[u8; 4]; 3] = [
+    [0, 1, 2, 3],
+    [9, 10, 11, 4],
+    [8, 7, 6, 5],
 ];
 
 /// 16-cell windowing grid; one hotspot may anchor inside each cell.
