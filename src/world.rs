@@ -2398,6 +2398,128 @@ const WATER_CELL_W: i32 = 36;
 const WATER_CELL_H: i32 = 22;
 const RING_OUTER: f32 = 1.40;
 
+/// Size bucket for a procedural water body. Drives the radius, the
+/// shape gen (smooth ellipse vs perlin-warped), island count, and
+/// whether the body can host a Floating "lake village".
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LakeKind {
+    Puddle,
+    Pond,
+    Lake,
+    LongLake,
+    HugeLake,
+    Sea,
+}
+
+/// Cheap deterministic value-noise. Bilinearly interpolates random
+/// values at integer lattice points scaled by `freq`. Output is in
+/// roughly [-1, 1]. Used to warp shorelines and island contours so they
+/// stop reading as perfect ellipses.
+fn value_noise_2d(x: i32, y: i32, seed: u32, freq: f32) -> f32 {
+    let fx = x as f32 * freq;
+    let fy = y as f32 * freq;
+    let x0 = fx.floor() as i32;
+    let y0 = fy.floor() as i32;
+    let tx = fx - x0 as f32;
+    let ty = fy - y0 as f32;
+    let smooth = |t: f32| t * t * (3.0 - 2.0 * t);
+    let sx = smooth(tx);
+    let sy = smooth(ty);
+    let sample = |ix: i32, iy: i32| -> f32 {
+        let h = hash2(ix, iy, seed);
+        (h as f32 / u32::MAX as f32) * 2.0 - 1.0
+    };
+    let v00 = sample(x0, y0);
+    let v10 = sample(x0 + 1, y0);
+    let v01 = sample(x0, y0 + 1);
+    let v11 = sample(x0 + 1, y0 + 1);
+    let v0 = v00 * (1.0 - sx) + v10 * sx;
+    let v1 = v01 * (1.0 - sx) + v11 * sx;
+    v0 * (1.0 - sy) + v1 * sy
+}
+
+/// Stacked octaves of value noise. Cheap proxy for fractional Brownian
+/// motion — good enough for landmass contours and river meanders.
+fn value_noise_fractal(x: i32, y: i32, seed: u32, base_freq: f32, octaves: u32) -> f32 {
+    let mut sum = 0.0;
+    let mut amp = 1.0;
+    let mut freq = base_freq;
+    let mut total_amp = 0.0;
+    for o in 0..octaves {
+        sum += value_noise_2d(x, y, seed.wrapping_add(o * 0xA5A5_5A5A), freq) * amp;
+        total_amp += amp;
+        amp *= 0.5;
+        freq *= 2.0;
+    }
+    if total_amp > 0.0 {
+        sum / total_amp
+    } else {
+        0.0
+    }
+}
+
+/// True when a candidate water body at (ax, ay) with radius (rx, ry)
+/// overlaps a procedural Town or Hamlet's footprint. Floating villages
+/// (lake villages) are exempt — they're meant to sit on water.
+fn lake_collides_with_village(ax: i32, ay: i32, rx: i32, ry: i32, seed: u32) -> bool {
+    // Check village anchors in the 3x3 grid of PV cells around the lake.
+    let cx = ax.div_euclid(PV_CELL_W);
+    let cy = ay.div_euclid(PV_CELL_H);
+    for dcy in -1..=1 {
+        for dcx in -1..=1 {
+            let ccx = cx + dcx;
+            let ccy = cy + dcy;
+            let h = hash2(ccx, ccy, seed.wrapping_add(0xC17F_C17F));
+            if h % 3 != 0 {
+                continue;
+            }
+            let ox = ((h >> 4) as i32).rem_euclid(PV_CELL_W);
+            let oy = ((h >> 12) as i32).rem_euclid(PV_CELL_H);
+            let vax = ccx * PV_CELL_W + ox;
+            let vay = ccy * PV_CELL_H + oy;
+            if vax.abs() < 100 && vay > -40 {
+                continue;
+            }
+            if vay > -8 {
+                continue;
+            }
+            let kind = match (h >> 24) % 10 {
+                0..=4 => VillageKind::Hamlet,
+                5..=7 => VillageKind::Town,
+                _ => VillageKind::Floating,
+            };
+            // Floating villages WANT a lake under them; everyone else
+            // pushes water away.
+            if matches!(kind, VillageKind::Floating) {
+                continue;
+            }
+            let v_radius = match kind {
+                VillageKind::Hamlet => 22,
+                VillageKind::Town => {
+                    let (hw, hh) = town_half_extents(h);
+                    hw.max(hh) + 4
+                }
+                _ => 28,
+            };
+            // sphere/sphere style overlap check using village radius +
+            // lake bounding radius.
+            let lake_reach = rx.max(ry);
+            let dx = (ax - vax).abs();
+            let dy = (ay - vay).abs();
+            if dx <= v_radius + lake_reach && dy <= v_radius + lake_reach {
+                return true;
+            }
+        }
+    }
+    // Also reject if the candidate body would overlap the home village.
+    let home_radius = 56; // a touch beyond the outer wall (50)
+    let lake_reach = rx.max(ry);
+    if ax.abs() <= home_radius + lake_reach && ay.abs() <= 20 + lake_reach {
+        return true;
+    }
+    false
+}
+
 fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
     let mut info = CellWaterInfo::default();
     if in_village_zone(x, y) {
@@ -2439,8 +2561,10 @@ fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
     }
     let cx = x.div_euclid(WATER_CELL_W);
     let cy = y.div_euclid(WATER_CELL_H);
-    for dcy in -1..=1 {
-        for dcx in -1..=1 {
+    // Seas are big enough to span ~5 cells; widen the candidate sweep so
+    // a sea anchored on the far side of a grid block still gets noticed.
+    for dcy in -3..=3 {
+        for dcx in -3..=3 {
             let ccx = cx + dcx;
             let ccy = cy + dcy;
             let h = hash2(ccx, ccy, seed.wrapping_add(0xF00D_BEEF));
@@ -2451,20 +2575,37 @@ fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
             let oy = ((h >> 12) as i32).rem_euclid(WATER_CELL_H);
             let ax = ccx * WATER_CELL_W + ox;
             let ay = ccy * WATER_CELL_H + oy;
-            // 5 size classes including a HUGE lake that can host an island
-            let (rx, ry, is_huge): (i32, i32, bool) = match (h >> 20) % 12 {
-                0..=2 => (4, 2, false),     // puddle
-                3..=6 => (10, 4, false),    // pond
-                7..=8 => (16, 6, false),    // lake
-                9..=10 => (24, 8, false),   // long lake
-                _ => (40, 14, true),        // huge lake (with island)
+            // 6 size classes. Existing lakes scaled up 2-3x; the rare
+            // Sea is ~10x the original "lake" footprint and gets its own
+            // perlin-warped boundary with multiple drifting islands.
+            let class = (h >> 20) % 24;
+            let (rx, ry, kind): (i32, i32, LakeKind) = match class {
+                0..=2 => (5, 3, LakeKind::Puddle),
+                3..=8 => (16, 6, LakeKind::Pond),
+                9..=12 => (36, 14, LakeKind::Lake),
+                13..=16 => (56, 22, LakeKind::LongLake),
+                17..=22 => (90, 32, LakeKind::HugeLake),
+                _ => (180, 60, LakeKind::Sea),
             };
+            // Far cells can't reach this candidate — skip the heavy math.
+            // Doubling the radius gives a safe bound that still rules out
+            // most non-overlapping candidates.
+            if (x - ax).abs() > rx * 2 || (y - ay).abs() > ry * 2 {
+                continue;
+            }
             if ay + ry >= 5 {
+                continue;
+            }
+            // Town/Hamlet anchors push lakes away. Lake villages (the
+            // Floating kind) are allowed to overlap — they're literally
+            // meant to sit on water — so they're not gated here.
+            if lake_collides_with_village(ax, ay, rx, ry, seed) {
                 continue;
             }
             // Lobed shape: main ellipse plus two satellite ellipses at
             // small offsets so shorelines bulge and indent instead of
-            // tracing a clean oval.
+            // tracing a clean oval. The Sea variant adds a value-noise
+            // warp on top so the shoreline winds rather than orbits.
             let lobe1_dx = (((h >> 24) & 0xF) as i32) - 8;
             let lobe1_dy = (((h >> 4) & 0x7) as i32) - 3;
             let lobe2_dx = (((h >> 16) & 0xF) as i32) - 8;
@@ -2480,20 +2621,28 @@ fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
             let l2x = (x - (ax + lobe2_dx)) as f32 / lobe_rx.max(1) as f32;
             let l2y = (y - (ay + lobe2_dy)) as f32 / lobe_ry.max(1) as f32;
             let d_l2 = l2x * l2x + l2y * l2y;
-            let d = d_main.min(d_l1).min(d_l2);
+            let mut d = d_main.min(d_l1).min(d_l2);
+            if matches!(kind, LakeKind::Sea) {
+                // Warp the radial distance by a fractal value-noise field
+                // anchored to the body's hash. ±0.30 of a normalized
+                // distance is enough to create proper bays and headlands
+                // without ever wholly disconnecting the body.
+                let n = value_noise_fractal(x, y, h ^ 0xC0FF_EE11, 0.025, 3);
+                d += n * 0.30;
+            }
             if d <= 1.0 {
                 info.in_water = true;
                 if d > 0.82 {
                     info.in_shore = true;
                 }
-                if is_huge {
-                    // island position derived from anchor hash, slightly off-center
+                if matches!(kind, LakeKind::HugeLake) {
+                    // single drifting island offset from the anchor.
                     let iox = ((h >> 4) as i32 % 10) - 5;
                     let ioy = ((h >> 8) as i32 % 6) - 3;
                     let i_ax = ax + iox;
                     let i_ay = ay + ioy;
-                    let i_rx = 5;
-                    let i_ry = 2;
+                    let i_rx = 8;
+                    let i_ry = 3;
                     let idx = (x - i_ax) as f32 / i_rx as f32;
                     let idy = (y - i_ay) as f32 / i_ry as f32;
                     let id = idx * idx + idy * idy;
@@ -2503,9 +2652,34 @@ fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
                         info.island_sand = true;
                     }
                 }
-                // an island cell still has in_water=true (so it overrides
-                // ring/tree generation) but island flags take priority
-                // in the World::get dispatch below.
+                if matches!(kind, LakeKind::Sea) {
+                    // Up to 4 perlin-warped archipelago islands per Sea.
+                    // Each island's centre and size come from the body's
+                    // hash; the shoreline is a noise-warped ellipse so no
+                    // two read as identical ovals.
+                    for ii in 0..4u32 {
+                        let salt = 0x15_1A_F00D_u32.wrapping_mul(ii + 1);
+                        let ih = hash2(ax + ii as i32, ay, h ^ salt);
+                        let iox = ((ih >> 4) as i32).rem_euclid(rx.max(1)) - rx / 2;
+                        let ioy = ((ih >> 8) as i32).rem_euclid(ry.max(1)) - ry / 2;
+                        let i_ax = ax + iox;
+                        let i_ay = ay + ioy;
+                        let i_rx = 6 + ((ih >> 12) as i32 % 8);
+                        let i_ry = 3 + ((ih >> 16) as i32 % 4);
+                        let idx = (x - i_ax) as f32 / i_rx as f32;
+                        let idy = (y - i_ay) as f32 / i_ry as f32;
+                        let mut id = idx * idx + idy * idy;
+                        let n = value_noise_fractal(x, y, ih ^ 0xA15A_BAD0, 0.07, 2);
+                        id += n * 0.45;
+                        if id <= 0.55 {
+                            info.island_grass = true;
+                            info.in_water = false;
+                            break;
+                        } else if id <= 1.0 {
+                            info.island_sand = true;
+                        }
+                    }
+                }
             } else if d <= RING_OUTER * RING_OUTER {
                 info.in_ring = true;
             }
