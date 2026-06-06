@@ -2719,6 +2719,11 @@ impl App {
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if let Some(d) = defs.get(*cursor) {
+                    if crate::bait::is_bug_bait(&d.id) {
+                        self.narrator
+                            .say(format!("{} is bug-caught, not sold here.", d.name));
+                        return;
+                    }
                     let gate = d.min_rod_tier();
                     if self.player.rods.max_owned < gate {
                         self.narrator.say(format!(
@@ -5516,7 +5521,9 @@ impl App {
                 let name = crate::bugs::def_by_id(&bug_id)
                     .map(|b| b.name.clone())
                     .unwrap_or_else(|| bug_id.clone());
-                self.narrator.say(format!("Caught the {name}."));
+                let bait_id = format!("bug:{}", bug_id);
+                self.player.bait.add(&bait_id, 1);
+                self.narrator.say(format!("Caught the {name}. (+1 to bait stock)"));
             }
             Some(crate::bug_catch::BugCatchResult::Missed) => {
                 // Bug flies off for the day either way — missing still
@@ -8825,10 +8832,15 @@ fn render_bait_shop(
         } else {
             Style::default().fg(Color::White)
         };
+        let cost_label = if crate::bait::is_bug_bait(&d.id) {
+            "wild".to_string()
+        } else {
+            format!("{}$V", d.cost)
+        };
         let line = format!(
-            "{prefix}{} - {}$V  (own {}) +{:.0}% {}",
+            "{prefix}{} - {}  (own {}) +{:.0}% {}",
             d.name,
-            d.cost,
+            cost_label,
             owned,
             d.magnitude * 100.0,
             d.effect

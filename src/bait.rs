@@ -22,19 +22,49 @@ pub struct BaitDef {
 
 static DEFS: OnceLock<Vec<BaitDef>> = OnceLock::new();
 
+/// Combined bait list: shop entries from `assets/bait.json` followed by
+/// synthesized entries for every bug (id `bug:<bug-id>`, cost = 0). Bug
+/// entries are appended after the shop list so the shop UI can still
+/// iterate `defs()` and skip cost==0 rows for the "buy" action.
 pub fn defs() -> &'static [BaitDef] {
     DEFS.get_or_init(|| {
         let raw: Vec<serde_json::Value> = serde_json::from_str(BAIT_JSON)
             .expect("assets/bait.json failed to parse");
-        raw.into_iter()
+        let mut out: Vec<BaitDef> = raw
+            .into_iter()
             .filter(|v| v.get("id").and_then(|n| n.as_str()).is_some())
             .map(|v| serde_json::from_value(v).expect("bait entry malformed"))
-            .collect()
+            .collect();
+        for bug in crate::bugs::defs() {
+            // Bugs without a generic effect still land in stock so the
+            // player can carry them around for pool_pull use later; show
+            // them with magnitude 0 + a placeholder effect string.
+            let (effect, magnitude) = if bug.generic_effect.is_empty() {
+                ("pool_pull".to_string(), 0.0)
+            } else {
+                (bug.generic_effect.clone(), bug.generic_magnitude)
+            };
+            out.push(BaitDef {
+                id: format!("bug:{}", bug.id),
+                name: bug.name.clone(),
+                description: String::new(),
+                cost: 0,
+                effect,
+                magnitude,
+            });
+        }
+        out
     })
 }
 
 pub fn def_by_id(id: &str) -> Option<&'static BaitDef> {
     defs().iter().find(|d| d.id == id)
+}
+
+/// True if this bait was synthesized from a bug (id begins with `bug:`).
+/// The shop UI uses this to suppress the "buy" action for natural bait.
+pub fn is_bug_bait(id: &str) -> bool {
+    id.starts_with("bug:")
 }
 
 impl BaitDef {
