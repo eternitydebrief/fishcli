@@ -2546,9 +2546,15 @@ fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
                 }
             }
             VillageKind::Floating => {
-                let dxf = (x - v.ax) as f32 / 24.0;
-                let dyf = (y - v.ay) as f32 / 18.0;
-                let d = dxf * dxf + dyf * dyf;
+                // Lake villages sit on a Sea-sized body of water with a
+                // perlin-warped shoreline. The forced footprint is much
+                // larger than the old 24x18 disk so the village reads as
+                // perched on open water with proper bays around it.
+                let dxf = (x - v.ax) as f32 / 80.0;
+                let dyf = (y - v.ay) as f32 / 32.0;
+                let mut d = dxf * dxf + dyf * dyf;
+                let n = value_noise_fractal(x, y, v.hash ^ 0xC0FF_EE12, 0.025, 3);
+                d += n * 0.30;
                 if d <= 1.0 {
                     info.in_water = true;
                     return info;
@@ -3253,7 +3259,9 @@ fn village_anchor_for(x: i32, y: i32, seed: u32) -> Option<PVillage> {
                     let (hw, hh) = town_half_extents(h);
                     hw.max(hh) + 4
                 }
-                VillageKind::Floating => 28,
+                // Sea-sized floating layout: piers reach 40+ cells out
+                // from the plaza. Gate must comfortably contain them.
+                VillageKind::Floating => 60,
             };
             if (x - ax).abs() <= radius && (y - ay).abs() <= radius {
                 return Some(PVillage { ax, ay, kind, hash: h });
@@ -3270,7 +3278,7 @@ fn procedural_village_tile(x: i32, y: i32, seed: u32) -> Option<Tile> {
     match v.kind {
         VillageKind::Hamlet => hamlet_tile(dx, dy, v.hash),
         VillageKind::Town => town_tile(dx, dy, v.hash),
-        VillageKind::Floating => floating_tile(dx, dy),
+        VillageKind::Floating => floating_tile(dx, dy, v.hash),
     }
 }
 
@@ -3432,35 +3440,80 @@ fn town_tile(dx: i32, dy: i32, vhash: u32) -> Option<Tile> {
     None
 }
 
-fn floating_tile(dx: i32, dy: i32) -> Option<Tile> {
-    // dock platform forming a + with houses at the ends
-    let on_pier = (dx.abs() <= 2 && (-18..=18).contains(&dy))
-        || (dy.abs() <= 2 && (-18..=18).contains(&dx));
-    let on_plaza = dx.abs() <= 4 && dy.abs() <= 4;
-    let pier = on_pier || on_plaza;
-    // small floating houses at the four cardinal ends
-    let huts = &[
-        ((-16, -1), (-12, 1), (-12, 1), Tile::DoorRod),    // west = rod shop
-        ((12, -1), (16, 1), (12, 1), Tile::DoorHouse),     // east = home
-        ((-1, -16), (1, -12), (0, -12), Tile::DoorSchool), // north = school
-        ((-1, 12), (1, 16), (0, 12), Tile::DoorHouse),     // south = home
+/// Lake-village layout. Wide central plaza + winding piers fanning out
+/// to scattered hut clusters perched on the sea. Each pier is a straight
+/// line from the plaza to its hut, perturbed perpendicular by perlin
+/// noise — so two villages with the same anchor hash never lay out the
+/// same way.
+fn floating_tile(dx: i32, dy: i32, vhash: u32) -> Option<Tile> {
+    const HUTS: &[(i32, i32, Tile)] = &[
+        (-40, -14, Tile::DoorRod),
+        (42, -10, Tile::DoorHouse),
+        (-36, 16, Tile::DoorHouse),
+        (38, 18, Tile::DoorSchool),
+        (0, -28, Tile::DoorHouse),
+        (-8, 30, Tile::DoorHouse),
+        (-22, -6, Tile::DoorHouse),
+        (24, 6, Tile::DoorHouse),
     ];
-    for &((xa, ya), (xb, yb), (dxx, dyy), door) in huts {
-        if (xa..=xb).contains(&dx) && (ya..=yb).contains(&dy) {
-            if (dx, dy) == (dxx, dyy) {
+    // hut walls — 5 wide x 3 tall, door middle-bottom
+    for &(hx, hy, door) in HUTS {
+        let lx = dx - hx;
+        let ly = dy - hy;
+        if lx.abs() <= 2 && ly.abs() <= 1 {
+            if (lx, ly) == (0, 1) {
                 return Some(door);
             }
-            if (dx, dy) == ((xa + xb) / 2, (ya + yb) / 2) {
-                // center tile of the small hut
-                return Some(Tile::Wall);
+            if ly == -1 {
+                return Some(Tile::Roof);
             }
             return Some(Tile::Wall);
         }
     }
-    if pier {
+    // central plaza
+    if dx.abs() <= 5 && dy.abs() <= 5 {
         return Some(Tile::Dock);
     }
+    // winding piers connecting plaza to each hut
+    for &(hx, hy, _) in HUTS {
+        if on_winding_pier(dx, dy, hx, hy, vhash) {
+            return Some(Tile::Dock);
+        }
+    }
     None
+}
+
+/// True if (dx, dy) lies within ~1.5 cells of a winding pier from the
+/// plaza (0,0) to (hx, hy). The pier follows the straight line, then
+/// each point is perpendicular-shifted by a perlin sample so consecutive
+/// piers wave gently around the bay.
+fn on_winding_pier(dx: i32, dy: i32, hx: i32, hy: i32, vhash: u32) -> bool {
+    let lx = hx as f32;
+    let ly = hy as f32;
+    let len2 = lx * lx + ly * ly;
+    if len2 < 1.0 {
+        return false;
+    }
+    // project (dx, dy) onto the pier's line
+    let t = (dx as f32 * lx + dy as f32 * ly) / len2;
+    if !(0.0..=1.0).contains(&t) {
+        return false;
+    }
+    let px = lx * t;
+    let py = ly * t;
+    // perpendicular unit vector to the line direction
+    let inv_len = 1.0 / len2.sqrt();
+    let perp_x = -ly * inv_len;
+    let perp_y = lx * inv_len;
+    // perlin offset along the path — sample at the projected point so it
+    // shifts smoothly as you walk the pier
+    let n = value_noise_fractal(px as i32, py as i32, vhash ^ 0x71E_5A001, 0.08, 2);
+    let off = n * 5.0; // ±5 cell wander
+    let wp_x = px + perp_x * off;
+    let wp_y = py + perp_y * off;
+    let ddx = dx as f32 - wp_x;
+    let ddy = dy as f32 - wp_y;
+    ddx * ddx + ddy * ddy <= 2.25
 }
 
 fn hash2(x: i32, y: i32, seed: u32) -> u32 {
