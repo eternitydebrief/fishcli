@@ -22,6 +22,28 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
+/// A headline event surfaced at the top of the viewport. Each kind picks
+/// its own border colour and prefix; the body is a plain string the
+/// caller controls. Many banners can coexist — they stack vertically in
+/// the order they were pushed.
+#[derive(Clone)]
+pub enum BannerKind {
+    Discovery,
+    Recipe,
+    Achievement,
+    Xp {
+        level: u32,
+        total_xp: u64,
+    },
+}
+
+#[derive(Clone)]
+pub struct Banner {
+    pub kind: BannerKind,
+    pub line: String,
+    pub ttl_ticks: u32,
+}
+
 /// Reward awarded once when an encyclopedia's running counter crosses
 /// `threshold`. Stacks with achievement chain rewards.
 struct EncyclopediaMilestone {
@@ -321,8 +343,10 @@ pub struct App {
     pub current_location: Option<String>,
     /// shown when location changes, ticks down to 0
     pub biome_popup_ticks: u32,
-    /// xp gain popup: (skill_name, gained_xp, current_total_xp, level, ticks_remaining)
-    pub xp_popup: Option<(&'static str, u64, u64, u32, u32)>,
+    /// Active banner stack — discoveries, achievements, xp gains and any
+    /// other "headline" event share this queue and render top-down so a
+    /// burst of events doesn't have one obscure another.
+    pub banners: Vec<Banner>,
     /// total valu earned lifetime (sum of quest rewards + sales)
     pub lifetime_valu: u64,
     /// time when this session started (for play-time stat)
@@ -392,12 +416,6 @@ pub struct App {
     /// fish whose name appears in the recipe's ingredient list. Discovered
     /// recipes show up in the cookbook; undiscovered ones stay hidden.
     pub recipe_discovered: Vec<bool>,
-    /// Queue of recent discovery events to surface as the big top-of-screen
-    /// banner. Each event holds (label, xp_gained, is_recipe). The frontmost
-    /// entry is the one currently displayed; `discovery_show_until` is the
-    /// anim_tick at which it expires and we advance.
-    pub discovery_queue: std::collections::VecDeque<(String, u64, bool)>,
-    pub discovery_show_until: u64,
     /// Highest fishdex milestone index already paid out (so the same
     /// reward isn't re-granted across saves). Indexes into FISHDEX_MILES.
     pub fishdex_milestones_granted: u32,
@@ -579,8 +597,7 @@ impl App {
             shiny_per_species: vec![0; fishlist::fish().len()],
             pending_chop_anchor: None,
             recipe_discovered: vec![false; crate::recipes::recipes().len()],
-            discovery_queue: std::collections::VecDeque::new(),
-            discovery_show_until: 0,
+            banners: Vec::new(),
             fishdex_milestones_granted: 0,
             cookbook_milestones_granted: 0,
             mastery_milestones: 0,
@@ -595,7 +612,6 @@ impl App {
             current_biome: None,
             current_location: None,
             biome_popup_ticks: 0,
-            xp_popup: None,
             lifetime_valu: 0,
             session_start: std::time::Instant::now(),
             last_step_at: std::time::Instant::now()
@@ -1496,15 +1512,29 @@ impl App {
         }
     }
 
+    /// Push a banner onto the active stack. Caller picks the kind, body
+    /// line and lifetime. Banners render top-down in insertion order.
+    pub fn push_banner(&mut self, kind: BannerKind, line: String, ttl_ticks: u32) {
+        self.banners.push(Banner { kind, line, ttl_ticks });
+    }
+
     /// Enqueue a discovery banner: a fish or recipe is being seen for the
-    /// first time. Grants Encyclopedia xp scaled by `xp` and shows the
-    /// label at the top of the screen for ~3 seconds (chained behind any
-    /// earlier popups already in the queue).
+    /// first time. Grants Encyclopedia xp scaled by `xp` and stacks the
+    /// banner under any earlier popups still on screen.
     fn register_discovery(&mut self, label: String, xp: u64, is_recipe: bool) {
         let before = self.skills.encyclopedia_level();
         self.skills.encyclopedia_xp = self.skills.encyclopedia_xp.saturating_add(xp);
         let after = self.skills.encyclopedia_level();
-        self.discovery_queue.push_back((label, xp, is_recipe));
+        let kind = if is_recipe {
+            BannerKind::Recipe
+        } else {
+            BannerKind::Discovery
+        };
+        self.push_banner(
+            kind,
+            format!("{label}   +{xp} encyclopedia xp"),
+            80,
+        );
         if after > before {
             self.narrator
                 .say(format!("Encyclopedia level up! Now level {after}."));
@@ -1547,24 +1577,14 @@ impl App {
         }
     }
 
-    /// Tick the discovery queue. Called once per frame.
-    fn tick_discovery_queue(&mut self) {
-        if self.discovery_queue.is_empty() {
-            return;
+    /// Decrement each banner's TTL and drop expired ones. Banners with
+    /// independent timers means a long burst clears in roughly the time
+    /// the longest-lived banner was scheduled for, not serial playback.
+    fn tick_banners(&mut self) {
+        for b in self.banners.iter_mut() {
+            b.ttl_ticks = b.ttl_ticks.saturating_sub(1);
         }
-        if self.discovery_show_until == 0 {
-            // Fresh head — start its display window.
-            self.discovery_show_until = self.anim_tick + 60; // ~3s at 20fps
-            return;
-        }
-        if self.anim_tick >= self.discovery_show_until {
-            self.discovery_queue.pop_front();
-            self.discovery_show_until = if self.discovery_queue.is_empty() {
-                0
-            } else {
-                self.anim_tick + 60
-            };
-        }
+        self.banners.retain(|b| b.ttl_ticks > 0);
     }
 
     /// Run after every catch + after every cook: pays out fishdex/cookbook
@@ -2006,7 +2026,11 @@ impl App {
     fn show_xp_gain(&mut self, skill: &'static str, gained: u64, total_xp: u64, level: u32) {
         self.narrator.say(format!("+{gained} {skill} xp"));
         // 5 seconds at 20fps -> 100 ticks
-        self.xp_popup = Some((skill, gained, total_xp, level, 100));
+        self.push_banner(
+            BannerKind::Xp { level, total_xp },
+            format!("+{gained} {skill} xp"),
+            100,
+        );
     }
 
     fn tick_cast(&mut self) {
@@ -2207,16 +2231,9 @@ impl App {
         if self.biome_popup_ticks > 0 {
             self.biome_popup_ticks -= 1;
         }
-        if let Some((_, _, _, _, ref mut t)) = self.xp_popup {
-            if *t > 0 {
-                *t -= 1;
-            } else {
-                self.xp_popup = None;
-            }
-        }
         self.tick_cast();
         self.tick_stamina();
-        self.tick_discovery_queue();
+        self.tick_banners();
         self.maybe_autosave();
         // Pantheon meta-progression checks: cheap, idempotent. Only fires when
         // a threshold is crossed and that god isn't already granted.
@@ -5722,12 +5739,16 @@ impl App {
                 .push(crate::achievements::unlocked_id(&chain_id, tier_idx));
             self.achievements.points_granted =
                 self.achievements.points_granted.saturating_add(points);
+            let plural = if points == 1 { "" } else { "s" };
             self.narrator.say(format!(
                 "*** Achievement: {} (+{} skill point{}). ***",
-                title,
-                points,
-                if points == 1 { "" } else { "s" }
+                title, points, plural
             ));
+            self.push_banner(
+                BannerKind::Achievement,
+                format!("{title}   +{points} skill point{plural}"),
+                100,
+            );
         }
     }
 
@@ -6809,20 +6830,8 @@ impl App {
             }
         }
 
-        if let Some((skill, gained, total_xp, level, _)) = self.xp_popup {
-            render_xp_popup(frame, skill, gained, total_xp, level);
-        }
-
-        // Top-of-screen discovery banner. Pulls the current head off
-        // discovery_queue (kept by tick_discovery_queue) and draws a
-        // chunky yellow row so the user sees every first catch / first
-        // recipe unlock distinctly from the regular xp popup.
-        if let Some((label, gained, is_recipe)) = self.discovery_queue.front() {
-            // queue_extra = how many MORE banners are waiting behind this
-            // one. Useful when a single catch cascades into multiple
-            // recipe unlocks; without this the player only sees the front.
-            let queue_extra = self.discovery_queue.len().saturating_sub(1);
-            render_discovery_banner(frame, label, *gained, *is_recipe, queue_extra);
+        if !self.banners.is_empty() {
+            render_banners(frame, &self.banners);
         }
 
         if let Some(id) = self.pinned_quest.as_deref() {
@@ -7537,93 +7546,79 @@ fn render_rod_shop(
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-fn render_xp_popup(
-    frame: &mut Frame,
-    skill: &str,
-    gained: u64,
-    total_xp: u64,
-    level: u32,
-) {
+/// Render every active banner top-down, centered horizontally. Each
+/// banner gets a bordered box sized to its content; the next banner
+/// stacks immediately below the previous one so a burst of events all
+/// stay visible at once.
+fn render_banners(frame: &mut Frame, banners: &[Banner]) {
     use crate::stats::level_to_xp;
     let area = viewport(frame);
-    let w = 48u16.min(area.width);
-    let h = 4u16.min(area.height);
-    if w < 20 || h < 4 {
-        return;
+    let mut y = area.y + 1;
+    for b in banners {
+        let (border_color, title) = match &b.kind {
+            BannerKind::Discovery => (Color::LightYellow, " new discovery "),
+            BannerKind::Recipe => (Color::LightMagenta, " new recipe "),
+            BannerKind::Achievement => (Color::Rgb(220, 180, 60), " achievement "),
+            BannerKind::Xp { .. } => (Color::LightGreen, " xp gained "),
+        };
+        let h: u16 = match &b.kind {
+            BannerKind::Xp { .. } => 4,
+            _ => 3,
+        };
+        if y + h > area.y + area.height {
+            break;
+        }
+        let inner_w_needed = (b.line.chars().count() as u16).saturating_add(2);
+        let w = inner_w_needed
+            .saturating_add(2)
+            .clamp(20, area.width.saturating_sub(2));
+        let x = area.x + area.width.saturating_sub(w) / 2;
+        let rect = Rect { x, y, width: w, height: h };
+        frame.render_widget(Clear, rect);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(title)
+            .border_style(Style::default().fg(border_color).add_modifier(Modifier::BOLD));
+        let inner = block.inner(rect);
+        frame.render_widget(block, rect);
+        match &b.kind {
+            BannerKind::Xp { level, total_xp, .. } => {
+                let cur_floor = level_to_xp(*level);
+                let next = level_to_xp(level + 1);
+                let span = (next - cur_floor).max(1);
+                let progress = total_xp.saturating_sub(cur_floor);
+                let bar_w = inner.width.saturating_sub(2) as usize;
+                let filled =
+                    ((progress as f32 / span as f32) * bar_w as f32) as usize;
+                let bar: String = std::iter::repeat('=')
+                    .take(filled)
+                    .chain(std::iter::repeat('-').take(bar_w.saturating_sub(filled)))
+                    .collect();
+                let lines = vec![
+                    ratatui::text::Line::from(ratatui::text::Span::styled(
+                        b.line.clone(),
+                        Style::default()
+                            .fg(border_color)
+                            .add_modifier(Modifier::BOLD),
+                    ))
+                    .alignment(Alignment::Center),
+                    ratatui::text::Line::from(format!(" [{bar}]  Lv {level}")),
+                ];
+                frame.render_widget(Paragraph::new(lines), inner);
+            }
+            _ => {
+                let para = Paragraph::new(ratatui::text::Span::styled(
+                    b.line.clone(),
+                    Style::default()
+                        .fg(border_color)
+                        .add_modifier(Modifier::BOLD),
+                ))
+                .alignment(Alignment::Center);
+                frame.render_widget(para, inner);
+            }
+        }
+        y = y.saturating_add(h);
     }
-    let x = area.x + (area.width.saturating_sub(w)) / 2;
-    let y = area.y + 1;
-    let rect = Rect { x, y, width: w, height: h };
-    frame.render_widget(Clear, rect);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(format!(" +{gained} {skill} xp "))
-        .border_style(Style::default().fg(Color::LightGreen));
-    let inner = block.inner(rect);
-    frame.render_widget(block, rect);
-
-    let cur_floor = level_to_xp(level);
-    let next = level_to_xp(level + 1);
-    let span = (next - cur_floor).max(1);
-    let progress = total_xp.saturating_sub(cur_floor);
-    let bar_w = inner.width.saturating_sub(2) as usize;
-    let filled = ((progress as f32 / span as f32) * bar_w as f32) as usize;
-    let bar: String = std::iter::repeat('=')
-        .take(filled)
-        .chain(std::iter::repeat('-').take(bar_w.saturating_sub(filled)))
-        .collect();
-    let lines = vec![
-        ratatui::text::Line::from(format!("  Level {level}  ({progress}/{span} xp)")),
-        ratatui::text::Line::from(format!(" [{bar}]")),
-    ];
-    frame.render_widget(Paragraph::new(lines), inner);
-}
-
-fn render_discovery_banner(
-    frame: &mut Frame,
-    label: &str,
-    xp: u64,
-    is_recipe: bool,
-    queue_extra: usize,
-) {
-    let area = viewport(frame);
-    let kind = if is_recipe { "Recipe" } else { "Fish" };
-    let queue_tag = if queue_extra > 0 {
-        format!("   (+{queue_extra} more queued)")
-    } else {
-        String::new()
-    };
-    let line = format!(
-        "★ {} discovered: {} ★   +{} encyclopedia xp{queue_tag}",
-        kind, label, xp
-    );
-    let w = (line.len() as u16 + 6).min(area.width.saturating_sub(2));
-    let h = 3u16.min(area.height);
-    if w < 16 || h < 3 {
-        return;
-    }
-    let x = area.x + area.width.saturating_sub(w) / 2;
-    let y = area.y + 1;
-    let popup = Rect { x, y, width: w, height: h };
-    frame.render_widget(Clear, popup);
-    let border = if is_recipe {
-        Color::LightMagenta
-    } else {
-        Color::LightYellow
-    };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(border).add_modifier(Modifier::BOLD));
-    let para = Paragraph::new(line)
-        .style(
-            Style::default()
-                .fg(Color::Black)
-                .bg(border)
-                .add_modifier(Modifier::BOLD),
-        )
-        .alignment(Alignment::Center)
-        .block(block);
-    frame.render_widget(para, popup);
 }
 
 fn render_location_popup(frame: &mut Frame, label: &str) {
