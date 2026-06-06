@@ -2128,9 +2128,16 @@ fn big_rock_at(x: i32, y: i32, seed: u32, density: f32) -> bool {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TreeSpecies {
-    Round,
-    Pine,
+    /// Single-cell mossy bush, no canopy.
     Bush,
+    /// Compact rounded tree — trunk + 3-cell canopy directly above.
+    Round,
+    /// Standard 5-cell pine.
+    Pine,
+    /// Wide oak — 2-tall trunk-and-canopy footprint, 5-wide top tier.
+    BigOak,
+    /// Tall pine — adds a fourth canopy row on top of a normal Pine.
+    TallPine,
 }
 
 #[derive(Clone, Copy)]
@@ -2140,10 +2147,14 @@ enum TreePart {
 }
 
 fn tree_species(ax: i32, ay: i32, seed: u32) -> TreeSpecies {
-    match hash2(ax, ay, seed.wrapping_add(0xDEAD_F00D)) % 5 {
-        0 | 1 => TreeSpecies::Round,
-        2 | 3 => TreeSpecies::Pine,
-        _ => TreeSpecies::Bush,
+    // Weighted picks so the forest reads as varied: ~40% Round, ~25%
+    // Pine, ~15% Bush, ~12% BigOak, ~8% TallPine.
+    match hash2(ax, ay, seed.wrapping_add(0xDEAD_F00D)) % 25 {
+        0..=9 => TreeSpecies::Round,
+        10..=15 => TreeSpecies::Pine,
+        16..=18 => TreeSpecies::Bush,
+        19..=21 => TreeSpecies::BigOak,
+        _ => TreeSpecies::TallPine,
     }
 }
 
@@ -2163,6 +2174,35 @@ fn tree_offsets(sp: TreeSpecies) -> &'static [(i32, i32, TreePart)] {
             (0, -2, TreePart::Canopy),
         ],
         TreeSpecies::Bush => &[(0, 0, TreePart::Trunk)],
+        // BigOak: front trunk blocks, back row of trunk is a "Canopy"
+        // tile so the player can walk behind it (same trick as village
+        // oaks). Wide 5-cell canopy crown on top.
+        TreeSpecies::BigOak => &[
+            (0, 0, TreePart::Trunk),
+            (1, 0, TreePart::Trunk),
+            (0, -1, TreePart::Canopy),
+            (1, -1, TreePart::Canopy),
+            (-1, -2, TreePart::Canopy),
+            (0, -2, TreePart::Canopy),
+            (1, -2, TreePart::Canopy),
+            (2, -2, TreePart::Canopy),
+            (-1, -3, TreePart::Canopy),
+            (0, -3, TreePart::Canopy),
+            (1, -3, TreePart::Canopy),
+            (2, -3, TreePart::Canopy),
+            (0, -4, TreePart::Canopy),
+            (1, -4, TreePart::Canopy),
+        ],
+        TreeSpecies::TallPine => &[
+            (0, 0, TreePart::Trunk),
+            (0, -1, TreePart::Canopy),
+            (-1, -1, TreePart::Canopy),
+            (1, -1, TreePart::Canopy),
+            (0, -2, TreePart::Canopy),
+            (-1, -2, TreePart::Canopy),
+            (1, -2, TreePart::Canopy),
+            (0, -3, TreePart::Canopy),
+        ],
     }
 }
 
@@ -2381,8 +2421,10 @@ fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
 }
 
 fn tree_at(x: i32, y: i32, seed: u32, density: f32) -> Option<Tile> {
-    for dy in 0..=2i32 {
-        for dx in -1..=1i32 {
+    // dy/dx scan range covers the largest possible tree footprint:
+    // BigOak's canopy reaches dx=2 right, dx=-1 left, dy=-4 up.
+    for dy in 0..=4i32 {
+        for dx in -2..=1i32 {
             let ax = x + dx;
             let ay = y + dy;
             let local_density = biome_params(cached_biome_at(ax, ay, seed)).tree;
@@ -2426,13 +2468,15 @@ pub fn tree_yield_mult_at(x: i32, y: i32, seed: u32) -> f32 {
         Some((_, _, TreeSpecies::Bush, _)) => 0.5,
         Some((_, _, TreeSpecies::Round, _)) => 1.0,
         Some((_, _, TreeSpecies::Pine, _)) => 1.5,
+        Some((_, _, TreeSpecies::TallPine, _)) => 2.0,
+        Some((_, _, TreeSpecies::BigOak, _)) => 2.5,
         None => 1.0,
     }
 }
 
 fn find_tree_anchor(x: i32, y: i32, seed: u32) -> Option<(i32, i32, TreeSpecies, TreePart)> {
-    for dy in 0..=2i32 {
-        for dx in -1..=1i32 {
+    for dy in 0..=4i32 {
+        for dx in -2..=1i32 {
             let ax = x + dx;
             let ay = y + dy;
             let density = biome_params(cached_biome_at(ax, ay, seed)).tree;
@@ -3583,6 +3627,71 @@ fn tree_render(x: i32, y: i32, seed: u32) -> (char, Style) {
                 _ => 'q',
             };
             leaf_style(g, anchor_hash, (115, 150, 85), x, y)
+        }
+        (TreeSpecies::BigOak, TreePart::Trunk) => {
+            // 2-wide trunk: paired `[ ]` like the village oaks. Darker
+            // bark so it reads as one of the bigger species in the forest.
+            let dx = x - ax;
+            let g = if dx == 0 { '[' } else { ']' };
+            let r = 130 + (anchor_hash % 22) as u8;
+            let gc = 85 + (anchor_hash % 18) as u8;
+            let b = 55 + (anchor_hash % 14) as u8;
+            (
+                g,
+                Style::default()
+                    .fg(Color::Rgb(r, gc, b))
+                    .add_modifier(Modifier::BOLD),
+            )
+        }
+        (TreeSpecies::BigOak, TreePart::Canopy) => {
+            let dx = x - ax;
+            let dy = y - ay;
+            // dy=-1 is the back-trunk row (walkable but trunk-looking).
+            if dy == -1 {
+                let g = if dx == 0 { '[' } else { ']' };
+                let r = (130 + (anchor_hash % 22) as u8).saturating_sub(45);
+                let gc = (85 + (anchor_hash % 18) as u8).saturating_sub(30);
+                let b = (55 + (anchor_hash % 14) as u8).saturating_sub(20);
+                return (
+                    g,
+                    Style::default()
+                        .fg(Color::Rgb(r, gc, b))
+                        .add_modifier(Modifier::BOLD),
+                );
+            }
+            let cell_hash = hash2(x, y, anchor_hash.wrapping_add(0x9AAA));
+            let g = match cell_hash % 6 {
+                0 => '%',
+                1 => '@',
+                2 => '#',
+                3 => '&',
+                4 => '*',
+                _ => 'o',
+            };
+            leaf_style(g, anchor_hash, (95, 155, 80), x, y)
+        }
+        (TreeSpecies::TallPine, TreePart::Trunk) => trunk_style(anchor_hash, 'I'),
+        (TreeSpecies::TallPine, TreePart::Canopy) => {
+            let dx = x - ax;
+            let dy = y - ay;
+            let g = if dy == -3 {
+                '^'
+            } else if dy == -2 {
+                if dx == 0 {
+                    'A'
+                } else {
+                    '/'
+                }
+            } else if dy == -1 {
+                if dx == 0 {
+                    'A'
+                } else {
+                    '/'
+                }
+            } else {
+                '/'
+            };
+            leaf_style(g, anchor_hash, (65, 115, 70), x, y)
         }
     }
 }
