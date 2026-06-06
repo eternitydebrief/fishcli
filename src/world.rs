@@ -46,6 +46,32 @@ thread_local! {
             in_ring: false, in_shore: false,
         } }; CACHE_SIZE]
     );
+    /// Per-cell rendered glyph cache. Direct-mapped, keyed by (x, y, dim)
+    /// — only populated for tiles whose render is tick-independent. The
+    /// gen counter matches the global GET_GEN so chopping a tree or
+    /// changing dims invalidates every stale slot implicitly.
+    static GLYPH_CACHE: RefCell<Vec<GlyphSlot>> = RefCell::new(
+        vec![GlyphSlot::empty(); CACHE_SIZE]
+    );
+}
+
+#[derive(Clone, Copy)]
+struct GlyphSlot {
+    key: u64,
+    gen: u32,
+    glyph: char,
+    style: Style,
+}
+
+impl GlyphSlot {
+    const fn empty() -> Self {
+        GlyphSlot {
+            key: EMPTY_KEY,
+            gen: 0,
+            glyph: ' ',
+            style: Style::new(),
+        }
+    }
 }
 
 #[inline(always)]
@@ -485,6 +511,27 @@ impl Tile {
         )
     }
 
+    /// True for tiles whose rendered glyph depends on the animation
+    /// `tick`. The glyph cache only stores results for static-render
+    /// tiles; animated ones recompute every frame so the water keeps
+    /// flowing and the grass keeps shimmering.
+    pub fn is_animated_render(self) -> bool {
+        matches!(
+            self,
+            Tile::Water
+                | Tile::Grass
+                | Tile::Sand
+                | Tile::MineralWater
+                | Tile::DeepWater
+                | Tile::Lava
+                | Tile::Seabed
+                | Tile::Kelp
+                | Tile::CoralCanopy
+                | Tile::Anemone
+                | Tile::Curio
+        )
+    }
+
     pub fn id_str(self) -> &'static str {
         match self {
             Tile::Grass => "Grass",
@@ -706,7 +753,7 @@ impl<'a> Widget for WorldView<'a> {
                     }
                 }
                 let _s = crate::perf::AddScope::new(&crate::perf::WORLD_RENDER_TILE_NS);
-                self.world.render_tile(wx, wy, self.tick)
+                render_tile_cached(self.world, wx, wy, self.tick)
             })
             .collect();
 
@@ -762,6 +809,44 @@ fn get_cache_index(packed: u64) -> usize {
 /// changes that affect tile dispatch (chopped trees, dim-portal flips).
 pub fn bump_world_get_gen() {
     GET_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Cached path for the per-cell glyph + style. For tiles whose render
+/// is tick-independent (walls, paths, doors, trees, rocks, ...) the
+/// result is memoised in a thread-local direct-mapped table keyed by
+/// (x, y, dim) and stamped with the current GET_GEN. Animated tiles
+/// (water, grass, shore-sand, ...) skip the cache entirely.
+fn render_tile_cached(world: &World, x: i32, y: i32, tick: u64) -> (char, Style) {
+    let tile = world.get_cached(x, y);
+    if tile.is_animated_render() {
+        return world.render_tile(x, y, tick);
+    }
+    let key_full = get_full_key(x, y, world.dim);
+    let idx = get_cache_index(key_full);
+    let gen_now =
+        (GET_GEN.load(std::sync::atomic::Ordering::Relaxed) & 0xFFFF_FFFF) as u32;
+    let cached: Option<(char, Style)> = GLYPH_CACHE.with(|c| {
+        let c = c.borrow();
+        let slot = &c[idx];
+        if slot.key == key_full && slot.gen == gen_now {
+            Some((slot.glyph, slot.style))
+        } else {
+            None
+        }
+    });
+    if let Some(g) = cached {
+        return g;
+    }
+    let (glyph, style) = world.render_tile(x, y, tick);
+    GLYPH_CACHE.with(|c| {
+        c.borrow_mut()[idx] = GlyphSlot {
+            key: key_full,
+            gen: gen_now,
+            glyph,
+            style,
+        };
+    });
+    (glyph, style)
 }
 
 impl World {
