@@ -381,6 +381,9 @@ pub struct App {
     /// Landmark capes the player has already unlocked. Read on tick to
     /// decide which `landmarks::landmarks()` entries still need firing.
     pub landmarks_unlocked: Vec<String>,
+    /// Per-species shiny catch count, parallel to `caught`. Length is
+    /// auto-extended on load.
+    pub shiny_per_species: Vec<u32>,
     /// Tree anchor coords for the in-progress chopping minigame. Consumed
     /// (and cleared) on chop completion to mark exactly one tree as cut.
     pub pending_chop_anchor: Option<(i32, i32)>,
@@ -573,6 +576,7 @@ impl App {
             scales_spent: std::collections::BTreeMap::new(),
             prestige_count: 0,
             landmarks_unlocked: Vec::new(),
+            shiny_per_species: vec![0; fishlist::fish().len()],
             pending_chop_anchor: None,
             recipe_discovered: vec![false; crate::recipes::recipes().len()],
             discovery_queue: std::collections::VecDeque::new(),
@@ -815,6 +819,11 @@ impl App {
         self.scales_spent = data.scales_spent.clone();
         self.prestige_count = data.prestige_count;
         self.landmarks_unlocked = data.landmarks_unlocked.clone();
+        // Shiny counts: zero-extend to current fish count so JSON appends
+        // don't shift old saves' counts onto the wrong species.
+        let nf = fishlist::fish().len();
+        self.shiny_per_species = data.shiny_per_species.clone();
+        self.shiny_per_species.resize(nf, 0);
         if !data.mastery.is_empty() {
             let n = self.mastery.len();
             for (i, &v) in data.mastery.iter().enumerate().take(n) {
@@ -1008,6 +1017,7 @@ impl App {
             scales_spent: self.scales_spent.clone(),
             prestige_count: self.prestige_count,
             landmarks_unlocked: self.landmarks_unlocked.clone(),
+            shiny_per_species: self.shiny_per_species.clone(),
         }
     }
 
@@ -4376,6 +4386,24 @@ impl App {
                     self.stats.catch_streak = self.stats.catch_streak.saturating_add(1);
                     if self.stats.catch_streak > self.stats.max_catch_streak {
                         self.stats.max_catch_streak = self.stats.catch_streak;
+                    }
+                    // Shiny roll: classic 1/8192. Purely cosmetic; no
+                    // effect on stats, sale, mastery, or anything else.
+                    if crate::fish::next_rand_f32(&mut self.rng_state) < 1.0 / 8192.0 {
+                        self.stats.shiny_catches =
+                            self.stats.shiny_catches.saturating_add(1);
+                        let fish_idx = fishlist::fish()
+                            .iter()
+                            .position(|f| std::ptr::eq(f, fish_ref));
+                        if let Some(i) = fish_idx {
+                            if let Some(slot) = self.shiny_per_species.get_mut(i) {
+                                *slot = slot.saturating_add(1);
+                            }
+                        }
+                        self.narrator.say(format!(
+                            "*** SHINY {} !! 1/8192. ***",
+                            fish_ref.name.to_uppercase()
+                        ));
                     }
                     // Crew hunger ticks up on every catch made while aboard
                     // the boat. Saturating at 100; the cast-block kicks in

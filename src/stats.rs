@@ -29,6 +29,11 @@ pub struct Stats {
     /// Highest `catch_streak` ever reached in this save. Monotonic.
     #[serde(default)]
     pub max_catch_streak: u64,
+    /// Lifetime shiny catches across all species. Shinies roll at 1/8192
+    /// per successful catch, are purely cosmetic, and grant nothing
+    /// mechanically — the whole point is the dopamine of the roll.
+    #[serde(default)]
+    pub shiny_catches: u64,
 }
 
 /// Skill XP totals. Levels are derived from xp via [`xp_to_level`].

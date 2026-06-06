@@ -213,6 +213,10 @@ pub struct SaveData {
     /// their reward.
     #[serde(default)]
     pub landmarks_unlocked: Vec<String>,
+    /// Per-species shiny catch counts, parallel to `caught`. Append-only;
+    /// zero-extended on load.
+    #[serde(default)]
+    pub shiny_per_species: Vec<u32>,
 }
 
 fn default_stamina() -> f32 {
