@@ -843,11 +843,11 @@ pub fn bump_world_get_gen() {
 }
 
 /// How many animation ticks share a single cached glyph. Higher = more
-/// cache hits on water/grass at the cost of choppier animation. 4 ≈ 5
-/// effective fps at 20fps tick — still reads as a flowing shimmer for
-/// the eye but cuts the per-frame water-anim compute by 75%, which is
-/// the difference between buttery and laggy on huge ocean views.
-const ANIM_TICK_BUCKET: u64 = 4;
+/// cache hits on water/grass at the cost of choppier animation. 8 ≈
+/// 2.5 effective fps at 20fps tick — water is calm enough that this
+/// reads as natural slow shimmer, and it cuts the per-frame water-anim
+/// compute by ~88% vs the un-bucketed path.
+const ANIM_TICK_BUCKET: u64 = 8;
 
 /// Cached path for the per-cell glyph + style. Static tiles (walls,
 /// paths, doors, trees, rocks, ...) use a (x, y, dim, gen) key so they
