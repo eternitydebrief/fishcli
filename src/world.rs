@@ -461,6 +461,8 @@ pub enum Tile {
 
 impl Tile {
     pub fn walkable(self) -> bool {
+        // Tree canopies are walk-through: the player passes under the
+        // leaves and only the root trunk cell (TreeTrunk) actually blocks.
         matches!(
             self,
             Tile::Grass
@@ -475,6 +477,7 @@ impl Tile {
                 | Tile::Kelp
                 | Tile::InfernoFloor
                 | Tile::LandmarkDoor
+                | Tile::TreeCanopy
         )
     }
 
@@ -1134,10 +1137,22 @@ impl World {
                 }
             }
             Tile::TreeTrunk | Tile::TreeCanopy => {
-                if let Some(g) = village_oak_glyph(x, y) {
+                let base = if let Some(g) = village_oak_glyph(x, y) {
                     g
                 } else {
                     tree_render(x, y, self.seed)
+                };
+                // If the underlying ground would have been water, tint the
+                // tree glyph's bg with the matching water color so a tree
+                // standing in the lake doesn't punch a dirt-coloured hole
+                // through the shoreline.
+                if matches!(self.dim, Dimension::Surface)
+                    && cached_water_body_at(x, y, self.seed)
+                {
+                    let bg = ocean_depth_color(ocean_depth_at(self, x, y));
+                    (base.0, base.1.bg(bg))
+                } else {
+                    base
                 }
             }
             Tile::Rock => rock_glyph(x, y),
@@ -3503,7 +3518,10 @@ const VILLAGE_OAKS: &[(i32, i32)] = &[
     // Was (-14, 3) — its 5-wide canopy at y=1,0 covered the home
     // Blacksmith at (-12, 1) and Smelter at (-12, 0). Shifted east so
     // the canopy ends at x=-5 and the smithy is in the clear.
-    (-8, 3),  (14, 3),
+    // Was (14, 3) — its 5-wide canopy at y=1,0 covered the fishing
+    // school at x=16..20, y=-1..1. Shifted west to mirror (-8, 3); now
+    // the canopy ends at x=11 and the school stands clear.
+    (-8, 3),  (8, 3),
     (-40, -10), (40, -10),
     (-12, -10), (12, -10),
 ];
