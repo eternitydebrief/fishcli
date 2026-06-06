@@ -23,6 +23,10 @@ pub struct Player {
     pub has_pickaxe: bool,
     /// Required to catch bugs on biome tiles. Granted by an NPC quest reward.
     pub has_bug_net: bool,
+    /// Doubles the shiny roll (1/8192 -> 1/4096). Auto-granted on the
+    /// 1000th lifetime shiny. Still does nothing else — shinies remain
+    /// cosmetic.
+    pub has_shiny_charm: bool,
     /// Currently-equipped tackle (hat / vest / line / lure).
     pub tackle: crate::tackle::EquippedTackle,
     /// Bait stock + active bait.
@@ -78,6 +82,7 @@ impl Player {
             on_boat: false,
             has_pickaxe: false,
             has_bug_net: false,
+            has_shiny_charm: false,
             tackle: crate::tackle::EquippedTackle::default(),
             bait: crate::bait::BaitStock::default(),
             gear: crate::gear::EquippedGear::default(),

@@ -217,6 +217,10 @@ pub struct SaveData {
     /// zero-extended on load.
     #[serde(default)]
     pub shiny_per_species: Vec<u32>,
+    /// True once the Shiny Charm has been auto-granted (at 1000 lifetime
+    /// shinies). Persists so reloading doesn't re-trigger the milestone.
+    #[serde(default)]
+    pub has_shiny_charm: bool,
 }
 
 fn default_stamina() -> f32 {

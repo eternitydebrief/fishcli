@@ -101,6 +101,7 @@ pub struct Snapshot<'a> {
     pub woodcutting_level: u32,
     pub hull_tier: u32,
     pub max_catch_streak: u64,
+    pub shiny_catches: u64,
     pub already_unlocked: &'a [String],
 }
 
@@ -162,6 +163,7 @@ pub fn counter_for(snap: &Snapshot, kind: &str) -> Option<i64> {
         "woodcutting_level" => snap.woodcutting_level as i64,
         "hull_tier" => snap.hull_tier as i64,
         "max_catch_streak" => snap.max_catch_streak as i64,
+        "shiny_catches" => snap.shiny_catches as i64,
         _ => return None,
     })
 }

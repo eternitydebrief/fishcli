@@ -824,6 +824,7 @@ impl App {
         let nf = fishlist::fish().len();
         self.shiny_per_species = data.shiny_per_species.clone();
         self.shiny_per_species.resize(nf, 0);
+        self.player.has_shiny_charm = data.has_shiny_charm;
         if !data.mastery.is_empty() {
             let n = self.mastery.len();
             for (i, &v) in data.mastery.iter().enumerate().take(n) {
@@ -1018,6 +1019,7 @@ impl App {
             prestige_count: self.prestige_count,
             landmarks_unlocked: self.landmarks_unlocked.clone(),
             shiny_per_species: self.shiny_per_species.clone(),
+            has_shiny_charm: self.player.has_shiny_charm,
         }
     }
 
@@ -4387,9 +4389,12 @@ impl App {
                     if self.stats.catch_streak > self.stats.max_catch_streak {
                         self.stats.max_catch_streak = self.stats.catch_streak;
                     }
-                    // Shiny roll: classic 1/8192. Purely cosmetic; no
-                    // effect on stats, sale, mastery, or anything else.
-                    if crate::fish::next_rand_f32(&mut self.rng_state) < 1.0 / 8192.0 {
+                    // Shiny roll: classic 1/8192, halved odds (1/4096)
+                    // while the Shiny Charm is owned. Purely cosmetic;
+                    // no effect on stats, sale, mastery, or anything else.
+                    let shiny_divisor: f32 =
+                        if self.player.has_shiny_charm { 4096.0 } else { 8192.0 };
+                    if crate::fish::next_rand_f32(&mut self.rng_state) < 1.0 / shiny_divisor {
                         self.stats.shiny_catches =
                             self.stats.shiny_catches.saturating_add(1);
                         let fish_idx = fishlist::fish()
@@ -4401,9 +4406,27 @@ impl App {
                             }
                         }
                         self.narrator.say(format!(
-                            "*** SHINY {} !! 1/8192. ***",
-                            fish_ref.name.to_uppercase()
+                            "*** SHINY {} !! 1/{}. ***",
+                            fish_ref.name.to_uppercase(),
+                            shiny_divisor as u32
                         ));
+                        // Milestone: 1000 lifetime shinies grants the
+                        // Shiny Charm. Goes into Misc; doubles the rate;
+                        // does nothing else.
+                        if !self.player.has_shiny_charm
+                            && self.stats.shiny_catches >= 1000
+                        {
+                            self.player.has_shiny_charm = true;
+                            self.player.items.push(crate::item::Item {
+                                name: "Shiny Charm".to_string(),
+                                category: crate::item::Category::Misc,
+                                description: String::new(),
+                            });
+                            self.narrator.say(
+                                "*** SHINY CHARM acquired. Shiny rate doubled. ***"
+                                    .to_string(),
+                            );
+                        }
                     }
                     // Crew hunger ticks up on every catch made while aboard
                     // the boat. Saturating at 100; the cast-block kicks in
@@ -5689,6 +5712,7 @@ impl App {
             woodcutting_level: self.skills.woodcutting_level(),
             hull_tier: self.player.hull_tier,
             max_catch_streak: self.stats.max_catch_streak,
+            shiny_catches: self.stats.shiny_catches,
             already_unlocked: &self.achievements.unlocked,
         };
         let new_unlocks = crate::achievements::newly_unlocked(&snap);
@@ -6656,6 +6680,7 @@ impl App {
                 woodcutting_level: self.skills.woodcutting_level(),
                 hull_tier: self.player.hull_tier,
                 max_catch_streak: self.stats.max_catch_streak,
+                shiny_catches: self.stats.shiny_catches,
                 already_unlocked: &self.achievements.unlocked,
             };
             render_achievements(frame, cursor, &snap, &self.achievements);
