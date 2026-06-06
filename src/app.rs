@@ -367,6 +367,8 @@ pub struct App {
     /// Cells where a soil patch was dug today. Shares the day-rollover with
     /// `bugs_picked_today`.
     pub soil_dug_today: std::collections::HashSet<(crate::world::Dimension, i32, i32)>,
+    /// Cells whose forageable object was searched today. Shares day rollover.
+    pub foraged_today: std::collections::HashSet<(crate::world::Dimension, i32, i32)>,
     /// Scales: persistent token currency. Drops at ~5% per fish catch.
     pub scales: u64,
     /// Per-axis token spend. Read via `scales_bonus(axis)` and applied
@@ -564,6 +566,7 @@ impl App {
             bugs_picked_today: std::collections::HashSet::new(),
             bugs_picked_day_id: 0,
             soil_dug_today: std::collections::HashSet::new(),
+            foraged_today: std::collections::HashSet::new(),
             scales: 0,
             scales_spent: std::collections::BTreeMap::new(),
             prestige_count: 0,
@@ -798,9 +801,11 @@ impl App {
             self.bugs_picked_today = data.bugs_picked.iter().copied().collect();
             self.bugs_picked_day_id = today;
             self.soil_dug_today = data.soil_dug.iter().copied().collect();
+            self.foraged_today = data.foraged.iter().copied().collect();
         } else {
             self.bugs_picked_today.clear();
             self.soil_dug_today.clear();
+            self.foraged_today.clear();
             self.bugs_picked_day_id = today;
         }
         self.scales = data.scales;
@@ -995,6 +1000,7 @@ impl App {
             bugs_picked: self.bugs_picked_today.iter().copied().collect(),
             bugs_picked_day_id: self.bugs_picked_day_id,
             soil_dug: self.soil_dug_today.iter().copied().collect(),
+            foraged: self.foraged_today.iter().copied().collect(),
             scales: self.scales,
             scales_spent: self.scales_spent.clone(),
             prestige_count: self.prestige_count,
@@ -4661,6 +4667,9 @@ impl App {
         if self.try_dig_soil_at(nx, ny) {
             return;
         }
+        if self.try_forage_at(nx, ny) {
+            return;
+        }
         if let Some(npc) = npc::npc_at_dim(nx, ny, self.world.dim, self.world.seed) {
             if npc.id == "sailor" {
                 self.interact_sailor();
@@ -5969,8 +5978,50 @@ impl App {
         if today != self.bugs_picked_day_id {
             self.bugs_picked_today.clear();
             self.soil_dug_today.clear();
+            self.foraged_today.clear();
             self.bugs_picked_day_id = today;
         }
+    }
+
+    /// Forage the faced cell for bait. Rocks / trees / cacti / flowers /
+    /// pebbles each have biome-aware drop tables. Returns true if the
+    /// interaction was consumed.
+    fn try_forage_at(&mut self, nx: i32, ny: i32) -> bool {
+        let dim = self.world.dim;
+        if self.foraged_today.contains(&(dim, nx, ny)) {
+            return false;
+        }
+        let tile = self.world.get(nx, ny);
+        let biome = self.world.biome(nx, ny);
+        let Some((action, table)) = crate::forage::forage_at(tile, biome, dim) else {
+            return false;
+        };
+        let Some(bait_id) = crate::forage::pick(table, &mut self.rng_state) else {
+            return false;
+        };
+        let full_id = if bait_id.starts_with("bug:") {
+            bait_id.to_string()
+        } else if crate::bugs::def_by_id(bait_id).is_some() {
+            format!("bug:{bait_id}")
+        } else {
+            bait_id.to_string()
+        };
+        self.player.bait.add(&full_id, 1);
+        self.foraged_today.insert((dim, nx, ny));
+        let name = crate::bait::def_by_id(&full_id)
+            .map(|d| d.name.clone())
+            .unwrap_or_else(|| bait_id.to_string());
+        self.narrator
+            .say(format!("You {} and find a {name}.", action.verb()));
+        // Forage counts as a bug catch in the mastery vec if the underlying
+        // entry is a bug — keeps the bug-50/bug-500 landmark capes reachable
+        // from foraging alone.
+        if let Some(idx) = crate::bugs::index_of(bait_id) {
+            if let Some(slot) = self.bugs_caught.get_mut(idx) {
+                *slot = slot.saturating_add(1);
+            }
+        }
+        true
     }
 
     /// Dig a soil patch on the faced cell. Returns true if the dig was

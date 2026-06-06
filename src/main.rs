@@ -19,6 +19,7 @@ mod bugs;
 mod chop;
 mod daily;
 mod fish;
+mod forage;
 mod gametime;
 mod gear;
 mod house;
