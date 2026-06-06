@@ -9488,7 +9488,9 @@ fn render_bug_catch(frame: &mut Frame, b: &crate::bug_catch::BugCatch, tick: u64
     };
     let in_zone = b.in_target();
     let title = format!(
-        " bug net — space/f to swing — esc to leave — {secs_left}s "
+        " bug net — space/f to swing — esc to leave — {secs_left}s — {}/{} swings ",
+        b.attempts_left,
+        crate::bug_catch::MAX_ATTEMPTS,
     );
     let border = if in_zone { Color::LightGreen } else { Color::Yellow };
     let block = Block::default()
