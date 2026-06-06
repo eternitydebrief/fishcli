@@ -6585,6 +6585,7 @@ impl App {
             Scene::Inventory { tab } => render_inventory(
                 frame,
                 &self.player.inventory,
+                &self.player.fossils,
                 &self.player.items,
                 *tab,
                 &self.recipe_discovered,
@@ -9268,6 +9269,7 @@ fn group_line(name: &str, desc: &str, n: usize) -> ratatui::text::Line<'static> 
 fn render_inventory(
     frame: &mut Frame,
     fish_inv: &[&'static FishDef],
+    fossils: &[&'static FishDef],
     items: &[Item],
     tab_idx: usize,
     recipe_discovered: &[bool],
@@ -9350,6 +9352,35 @@ fn render_inventory(
                     group_line_full(&f.name, &f.description, n, recipe_count, f.sell_price())
                 })
                 .collect()
+        }
+        Category::Fossils => {
+            // Fossils are catch-but-not-sellable. Group identical entries
+            // and render their basket count. Cooking / selling never reach
+            // this list — the only thing you can do with them is take them
+            // to a procedural-village archeologist.
+            let mut grouped: Vec<(&'static crate::fish::FishDef, usize)> = Vec::new();
+            for f in fossils.iter() {
+                if let Some((_, n)) = grouped.iter_mut().find(|(ff, _)| ff.name == f.name) {
+                    *n += 1;
+                } else {
+                    grouped.push((*f, 1));
+                }
+            }
+            if grouped.is_empty() {
+                Vec::new()
+            } else {
+                let mut lines = vec![ratatui::text::Line::from(ratatui::text::Span::styled(
+                    "Bring these to an archeologist in a procedural village to unearth them.",
+                    Style::default().fg(Color::DarkGray),
+                ))];
+                lines.push(ratatui::text::Line::from(""));
+                lines.extend(
+                    grouped
+                        .into_iter()
+                        .map(|(f, n)| group_line(&f.name, &f.description, n)),
+                );
+                lines
+            }
         }
         Category::Misc => {
             // Unique fish like THE FISH live in Misc so they can't be sold or
