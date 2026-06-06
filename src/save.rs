@@ -46,6 +46,10 @@ pub struct SaveData {
     pub player_y: i32,
     pub valu: u64,
     pub inventory: Vec<String>,
+    /// Fossilized catches, parallel storage to `inventory`. Each entry is
+    /// a fish name that resolves to a fossil-tagged FishDef on load.
+    #[serde(default)]
+    pub fossils: Vec<String>,
     pub caught: Vec<bool>,
     pub world_seed: u32,
     pub rng_state: u32,

@@ -763,6 +763,11 @@ impl App {
             .iter()
             .filter_map(|n| fishlist::fish().iter().find(|f| &f.name == n))
             .collect();
+        self.player.fossils = data
+            .fossils
+            .iter()
+            .filter_map(|n| fishlist::fish().iter().find(|f| &f.name == n))
+            .collect();
         if data.caught.len() == self.caught.len() {
             self.caught = data.caught.clone();
         } else {
@@ -952,6 +957,12 @@ impl App {
             inventory: self
                 .player
                 .inventory
+                .iter()
+                .map(|f| f.name.to_string())
+                .collect(),
+            fossils: self
+                .player
+                .fossils
                 .iter()
                 .map(|f| f.name.to_string())
                 .collect(),
@@ -4286,7 +4297,11 @@ impl App {
                 *slot = Some((where_from.to_string(), "-".to_string()));
             }
         }
-        self.player.inventory.push(fish_ref);
+        if fish_ref.fossilized {
+            self.player.fossils.push(fish_ref);
+        } else {
+            self.player.inventory.push(fish_ref);
+        }
         self.narrator
             .say(format!("*** {} ARRIVES. {} ***", name.to_uppercase(), where_from));
         self.narrator.say(format!("{}", fish_ref.description));
@@ -4389,7 +4404,11 @@ impl App {
                         // unique fish never duplicate
                         let actual_copies = if fish_ref.unique { 1 } else { copies + bonus };
                         for _ in 0..actual_copies {
-                            self.player.inventory.push(fish_ref);
+                            if fish_ref.fossilized {
+                                self.player.fossils.push(fish_ref);
+                            } else {
+                                self.player.inventory.push(fish_ref);
+                            }
                         }
                         if bonus > 0 {
                             self.narrator
@@ -4863,6 +4882,10 @@ impl App {
                     step: FishmongerStep::PickFish,
                 };
                 self.mode = Mode::Insert;
+                return;
+            }
+            if npc.id == "archeologist-template" {
+                self.interact_archeologist(npc);
                 return;
             }
             self.narrator.say(format!("You greet {}.", npc.name));
@@ -6264,6 +6287,55 @@ impl App {
     /// Old Angler hands the player a Bug Net once they've reached a small
     /// catch threshold. Returns true if the interaction was consumed (and
     /// the caller should NOT fall through to the generic dialogue scene).
+    /// Per-fossil base unearth fee. Multiplied by the fossil's difficulty
+    /// so iconic apex species cost more to bring to life. Tunable.
+    const UNEARTH_FEE_PER_DIFF: u64 = 75;
+
+    fn interact_archeologist(&mut self, npc: &'static npc::Npc) {
+        // No fossils to unearth — flavor-only response.
+        let Some(&fossil) = self.player.fossils.first() else {
+            self.narrator.say(npc.response("no_fossils", &[]));
+            return;
+        };
+        let fee = (fossil.difficulty as u64).max(1) * Self::UNEARTH_FEE_PER_DIFF;
+        if self.player.valu < fee {
+            self.narrator.say(npc.response(
+                "too_poor",
+                &[("cost", fee.to_string()), ("have", self.player.valu.to_string())],
+            ));
+            return;
+        }
+        // Find the living counterpart by fossil_slug. If the asset graph
+        // is intact this is always Some; if it isn't, refund.
+        let Some(living) = fishlist::fish()
+            .iter()
+            .find(|f| f.unearthed && f.fossil_slug == fossil.fossil_slug)
+        else {
+            self.narrator
+                .say("The archeologist frowns. \"I cannot work with this one.\"".to_string());
+            return;
+        };
+        self.player.valu -= fee;
+        // Remove the head fossil and add the living version to the basket.
+        self.player.fossils.remove(0);
+        self.player.inventory.push(living);
+        // Auto-discover the living counterpart too — it's a "first catch"
+        // moment for the species in the encyclopedia even though no rod
+        // was involved.
+        if let Some(idx) = fishlist::fish().iter().position(|f| std::ptr::eq(f, living)) {
+            if let Some(slot) = self.caught.get_mut(idx) {
+                if !*slot {
+                    *slot = true;
+                    self.on_fish_first_discovered(idx);
+                }
+            }
+        }
+        self.narrator.say(npc.response(
+            "unearthed",
+            &[("fish", living.name.clone()), ("cost", fee.to_string())],
+        ));
+    }
+
     fn interact_old_angler(&mut self) -> bool {
         const BUG_NET_CATCH_GATE: u64 = 25;
         let Some(npc) = npc::npcs().iter().find(|n| n.id == "old-angler") else { return false };

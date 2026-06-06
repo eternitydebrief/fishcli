@@ -2863,16 +2863,15 @@ pub fn blacksmith_station_at(x: i32, y: i32, seed: u32) -> Option<Tile> {
 }
 
 /// Resolve which procedural-village merchant (if any) stands at this
-/// world cell. Returns the template id ("blacksmith-template" or
-/// "fishmonger-template"). Each procedural village hosts exactly one of
-/// each merchant at fixed offsets from its anchor — blacksmith two cells
-/// east of the well, fishmonger two cells west — both on the village's
-/// path so the player can walk up and press f.
+/// world cell. Returns the template id. Each procedural village hosts
+/// one blacksmith east of the well, one fishmonger west, and one
+/// archeologist south — all on the central paths so the player can walk
+/// up and press `f`.
 pub fn proc_village_merchant_id_at(x: i32, y: i32, seed: u32) -> Option<&'static str> {
-    // Proc village anchors are constrained to ay <= -8, and both merchants
-    // stand at exactly smith.y == anchor.y. So y > -8 has no merchants;
-    // skip the expensive village_anchor_for call.
-    if y > -8 {
+    // Proc village anchors sit at ay <= -8. Merchants stand within 3
+    // cells of the anchor, so y > -5 can't host any of them — skip the
+    // expensive village_anchor_for lookup in that band.
+    if y > -5 {
         return None;
     }
     let v = village_anchor_for(x, y, seed)?;
@@ -2881,6 +2880,9 @@ pub fn proc_village_merchant_id_at(x: i32, y: i32, seed: u32) -> Option<&'static
     }
     if (x, y) == (v.ax - 3, v.ay) {
         return Some("fishmonger-template");
+    }
+    if (x, y) == (v.ax, v.ay + 3) {
+        return Some("archeologist-template");
     }
     None
 }

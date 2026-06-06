@@ -9,6 +9,10 @@ pub struct Player {
     pub name: String,
     pub valu: u64,
     pub inventory: Vec<&'static FishDef>,
+    /// Fossilized catches from the mines. Stored separately from the fish
+    /// basket — they can't be sold or cooked, only handed to an
+    /// archeologist NPC who unearths them for a fee.
+    pub fossils: Vec<&'static FishDef>,
     pub items: Vec<Item>,
     pub facing: (i32, i32),
     pub rods: OwnedRods,
@@ -75,6 +79,7 @@ impl Player {
             name: String::new(),
             valu: 0,
             inventory: Vec::new(),
+            fossils: Vec::new(),
             items: Vec::new(),
             facing: (0, 1),
             rods: OwnedRods { max_owned: 1, equipped: 1 },

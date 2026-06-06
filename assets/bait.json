@@ -10,5 +10,6 @@
   { "id": "honey-bait",    "name": "Honey Bait",      "description": "Sticky sweet. +25% catch speed.",                   "cost": 350,  "effect": "catch_speed",  "magnitude": 0.25 },
   { "id": "atlantean-roe", "name": "Atlantean Roe",   "description": "Forbidden roe. +50% valu on the next sale.",        "cost": 900,  "effect": "valu_mult",    "magnitude": 0.50 },
   { "id": "fey-lure",      "name": "Fey Lure",        "description": "Wisp-laced. +30% rare chance and +15% xp.",         "cost": 2000, "effect": "rare_chance",  "magnitude": 0.30 },
-  { "id": "infernal-scale","name": "Infernal Scale",  "description": "Black-smoking. Doubles catch speed for one cast.",   "cost": 5000, "effect": "catch_speed",  "magnitude": 1.00 }
+  { "id": "infernal-scale","name": "Infernal Scale",  "description": "Black-smoking. Doubles catch speed for one cast.",   "cost": 5000, "effect": "catch_speed",  "magnitude": 1.00 },
+  { "id": "ancient-bait",  "name": "Ancient Bait",    "description": "Crumbling pellet of dust and bone. Strongly pulls fossilized species in the mines.", "cost": 800, "effect": "rare_chance", "magnitude": 0.0, "pool_pull": "fossil", "pool_pull_mult": 5.0 }
 ]

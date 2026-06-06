@@ -76,6 +76,22 @@
     }
   },
   {
+    "id": "archeologist-template",
+    "name": "Archeologist",
+    "x": 2147483644,
+    "y": 2147483644,
+    "glyph": "&",
+    "color": "lightyellow",
+    "dialogue": [
+      "TODO: procedural-village archeologist line — user to write."
+    ],
+    "responses": {
+      "no_fossils": "TODO: nothing-to-unearth response — user to write.",
+      "too_poor": "TODO: not-enough-valu response — user to write.",
+      "unearthed": "TODO: success line, may reference {fish} and {cost} — user to write."
+    }
+  },
+  {
     "id": "fishmonger",
     "name": "Fishmonger",
     "x": -3,

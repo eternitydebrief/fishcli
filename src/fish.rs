@@ -41,6 +41,20 @@ pub struct FishDef {
     /// (see `effective_pool_tags`). Override per-fish in `assets/fish.json`
     /// when you want a specific bait to target a specific species set.
     pub pool_tags: Vec<String>,
+    /// True for ancient species pulled out of the mines as fossils. These
+    /// don't go into the regular fish basket (they're stored separately in
+    /// `Player::fossils`), don't sell, and only become valuable after an
+    /// archeologist unearths them into their living counterpart.
+    pub fossilized: bool,
+    /// True for the *living* counterpart of a fossilized species. Only
+    /// added to inventory via the archeologist's unearth action; never
+    /// picked by `pick_fish_full` because of the synthetic
+    /// `unearthed-private` pool tag carried in `pool`.
+    pub unearthed: bool,
+    /// Slug linking a fossil to its living variant (and vice-versa). The
+    /// archeologist uses `fossil_slug` on a fossil to find which species
+    /// to grant. Empty for non-fossil entries.
+    pub fossil_slug: String,
 }
 
 impl Default for FishDef {
@@ -59,6 +73,9 @@ impl Default for FishDef {
             pool: Vec::new(),
             preferred_weather: Vec::new(),
             pool_tags: Vec::new(),
+            fossilized: false,
+            unearthed: false,
+            fossil_slug: String::new(),
         }
     }
 }
