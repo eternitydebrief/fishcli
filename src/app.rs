@@ -1845,7 +1845,10 @@ impl App {
                 let r = crate::fish::next_rand_f32(&mut self.rng_state);
                 let k = (1.0f32 - r * 0.9999).ln() / 0.75f32.ln();
                 let secs = (k.ceil() as u32).clamp(1, 30) as f32;
-                let bite_mult = (1.0 - self.bait_pending_bite_speed.clamp(0.0, 0.6)).max(0.4);
+                let total_bite_speed = (self.bait_pending_bite_speed
+                    + self.player.tackle.sum_effect("bite_speed"))
+                    .clamp(0.0, 0.7);
+                let bite_mult = (1.0 - total_bite_speed).max(0.3);
                 let scaled = secs * (1.0 - c.cast_strength * 0.5)
                     * self.buffs.wait_mult()
                     * bite_mult;

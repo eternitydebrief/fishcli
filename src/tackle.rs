@@ -15,16 +15,27 @@ pub enum Slot {
     Vest,
     Line,
     Lure,
+    Reel,
+    Float,
 }
 
 impl Slot {
-    pub const ALL: &'static [Slot] = &[Slot::Hat, Slot::Vest, Slot::Line, Slot::Lure];
+    pub const ALL: &'static [Slot] = &[
+        Slot::Hat,
+        Slot::Vest,
+        Slot::Line,
+        Slot::Lure,
+        Slot::Reel,
+        Slot::Float,
+    ];
     pub fn label(self) -> &'static str {
         match self {
             Slot::Hat => "Hat",
             Slot::Vest => "Vest",
             Slot::Line => "Line",
             Slot::Lure => "Lure",
+            Slot::Reel => "Reel",
+            Slot::Float => "Float",
         }
     }
 }
@@ -93,6 +104,10 @@ pub struct EquippedTackle {
     pub line: u32,
     #[serde(default)]
     pub lure: u32,
+    #[serde(default)]
+    pub reel: u32,
+    #[serde(default)]
+    pub float: u32,
 }
 
 impl EquippedTackle {
@@ -102,6 +117,8 @@ impl EquippedTackle {
             Slot::Vest => self.vest,
             Slot::Line => self.line,
             Slot::Lure => self.lure,
+            Slot::Reel => self.reel,
+            Slot::Float => self.float,
         }
     }
     pub fn set_tier(&mut self, slot: Slot, tier: u32) {
@@ -110,6 +127,8 @@ impl EquippedTackle {
             Slot::Vest => self.vest = tier,
             Slot::Line => self.line = tier,
             Slot::Lure => self.lure = tier,
+            Slot::Reel => self.reel = tier,
+            Slot::Float => self.float = tier,
         }
     }
     pub fn equipped(&self, slot: Slot) -> Option<&'static TackleDef> {

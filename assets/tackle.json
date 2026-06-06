@@ -35,5 +35,25 @@
   { "id": "lure-5", "slot": "lure", "tier": 5, "name": "Crankbait",          "description": "Dives deep; +5% rare chance.",                   "cost": 22000,  "effect": "rare_chance",   "magnitude": 0.05 },
   { "id": "lure-6", "slot": "lure", "tier": 6, "name": "Jewel Spoon",        "description": "Inset gems; +7% rare chance.",                   "cost": 65000,  "effect": "rare_chance",   "magnitude": 0.07 },
   { "id": "lure-7", "slot": "lure", "tier": 7, "name": "Living Lure",        "description": "It moves on its own; +9% rare chance.",          "cost": 180000, "effect": "rare_chance",   "magnitude": 0.09 },
-  { "id": "lure-8", "slot": "lure", "tier": 8, "name": "Fallen Fish Scale",  "description": "Plucked from the Inferno's prince; +12% rare chance.","cost": 550000,"effect": "rare_chance", "magnitude": 0.12 }
+  { "id": "lure-8", "slot": "lure", "tier": 8, "name": "Fallen Fish Scale",  "description": "Plucked from the Inferno's prince; +12% rare chance.","cost": 550000,"effect": "rare_chance", "magnitude": 0.12 },
+
+  { "_comment": "Reel slot — bite_speed axis. Subtracts a fraction of the wait between cast and bite. Names are placeholders for user-authored prose." },
+  { "id": "reel-1", "slot": "reel", "tier": 1, "name": "Hand Crank",          "description": "",                                              "cost": 180,    "effect": "bite_speed",    "magnitude": 0.02 },
+  { "id": "reel-2", "slot": "reel", "tier": 2, "name": "Wood Reel",           "description": "",                                              "cost": 650,    "effect": "bite_speed",    "magnitude": 0.04 },
+  { "id": "reel-3", "slot": "reel", "tier": 3, "name": "Bronze Reel",         "description": "",                                              "cost": 2100,   "effect": "bite_speed",    "magnitude": 0.06 },
+  { "id": "reel-4", "slot": "reel", "tier": 4, "name": "Steel Reel",          "description": "",                                              "cost": 6800,   "effect": "bite_speed",    "magnitude": 0.09 },
+  { "id": "reel-5", "slot": "reel", "tier": 5, "name": "Geared Reel",         "description": "",                                              "cost": 21000,  "effect": "bite_speed",    "magnitude": 0.13 },
+  { "id": "reel-6", "slot": "reel", "tier": 6, "name": "Spinning Reel",       "description": "",                                              "cost": 60000,  "effect": "bite_speed",    "magnitude": 0.18 },
+  { "id": "reel-7", "slot": "reel", "tier": 7, "name": "Centrifugal Reel",    "description": "",                                              "cost": 165000, "effect": "bite_speed",    "magnitude": 0.24 },
+  { "id": "reel-8", "slot": "reel", "tier": 8, "name": "Abyssal Reel",        "description": "",                                              "cost": 520000, "effect": "bite_speed",    "magnitude": 0.32 },
+
+  { "_comment": "Float slot — additive rare_chance, stacks with Lure. Names are placeholders." },
+  { "id": "float-1", "slot": "float", "tier": 1, "name": "Cork Float",        "description": "",                                              "cost": 160,    "effect": "rare_chance",   "magnitude": 0.01 },
+  { "id": "float-2", "slot": "float", "tier": 2, "name": "Wood Float",        "description": "",                                              "cost": 550,    "effect": "rare_chance",   "magnitude": 0.02 },
+  { "id": "float-3", "slot": "float", "tier": 3, "name": "Painted Float",     "description": "",                                              "cost": 1900,   "effect": "rare_chance",   "magnitude": 0.03 },
+  { "id": "float-4", "slot": "float", "tier": 4, "name": "Quill Float",       "description": "",                                              "cost": 6200,   "effect": "rare_chance",   "magnitude": 0.04 },
+  { "id": "float-5", "slot": "float", "tier": 5, "name": "Slip Float",        "description": "",                                              "cost": 19000,  "effect": "rare_chance",   "magnitude": 0.05 },
+  { "id": "float-6", "slot": "float", "tier": 6, "name": "Lighted Float",     "description": "",                                              "cost": 58000,  "effect": "rare_chance",   "magnitude": 0.07 },
+  { "id": "float-7", "slot": "float", "tier": 7, "name": "Phantom Float",     "description": "",                                              "cost": 160000, "effect": "rare_chance",   "magnitude": 0.09 },
+  { "id": "float-8", "slot": "float", "tier": 8, "name": "Soul Float",        "description": "",                                              "cost": 510000, "effect": "rare_chance",   "magnitude": 0.12 }
 ]
