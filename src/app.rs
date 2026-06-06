@@ -6640,10 +6640,12 @@ impl App {
         let effective_h = full.height.saturating_sub(cmdline_h);
         // The log/valu HUD belongs on the Overworld and inside houses
         // (so the player can read inspect output). Every other scene is a
-        // full-screen menu and shouldn't have the log slab on it.
+        // full-screen menu and shouldn't have the log slab on it. Perf is
+        // a transparent overlay over the live overworld, so treat it like
+        // Overworld here — the player needs to see the full HUD beneath.
         let in_modal = !matches!(
             self.scene,
-            Scene::Overworld | Scene::HouseInterior { .. }
+            Scene::Overworld | Scene::HouseInterior { .. } | Scene::Perf
         );
         if in_modal {
             // only render cmdline at the very bottom
