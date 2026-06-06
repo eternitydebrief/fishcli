@@ -69,3 +69,22 @@ pub struct OwnedRods {
     /// currently equipped tier (clamped to max_owned)
     pub equipped: u32,
 }
+
+/// Mastery gate: returns `(difficulty, count)` of catches required across
+/// any non-unique non-joke fish of that difficulty before this rod tier is
+/// buyable. Tiers below 26 (the easy on-ramp) are ungated; tiers 201/202
+/// (Fishing Rod, The Rod) have their own custom Pantheon gates and skip
+/// this check. Keeps players from money-saving past whole biomes.
+pub fn mastery_gate(tier: u32) -> Option<(u8, u32)> {
+    match tier {
+        0..=25 => None,
+        26..=50 => Some((2, 5)),
+        51..=75 => Some((3, 5)),
+        76..=100 => Some((4, 5)),
+        101..=130 => Some((5, 5)),
+        131..=160 => Some((6, 5)),
+        161..=180 => Some((7, 5)),
+        181..=200 => Some((8, 5)),
+        _ => None,
+    }
+}

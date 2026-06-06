@@ -979,6 +979,23 @@ impl App {
     /// stamina (difficulty * 5), and grant a small permanent buff scaled
     /// to the species's difficulty. Unique fish (Fish, Five Elders) can't
     /// be cooked.
+    /// Total mastery (catches) across all non-unique, non-joke fish of the
+    /// given difficulty band. Used by the rod-mastery gate.
+    fn mastery_count_at_difficulty(&self, diff: u8) -> u32 {
+        fishlist::fish()
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.difficulty == diff && !f.unique && !f.joke)
+            .map(|(i, _)| self.mastery.get(i).copied().unwrap_or(0))
+            .sum()
+    }
+
+    /// True when the player has cleared the mastery gate for a rod tier.
+    fn mastery_gate_met(&self, gate: (u8, u32)) -> bool {
+        let (diff, count) = gate;
+        self.mastery_count_at_difficulty(diff) >= count
+    }
+
     /// Process up to `count` fish of `name` into bait chunks. Each fish
     /// yields `1 + difficulty/3` chunks, tagged `fish:<slug>` so the bait
     /// shop and consume path see it. Unique / joke fish are refused.
@@ -2390,6 +2407,15 @@ impl App {
                                 self.narrator.say(format!(
                                     "Free rod redeemed! Got #{next} - {} (no cost).",
                                     rod.name
+                                ));
+                            } else if let Some((req_diff, req_count)) =
+                                crate::rod::mastery_gate(next).filter(|_| {
+                                    !self.mastery_gate_met(crate::rod::mastery_gate(next).unwrap())
+                                })
+                            {
+                                let have: u32 = self.mastery_count_at_difficulty(req_diff);
+                                self.narrator.say(format!(
+                                    "Mastery gate: need {req_count} catches of any difficulty-{req_diff} fish. ({have} so far.)"
                                 ));
                             } else if self.player.valu >= rod.price() {
                                 self.player.valu -= rod.price();
