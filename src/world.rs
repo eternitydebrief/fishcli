@@ -614,6 +614,20 @@ impl<'a> Widget for WorldView<'a> {
                             _ => '@',
                         }
                     };
+                    // When the player is standing on a TreeCanopy cell
+                    // (the leaves or — for village oaks — the back row
+                    // of trunk), borrow that tile's foreground so the
+                    // arrow blends with what's around it instead of
+                    // sticking out as a white smear.
+                    let here_tile = self.world.get_cached(self.player.0, self.player.1);
+                    if matches!(here_tile, Tile::TreeCanopy) {
+                        let (_, tile_style) =
+                            self.world.render_tile(self.player.0, self.player.1, self.tick);
+                        let blended = Style::default()
+                            .fg(tile_style.fg.unwrap_or(Color::White))
+                            .add_modifier(Modifier::BOLD);
+                        return (g, blended);
+                    }
                     return (g, player_style);
                 }
                 let wx = self.player.0 - half_w + sx;
@@ -3726,7 +3740,8 @@ fn village_tile(x: i32, y: i32) -> Option<Tile> {
         }
     }
 
-    // pier and well
+    // pier and well — pier sits over the path so the dock visibly extends
+    // through the south gate instead of being masked by the corridor.
     if pier_cell(x, y) {
         return Some(Tile::Dock);
     }
@@ -3748,31 +3763,31 @@ fn village_tile(x: i32, y: i32) -> Option<Tile> {
     None
 }
 
-// anchor positions chosen so the 4-tall canopy (dy=-4) stays clear of
-// the top wall (y=-17) and the trunk (dy=0) stays clear of the bottom
-// wall row (y=4). horizontal span dx in [-2, 3] kept clear of walls and
-// houses too.
+// Four hand-placed oaks at non-colinear positions so the home village
+// reads as planted, not regimented. The 4-tall canopy (dy=-4) stays
+// clear of the top wall (y=-17) and the trunks stay clear of houses,
+// gates, smithy, and the fishing-school footprint.
 const VILLAGE_OAKS: &[(i32, i32)] = &[
-    (-44, 3), (44, 3),
-    (-30, 3), (30, 3),
-    // Was (-14, 3) — its 5-wide canopy at y=1,0 covered the home
-    // Blacksmith at (-12, 1) and Smelter at (-12, 0). Shifted east so
-    // the canopy ends at x=-5 and the smithy is in the clear.
-    // Was (14, 3) — its 5-wide canopy at y=1,0 covered the fishing
-    // school at x=16..20, y=-1..1. Shifted west to mirror (-8, 3); now
-    // the canopy ends at x=11 and the school stands clear.
-    (-8, 3),  (8, 3),
-    (-40, -10), (40, -10),
-    (-12, -10), (12, -10),
+    (-40, -11),
+    (40, -8),
+    (-12, -10),
+    (28, -13),
 ];
 
 fn village_oak_at(x: i32, y: i32) -> Option<Tile> {
     for &(ax, ay) in VILLAGE_OAKS {
         let dx = x - ax;
         let dy = y - ay;
-        // trunk: 2 wide, 2 tall (rows 0 and -1)
-        if (dy == 0 || dy == -1) && (dx == 0 || dx == 1) {
+        // Trunk: 2 wide, 2 tall. Only the *front* row (dy=0) actually
+        // blocks the player; the row behind it (dy=-1) is tagged as
+        // TreeCanopy so it's walkable, but `village_oak_glyph` still
+        // renders the dark `[ ]` trunk visual there. Effect: the player
+        // can step behind the trunk and look slightly hidden.
+        if dy == 0 && (dx == 0 || dx == 1) {
             return Some(Tile::TreeTrunk);
+        }
+        if dy == -1 && (dx == 0 || dx == 1) {
+            return Some(Tile::TreeCanopy);
         }
         // wide canopy: 5 wide, rows -2 and -3
         if (dy == -2 || dy == -3) && (-2..=3).contains(&dx) {
@@ -3831,8 +3846,10 @@ fn dock_gap_x(x: i32) -> bool {
 }
 
 fn pier_cell(x: i32, y: i32) -> bool {
-    // main column 8 wide x 8 deep
-    if (-3..=4).contains(&x) && (5..=12).contains(&y) {
+    // main column: extends north into the village fence at y=3,4 so the
+    // pier visibly threads through the south gate rather than starting
+    // flush with the wall.
+    if (-3..=4).contains(&x) && (3..=12).contains(&y) {
         return true;
     }
     // left arm at far end - 3 tall
