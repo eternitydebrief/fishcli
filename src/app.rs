@@ -5106,6 +5106,19 @@ impl App {
                 self.world.dim = crate::world::Dimension::Surface;
                 self.narrator.say("You climb back up to Sentinel's air.");
             }
+            Tile::MountainEntrance => {
+                let gate = crate::world::Dimension::MountainCave.min_rod_tier();
+                if self.player.rods.max_owned < gate {
+                    self.narrator.say(format!(
+                        "The cave mouth gapes cold. You need rod tier {gate} to brave it."
+                    ));
+                    return;
+                }
+                self.world.dim = crate::world::Dimension::MountainCave;
+                self.quest_progress("visit_dim", "Mountain Cave");
+                self.narrator
+                    .say("You step inside. The air bites — meltwater drips from every crag.");
+            }
             Tile::DoorHouse => {
                 let seed = ((nx as u32).wrapping_mul(0x9E37_79B1))
                     .wrapping_add((ny as u32).wrapping_mul(0x85EB_CA77))
@@ -7451,6 +7464,9 @@ fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
         Tile::BaitBench => ('=', Color::Rgb(180, 130, 80)),
         Tile::Curio => ('*', Color::Rgb(220, 200, 160)),
         Tile::PortalFrame => ('#', Color::Rgb(190, 175, 200)),
+        Tile::Mountain => ('^', Color::Rgb(140, 140, 145)),
+        Tile::MountainSnow => ('^', Color::Rgb(245, 245, 250)),
+        Tile::MountainEntrance => ('M', Color::Rgb(220, 220, 230)),
     };
     // water cells override the biome bg with deep blue
     let final_bg = if matches!(t, Tile::Water) {

@@ -282,6 +282,15 @@ fn weather_for_season(
                 _ => Weather::TectonicHigh,
             }
         }
+        // Mountain caves run on the cold cycle — alpine wind seasons.
+        Dimension::MountainCave => {
+            let h = hash_day(day, 0x50C, seed) % 3;
+            match h {
+                0 => Weather::ColdLow,
+                1 => Weather::ColdMedium,
+                _ => Weather::ColdHigh,
+            }
+        }
     }
 }
 

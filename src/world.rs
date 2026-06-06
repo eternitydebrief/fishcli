@@ -169,6 +169,9 @@ pub enum Dimension {
     /// lake island. Eyeless, stygobitic fauna; only the lakebed fish pool
     /// rolls here.
     Lakebed,
+    /// High-altitude cave hollowed out inside a river-source mountain.
+    /// Glacial meltwater, snow runoff and cold-water fish.
+    MountainCave,
 }
 
 impl Dimension {
@@ -193,6 +196,7 @@ impl Dimension {
             Dimension::Colosseum => 90,
             Dimension::Crater => 130,
             Dimension::AllBlue => 180,
+            Dimension::MountainCave => 35,
         }
     }
 
@@ -214,6 +218,7 @@ impl Dimension {
             Dimension::Colosseum => "Colosseum",
             Dimension::AllBlue => "All Blue",
             Dimension::Lakebed => "Lakebed Caves",
+            Dimension::MountainCave => "Mountain Cave",
         }
     }
 
@@ -237,6 +242,7 @@ impl Dimension {
             "colosseum" | "coliseum" => Dimension::Colosseum,
             "all blue" | "allblue" | "deep" => Dimension::AllBlue,
             "lakebed" | "lakebed caves" | "lakebed cave" => Dimension::Lakebed,
+            "mountain" | "mountaincave" | "mountain cave" => Dimension::MountainCave,
             "surface" => Dimension::Surface,
             _ => return None,
         })
@@ -478,6 +484,13 @@ pub enum Tile {
     /// use `x` while facing it to read its description. Lore lives in
     /// `assets/inspect.json` under `curio:<id>` keys.
     Curio,
+    // --- mountains (surface) ---
+    /// gray rocky mountain body — spiky, blocks movement
+    Mountain,
+    /// snow-capped mountain peak — white, blocks movement
+    MountainSnow,
+    /// enterable cave mouth at the base of a mountain (`f` -> MountainCave dim)
+    MountainEntrance,
     // --- atlantis plane ---
     Seabed,
     /// trunk-equivalent for coral; pairs with CoralCanopy in a 4-cell shape
@@ -508,6 +521,7 @@ impl Tile {
                 | Tile::InfernoFloor
                 | Tile::LandmarkDoor
                 | Tile::TreeCanopy
+                | Tile::MountainEntrance
         )
     }
 
@@ -583,6 +597,9 @@ impl Tile {
             Tile::CookingPot => "CookingPot",
             Tile::BaitBench => "BaitBench",
             Tile::Curio => "Curio",
+            Tile::Mountain => "Mountain",
+            Tile::MountainSnow => "MountainSnow",
+            Tile::MountainEntrance => "MountainEntrance",
         }
     }
 
@@ -957,6 +974,7 @@ impl World {
             Dimension::Colosseum => colosseum_get(x, y),
             Dimension::AllBlue => all_blue_get(x, y, self.seed),
             Dimension::Lakebed => lakebed_get(x, y, self.seed),
+            Dimension::MountainCave => mountain_cave_get(x, y, self.seed),
         };
         // Overlay a sparse curio when the underlying tile is open floor.
         // Curios block movement; the player stands adjacent and presses
@@ -1001,6 +1019,11 @@ impl World {
         }
         // procedural village structures sit on top of water for floating towns
         if let Some(t) = procedural_village_tile(x, y, self.seed) {
+            return t;
+        }
+        // Mountains anchor at river sources west of origin. Their footprint
+        // blocks movement except for the MountainEntrance cell at the base.
+        if let Some(t) = mountain_at(x, y, self.seed) {
             return t;
         }
         if bridge_at(x, y, self.seed) {
@@ -1624,6 +1647,15 @@ impl World {
                 (g, Style::default().fg(c).add_modifier(Modifier::BOLD))
             }
             Tile::PortalFrame => portal_frame_glyph(x, y, self.seed),
+            Tile::Mountain => mountain_glyph(x, y, self.seed, false),
+            Tile::MountainSnow => mountain_glyph(x, y, self.seed, true),
+            Tile::MountainEntrance => (
+                'M',
+                Style::default()
+                    .fg(Color::Rgb(60, 60, 70))
+                    .bg(Color::Rgb(220, 220, 235))
+                    .add_modifier(Modifier::BOLD),
+            ),
         }
     }
 }
@@ -2590,6 +2622,11 @@ pub fn river_at(x: i32, y: i32, seed: u32) -> Option<RiverHit> {
         if sh % 11 != 0 {
             continue;
         }
+        // mountain source: river only exists east of this x.
+        let source_x = -550 - ((sh >> 8) as i32).rem_euclid(200);
+        if x < source_x {
+            continue;
+        }
         let base_y = (band + db) * RIVER_BAND_H
             + ((sh >> 4) as i32).rem_euclid(RIVER_BAND_H);
         let amp = 22.0 + ((sh >> 12) & 0x3F) as f32; // 22..86 cells of wander
@@ -2620,6 +2657,10 @@ pub fn river_at(x: i32, y: i32, seed: u32) -> Option<RiverHit> {
         // Roughly 1 in 6 bands hosts a river — so the world might have
         // zero, one, or several.
         if h % 6 != 0 {
+            continue;
+        }
+        let source_x = -550 - ((h >> 8) as i32).rem_euclid(200);
+        if x < source_x {
             continue;
         }
         let base_y = (band + db) * RIVER_BAND_H + ((h >> 4) as i32).rem_euclid(RIVER_BAND_H);
@@ -3291,6 +3332,9 @@ fn curio_pool_for(dim: Dimension) -> &'static [CurioEntry] {
         // Lakebed shares the cave-flavour curio pool with the Mines until
         // it gets its own lore drops.
         Dimension::Lakebed => CURIOS_MINES,
+        // Mountain cave reuses the Iceshelf pool — both are cold-cave
+        // flavoured until a dedicated lore drop list is authored.
+        Dimension::MountainCave => CURIOS_ICESHELF,
     }
 }
 
@@ -5610,6 +5654,145 @@ fn lakebed_get(x: i32, y: i32, seed: u32) -> Tile {
     if r < 75 {
         return Tile::Rock;
     }
+    Tile::MineralWater
+}
+
+// ---- mountains -------------------------------------------------------
+//
+// Each river has a deterministic "source" mountain anchored a few hundred
+// cells west of the world origin (the river then flows east across the
+// map). The mountain is a spiky pyramid shape — its base is wider than
+// its top, the top ~30% is rendered snow-capped. A single MountainEntrance
+// sits at the base, leading to the MountainCave dim.
+
+const MOUNTAIN_HALF_W: i32 = 18;
+const MOUNTAIN_H: i32 = 24;
+
+/// Source anchor for one river-spawning mountain. Returns the (ax, ay)
+/// world coords of the *base* of the mountain — its peak sits at
+/// (ax, ay - MOUNTAIN_H). Returns None if this band hosts no river.
+fn mountain_anchor_for_band(band: i32, db: i32, seed: u32, spine: bool) -> Option<(i32, i32, u32)> {
+    let salt = if spine { 0x5217_E001 } else { 0x812E_7100 };
+    let modulus = if spine { 11 } else { 6 };
+    let h = hash2(band + db, 0, seed.wrapping_add(salt));
+    if h % modulus != 0 {
+        return None;
+    }
+    let base_y = (band + db) * RIVER_BAND_H + ((h >> 4) as i32).rem_euclid(RIVER_BAND_H);
+    // mountain anchor sits ~500 cells west of origin; base_x derived from
+    // the river hash so each river has a different source location.
+    let base_x = -550 - ((h >> 8) as i32).rem_euclid(200);
+    Some((base_x, base_y, h))
+}
+
+/// Iterate every plausible mountain near (x, y) and return Some if (x, y)
+/// is part of the spiky pyramid footprint. Pyramid shape: for vertical
+/// offset dy from base (0 at base, MOUNTAIN_H at peak), the slab half-
+/// width is MOUNTAIN_HALF_W * (1 - dy / MOUNTAIN_H) — then perlin-warped
+/// so the edge is jagged.
+pub fn mountain_at(x: i32, y: i32, seed: u32) -> Option<Tile> {
+    let band = y.div_euclid(RIVER_BAND_H);
+    for db in -2..=2 {
+        for spine in [true, false] {
+            let Some((ax, ay, h)) = mountain_anchor_for_band(band + db, 0, seed, spine) else {
+                continue;
+            };
+            let dy = ay - y; // positive when y is above the base
+            if !(0..=MOUNTAIN_H).contains(&dy) {
+                continue;
+            }
+            let dx = x - ax;
+            let progress = dy as f32 / MOUNTAIN_H as f32; // 0 at base, 1 at peak
+            let base_w = MOUNTAIN_HALF_W as f32 * (1.0 - progress);
+            // Warp the half-width by a perlin sweep so the silhouette has
+            // jagged spikes rather than a clean triangle.
+            let warp = value_noise_fractal(x, dy, h ^ 0xAB57_AF11, 0.18, 2) * 4.0;
+            let half_w = (base_w + warp).max(0.0);
+            if (dx.abs() as f32) > half_w {
+                continue;
+            }
+            // entrance cell: middle of the base, one row above the base row
+            if dx == 0 && dy == 1 {
+                return Some(Tile::MountainEntrance);
+            }
+            // top 30% snow-capped
+            if progress > 0.65 {
+                return Some(Tile::MountainSnow);
+            }
+            return Some(Tile::Mountain);
+        }
+    }
+    None
+}
+
+/// True at the cell that should be a Mountain Cave entrance. Echoes the
+/// surface anchor so descending and re-emerging stay on the same coord.
+pub fn is_mountain_cave_entrance(x: i32, y: i32, seed: u32) -> bool {
+    matches!(mountain_at(x, y, seed), Some(Tile::MountainEntrance))
+}
+
+fn mountain_glyph(x: i32, y: i32, seed: u32, snow: bool) -> (char, Style) {
+    let h = hash2(x, y, seed.wrapping_add(0xC0FF_EE99));
+    let g = match h % 8 {
+        0 | 1 => '^',
+        2 => '/',
+        3 => '\\',
+        4 => '#',
+        5 => 'A',
+        _ => '/',
+    };
+    let style = if snow {
+        let v = 230 + (h % 26) as u8;
+        Style::default()
+            .fg(Color::Rgb(v, v, v))
+            .add_modifier(Modifier::BOLD)
+    } else {
+        let v = 110 + (h % 50) as u8;
+        Style::default()
+            .fg(Color::Rgb(v, v, v + 5))
+            .add_modifier(Modifier::BOLD)
+    };
+    (g, style)
+}
+
+/// Mountain Cave: cold, glacial-meltwater dim reached by entering one of
+/// the spiky mountain structures on the surface that anchor river
+/// sources. Open cells are a mix of icy floor and meltwater pools; wall
+/// cells include stalactites and the occasional cave-formed rock.
+fn mountain_cave_get(x: i32, y: i32, seed: u32) -> Tile {
+    if is_mountain_cave_entrance(x, y, seed) {
+        return Tile::MineExit;
+    }
+    for dx in -1..=1i32 {
+        for dy in -1..=1i32 {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            if is_mountain_cave_entrance(x + dx, y + dy, seed) {
+                return Tile::CaveFloor;
+            }
+        }
+    }
+    let mc = seed.wrapping_add(0x4081_5EED);
+    let open = cave_open_at(x, y, mc);
+    let r = hash2(x, y, mc.wrapping_add(0xC011_DEED)) % 1000;
+    if !open {
+        if r < 60 {
+            return Tile::Stalactite;
+        }
+        return Tile::CaveWall;
+    }
+    if r < 30 {
+        return Tile::Stalagmite;
+    }
+    if r < 90 {
+        return Tile::CaveFloor;
+    }
+    if r < 110 {
+        return Tile::Rock;
+    }
+    // Meltwater pools fill the rest — the same "MineralWater" type so
+    // existing cave-water rendering and fishing both apply.
     Tile::MineralWater
 }
 
