@@ -8,7 +8,7 @@
   { "id": "hat-5", "slot": "hat", "tier": 5, "name": "Captain's Hat",        "description": "Authority on the water; +7% xp.",                "cost": 12000,  "effect": "xp_mult",       "magnitude": 0.07 },
   { "id": "hat-6", "slot": "hat", "tier": 6, "name": "Tricorn",              "description": "A pirate's eye on the take; +10% xp.",           "cost": 35000,  "effect": "xp_mult",       "magnitude": 0.10 },
   { "id": "hat-7", "slot": "hat", "tier": 7, "name": "Crystal Crown",        "description": "Worn by deep-sea kings; +15% xp.",               "cost": 95000,  "effect": "xp_mult",       "magnitude": 0.15 },
-  { "id": "hat-8", "slot": "hat", "tier": 8, "name": "Atlantean Diadem",     "description": "Drawn from the Five Elders' wake; +20% xp.",     "cost": 250000, "effect": "xp_mult",       "magnitude": 0.20 },
+  { "id": "hat-8", "slot": "hat", "tier": 8, "name": "Atlantean Diadem",     "description": "Drawn from the Five Elders' wake; +20% xp.",     "cost": 250000, "effect": "xp_mult",       "magnitude": 0.20, "set": "atlantean" },
 
   { "id": "vest-1", "slot": "vest", "tier": 1, "name": "Patched Vest",       "description": "Pockets for hooks; +2% valu.",                   "cost": 150,    "effect": "valu_mult",     "magnitude": 0.02 },
   { "id": "vest-2", "slot": "vest", "tier": 2, "name": "Tackle Vest",        "description": "Better organised; +4% valu.",                    "cost": 600,    "effect": "valu_mult",     "magnitude": 0.04 },
@@ -16,7 +16,7 @@
   { "id": "vest-4", "slot": "vest", "tier": 4, "name": "Smuggler's Jacket",  "description": "Hidden compartments; +9% valu.",                 "cost": 6500,   "effect": "valu_mult",     "magnitude": 0.09 },
   { "id": "vest-5", "slot": "vest", "tier": 5, "name": "Pearl-Buttoned Vest","description": "Catches the eye; +12% valu.",                    "cost": 20000,  "effect": "valu_mult",     "magnitude": 0.12 },
   { "id": "vest-6", "slot": "vest", "tier": 6, "name": "Merchant's Robe",    "description": "Negotiation in stitching; +16% valu.",           "cost": 55000,  "effect": "valu_mult",     "magnitude": 0.16 },
-  { "id": "vest-7", "slot": "vest", "tier": 7, "name": "Atlantean Cape",     "description": "A current woven into cloth; +22% valu.",         "cost": 150000, "effect": "valu_mult",     "magnitude": 0.22 },
+  { "id": "vest-7", "slot": "vest", "tier": 7, "name": "Atlantean Cape",     "description": "A current woven into cloth; +22% valu.",         "cost": 150000, "effect": "valu_mult",     "magnitude": 0.22, "set": "atlantean" },
   { "id": "vest-8", "slot": "vest", "tier": 8, "name": "Khei's Mantle",      "description": "The First Water's gift; +30% valu.",             "cost": 500000, "effect": "valu_mult",     "magnitude": 0.30 },
 
   { "id": "line-1", "slot": "line", "tier": 1, "name": "Cotton Line",        "description": "Common but reliable; +1% catch speed.",          "cost": 120,    "effect": "catch_speed",   "magnitude": 0.01 },
@@ -35,7 +35,7 @@
   { "id": "lure-5", "slot": "lure", "tier": 5, "name": "Crankbait",          "description": "Dives deep; +5% rare chance.",                   "cost": 22000,  "effect": "rare_chance",   "magnitude": 0.05 },
   { "id": "lure-6", "slot": "lure", "tier": 6, "name": "Jewel Spoon",        "description": "Inset gems; +7% rare chance.",                   "cost": 65000,  "effect": "rare_chance",   "magnitude": 0.07 },
   { "id": "lure-7", "slot": "lure", "tier": 7, "name": "Living Lure",        "description": "It moves on its own; +9% rare chance.",          "cost": 180000, "effect": "rare_chance",   "magnitude": 0.09 },
-  { "id": "lure-8", "slot": "lure", "tier": 8, "name": "Fallen Fish Scale",  "description": "Plucked from the Inferno's prince; +12% rare chance.","cost": 550000,"effect": "rare_chance", "magnitude": 0.12 },
+  { "id": "lure-8", "slot": "lure", "tier": 8, "name": "Fallen Fish Scale",  "description": "Plucked from the Inferno's prince; +12% rare chance.","cost": 550000,"effect": "rare_chance", "magnitude": 0.12, "set": "inferno" },
 
   { "_comment": "Reel slot — bite_speed axis. Subtracts a fraction of the wait between cast and bite. Names are placeholders for user-authored prose." },
   { "id": "reel-1", "slot": "reel", "tier": 1, "name": "Hand Crank",          "description": "",                                              "cost": 180,    "effect": "bite_speed",    "magnitude": 0.02 },
@@ -45,7 +45,7 @@
   { "id": "reel-5", "slot": "reel", "tier": 5, "name": "Geared Reel",         "description": "",                                              "cost": 21000,  "effect": "bite_speed",    "magnitude": 0.13 },
   { "id": "reel-6", "slot": "reel", "tier": 6, "name": "Spinning Reel",       "description": "",                                              "cost": 60000,  "effect": "bite_speed",    "magnitude": 0.18 },
   { "id": "reel-7", "slot": "reel", "tier": 7, "name": "Centrifugal Reel",    "description": "",                                              "cost": 165000, "effect": "bite_speed",    "magnitude": 0.24 },
-  { "id": "reel-8", "slot": "reel", "tier": 8, "name": "Abyssal Reel",        "description": "",                                              "cost": 520000, "effect": "bite_speed",    "magnitude": 0.32 },
+  { "id": "reel-8", "slot": "reel", "tier": 8, "name": "Abyssal Reel",        "description": "",                                              "cost": 520000, "effect": "bite_speed",    "magnitude": 0.32, "set": "inferno" },
 
   { "_comment": "Float slot — additive rare_chance, stacks with Lure. Names are placeholders." },
   { "id": "float-1", "slot": "float", "tier": 1, "name": "Cork Float",        "description": "",                                              "cost": 160,    "effect": "rare_chance",   "magnitude": 0.01 },
