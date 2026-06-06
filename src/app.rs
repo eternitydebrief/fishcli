@@ -7117,9 +7117,8 @@ fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
 }
 
 /// Small chip pinned to the top-right of the viewport showing the current
-/// catch streak. Renders in a low-saturation fiery orange so it reads as
-/// "on fire" without overwhelming the rest of the HUD. Hidden when the
-/// player has no active streak.
+/// catch streak. Sits one row below the weather/HUD panel so it stops
+/// covering the season/time/date lines.
 fn render_streak_chip(frame: &mut Frame, current: u64, best: u64) {
     let area = viewport(frame);
     let body = if best > current {
@@ -7132,9 +7131,14 @@ fn render_streak_chip(frame: &mut Frame, current: u64, best: u64) {
     if w < 6 || h < 3 {
         return;
     }
+    // Weather/HUD panel is 4 rows tall — start the chip directly under it.
+    let y_off = 4u16;
+    if area.height <= y_off + h {
+        return;
+    }
     let rect = Rect {
         x: area.x + area.width.saturating_sub(w),
-        y: area.y,
+        y: area.y + y_off,
         width: w,
         height: h,
     };
