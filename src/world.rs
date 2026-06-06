@@ -811,17 +811,26 @@ pub fn bump_world_get_gen() {
     GET_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// Cached path for the per-cell glyph + style. For tiles whose render
-/// is tick-independent (walls, paths, doors, trees, rocks, ...) the
-/// result is memoised in a thread-local direct-mapped table keyed by
-/// (x, y, dim) and stamped with the current GET_GEN. Animated tiles
-/// (water, grass, shore-sand, ...) skip the cache entirely.
+/// How many animation ticks share a single cached glyph. Higher = more
+/// cache hits on water/grass at the cost of choppier animation. 2 keeps
+/// the shimmer feeling smooth at 20fps (≈10fps effective anim) while
+/// halving the per-frame glyph compute for animated cells.
+const ANIM_TICK_BUCKET: u64 = 2;
+
+/// Cached path for the per-cell glyph + style. Static tiles (walls,
+/// paths, doors, trees, rocks, ...) use a (x, y, dim, gen) key so they
+/// compute exactly once per cell-lifetime. Animated tiles (water,
+/// grass, shore-sand, ...) fold the tick into the key via
+/// `ANIM_TICK_BUCKET`, so consecutive frames within a bucket share a
+/// cache entry and only the "edge" frame between buckets recomputes.
 fn render_tile_cached(world: &World, x: i32, y: i32, tick: u64) -> (char, Style) {
     let tile = world.get_cached(x, y);
-    if tile.is_animated_render() {
-        return world.render_tile(x, y, tick);
-    }
-    let key_full = get_full_key(x, y, world.dim);
+    let bucket = if tile.is_animated_render() {
+        (tick / ANIM_TICK_BUCKET) & 0x3FF // 10-bit tick segment in the key
+    } else {
+        0
+    };
+    let key_full = get_full_key(x, y, world.dim) ^ (bucket << 40);
     let idx = get_cache_index(key_full);
     let gen_now =
         (GET_GEN.load(std::sync::atomic::Ordering::Relaxed) & 0xFFFF_FFFF) as u32;
