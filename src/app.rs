@@ -1253,6 +1253,70 @@ impl App {
     /// Process up to `count` fish of `name` into bait chunks. Each fish
     /// yields `1 + difficulty/3` chunks, tagged `fish:<slug>` so the bait
     /// shop and consume path see it. Unique / joke fish are refused.
+    /// Convert raw ore items into ore-bait stock so the player can equip
+    /// them. One ore item -> one ore-bait charge. `arg` is the ore name
+    /// ("ruby", "emerald", ...) or the special token "all-ore" which
+    /// burns every ore item in the inventory.
+    fn do_process_ore(&mut self, arg: &str) {
+        let arg = arg.trim();
+        if arg.is_empty() {
+            self.narrator
+                .say("usage: :process <ore-name> | :process all-ore".to_string());
+            return;
+        }
+        let convert_one = |app: &mut App, name: &str| -> u32 {
+            let mut count = 0u32;
+            loop {
+                let pos = app
+                    .player
+                    .items
+                    .iter()
+                    .position(|it| {
+                        it.category == crate::item::Category::Mineral
+                            && it.name.eq_ignore_ascii_case(name)
+                    });
+                match pos {
+                    Some(i) => {
+                        app.player.items.remove(i);
+                        app.player.bait.add(&format!("ore:{name}"), 1);
+                        count += 1;
+                    }
+                    None => break count,
+                }
+            }
+        };
+        if arg.eq_ignore_ascii_case("all-ore") {
+            let mut total = 0u32;
+            for ore in crate::mining::ORES {
+                let n = convert_one(self, ore.name);
+                total = total.saturating_add(n);
+            }
+            if total == 0 {
+                self.narrator
+                    .say("No ore in inventory to process.".to_string());
+            } else {
+                self.narrator
+                    .say(format!("Processed {total} ore -> bait charges."));
+            }
+            return;
+        }
+        let Some(ore) = crate::mining::ore_by_name(arg) else {
+            self.narrator
+                .say(format!("{arg}? That's not an ore I recognise."));
+            return;
+        };
+        let n = convert_one(self, ore.name);
+        if n == 0 {
+            self.narrator
+                .say(format!("No {} in inventory to process.", ore.name));
+        } else {
+            self.narrator.say(format!(
+                "Processed {n}x {} -> +{n} ore-bait charge(s).",
+                ore.name
+            ));
+        }
+    }
+
     fn do_process_fish(&mut self, arg: &str) {
         // Parse "<count> <name>" or just "<name>" (default count=1).
         let arg = arg.trim();
@@ -3943,7 +4007,15 @@ impl App {
             }
             cmd if cmd.starts_with("process") => {
                 let arg = cmd.strip_prefix("process").unwrap_or("").trim();
-                self.do_process_fish(arg);
+                // Disambiguate by name: ores get routed to ore-bait synth,
+                // everything else falls through to the fish-chunk path.
+                if crate::mining::ore_by_name(arg).is_some()
+                    || arg.eq_ignore_ascii_case("all-ore")
+                {
+                    self.do_process_ore(arg);
+                } else {
+                    self.do_process_fish(arg);
+                }
             }
             cmd if cmd.starts_with("burn") => {
                 let arg = cmd.strip_prefix("burn").unwrap_or("").trim();
@@ -5147,7 +5219,7 @@ impl App {
                 // Snapshot the active bait's secondary axes (bite_speed,
                 // pool_pull) before consume, so the necklace skip-bait branch
                 // keeps them too.
-                let (bait_bite_speed, bait_pool_pull) = {
+                let (bait_bite_speed, bait_pool_pull, bait_pool_override) = {
                     if let Some(active_id) = self.player.bait.active.clone() {
                         if let Some(d) = crate::bait::def_by_id(&active_id) {
                             let pp = if !d.pool_pull.is_empty() && d.pool_pull_mult > 0.0 {
@@ -5155,12 +5227,17 @@ impl App {
                             } else {
                                 None
                             };
-                            (d.bite_speed, pp)
+                            let pov = if d.pool_override.is_empty() {
+                                None
+                            } else {
+                                Some(d.pool_override.clone())
+                            };
+                            (d.bite_speed, pp, pov)
                         } else {
-                            (0.0, None)
+                            (0.0, None, None)
                         }
                     } else {
-                        (0.0, None)
+                        (0.0, None, None)
                     }
                 };
                 let (bait_used, bait_effect) = if skip_bait {
@@ -5214,12 +5291,18 @@ impl App {
                     .bait_pending_pool_pull
                     .as_ref()
                     .map(|(tag, mult)| (tag.as_str(), *mult));
+                // Bait pool override is only used when the rod isn't
+                // forcing its own pool — so The Rod's mineral cast still
+                // wins over an ore-bait override layered underneath.
+                let effective_pool = pool_override
+                    .as_deref()
+                    .or(bait_pool_override.as_deref());
                 let f = crate::fish::pick_fish_full(
                     &mut self.rng_state,
                     fishlist::fish(),
                     &biome,
                     water_kind,
-                    pool_override.as_deref(),
+                    effective_pool,
                     rare_window,
                     Some(weather_name),
                     self.stats.fish_caught,

@@ -34,18 +34,26 @@ struct Variant {
 }
 
 const VARIANTS: &[Variant] = &[
-    Variant { prefix: "Astral",   pool: "cosmic",   price_mult: 5, difficulty_bump: 2, rarity: 0.05 },
-    Variant { prefix: "Hot",      pool: "hot",      price_mult: 3, difficulty_bump: 1, rarity: 0.10 },
-    Variant { prefix: "Burning",  pool: "burning",  price_mult: 5, difficulty_bump: 2, rarity: 0.05 },
-    Variant { prefix: "Infernal", pool: "infernal", price_mult: 8, difficulty_bump: 3, rarity: 0.03 },
-    Variant { prefix: "Angelic",  pool: "angelic",  price_mult: 8, difficulty_bump: 3, rarity: 0.03 },
-    Variant { prefix: "Sapphire", pool: "mineral",  price_mult: 3, difficulty_bump: 1, rarity: 0.10 },
-    Variant { prefix: "Ruby",     pool: "mineral",  price_mult: 3, difficulty_bump: 1, rarity: 0.10 },
-    Variant { prefix: "Topaz",    pool: "mineral",  price_mult: 3, difficulty_bump: 1, rarity: 0.10 },
-    Variant { prefix: "Opal",     pool: "mineral",  price_mult: 4, difficulty_bump: 2, rarity: 0.07 },
-    Variant { prefix: "Emerald",  pool: "mineral",  price_mult: 3, difficulty_bump: 1, rarity: 0.10 },
-    Variant { prefix: "Onyx",     pool: "mineral",  price_mult: 4, difficulty_bump: 2, rarity: 0.07 },
-    Variant { prefix: "Diamond",  pool: "mineral",  price_mult: 7, difficulty_bump: 4, rarity: 0.01 },
+    Variant { prefix: "Astral",    pool: "cosmic",   price_mult: 5, difficulty_bump: 2, rarity: 0.05 },
+    Variant { prefix: "Hot",       pool: "hot",      price_mult: 3, difficulty_bump: 1, rarity: 0.10 },
+    Variant { prefix: "Burning",   pool: "burning",  price_mult: 5, difficulty_bump: 2, rarity: 0.05 },
+    Variant { prefix: "Infernal",  pool: "infernal", price_mult: 8, difficulty_bump: 3, rarity: 0.03 },
+    Variant { prefix: "Angelic",   pool: "angelic",  price_mult: 8, difficulty_bump: 3, rarity: 0.03 },
+    // mineral variants: one per mined ore so the ore-as-bait system has
+    // a matching pool target for every ore the player can chip out.
+    Variant { prefix: "Copper",    pool: "mineral",  price_mult: 2, difficulty_bump: 0, rarity: 0.15 },
+    Variant { prefix: "Iron",      pool: "mineral",  price_mult: 2, difficulty_bump: 1, rarity: 0.13 },
+    Variant { prefix: "Turquoise", pool: "mineral",  price_mult: 2, difficulty_bump: 1, rarity: 0.12 },
+    Variant { prefix: "Silver",    pool: "mineral",  price_mult: 3, difficulty_bump: 1, rarity: 0.10 },
+    Variant { prefix: "Amethyst",  pool: "mineral",  price_mult: 3, difficulty_bump: 1, rarity: 0.10 },
+    Variant { prefix: "Gold",      pool: "mineral",  price_mult: 4, difficulty_bump: 2, rarity: 0.08 },
+    Variant { prefix: "Sapphire",  pool: "mineral",  price_mult: 3, difficulty_bump: 1, rarity: 0.10 },
+    Variant { prefix: "Ruby",      pool: "mineral",  price_mult: 3, difficulty_bump: 1, rarity: 0.10 },
+    Variant { prefix: "Topaz",     pool: "mineral",  price_mult: 3, difficulty_bump: 1, rarity: 0.10 },
+    Variant { prefix: "Opal",      pool: "mineral",  price_mult: 4, difficulty_bump: 2, rarity: 0.07 },
+    Variant { prefix: "Emerald",   pool: "mineral",  price_mult: 3, difficulty_bump: 1, rarity: 0.10 },
+    Variant { prefix: "Onyx",      pool: "mineral",  price_mult: 4, difficulty_bump: 2, rarity: 0.07 },
+    Variant { prefix: "Diamond",   pool: "mineral",  price_mult: 7, difficulty_bump: 4, rarity: 0.01 },
 ];
 
 /// Base species that get the full variant treatment. Keep this list to
@@ -125,6 +133,11 @@ fn generate_variants(base: &[FishDef]) -> Vec<FishDef> {
             f.effect = None;
             f.joke = false;
             f.unique = false;
+            // Attach a per-variant pool tag so ore/elemental baits can
+            // call out a specific subset of the pool. Format: "ore_ruby",
+            // "elem_astral", etc. The ore-as-bait synth keys off these.
+            let tag = format!("ore_{}", v.prefix.to_ascii_lowercase());
+            f.pool_tags = vec![tag];
             out.push(f);
         }
     }

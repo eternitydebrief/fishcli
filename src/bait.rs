@@ -33,6 +33,12 @@ pub struct BaitDef {
     /// 1.5 mild, 3.0 strong, 5.0 extreme. 0 = no pull.
     #[serde(default)]
     pub pool_pull_mult: f32,
+    /// Force a specific loot pool for the next cast — bypasses the normal
+    /// biome/water filter. Used by ore-as-bait so chipping a ruby out of
+    /// the mines and throwing it on a hook drops you into the mineral
+    /// variant table where Ruby fish actually live. Empty = no override.
+    #[serde(default)]
+    pub pool_override: String,
 }
 
 static DEFS: OnceLock<Vec<BaitDef>> = OnceLock::new();
@@ -78,6 +84,26 @@ pub fn defs() -> &'static [BaitDef] {
                 bite_speed: 0.0,
                 pool_pull,
                 pool_pull_mult,
+                pool_override: String::new(),
+            });
+        }
+        // Ore-as-bait: every mineable ore becomes a bait. Throwing a chunk
+        // of ruby on the hook in the mines pulls Ruby variant fish at 4x
+        // weight (≈ 60-70% of catches given the variant rarities). Pool
+        // override forces the picker into the mineral pool so the variants
+        // are eligible at all — they're otherwise gated to The Rod casts.
+        for ore in crate::mining::ORES {
+            out.push(BaitDef {
+                id: format!("ore:{}", ore.name),
+                name: format!("{} chunk", ore.name),
+                description: String::new(),
+                cost: 0,
+                effect: "rare_chance".to_string(),
+                magnitude: 0.0,
+                bite_speed: 0.0,
+                pool_pull: format!("ore_{}", ore.name),
+                pool_pull_mult: 4.0,
+                pool_override: "mineral".to_string(),
             });
         }
         for bug in crate::bugs::defs() {
@@ -103,6 +129,7 @@ pub fn defs() -> &'static [BaitDef] {
                 bite_speed,
                 pool_pull: bug.pool_pull.clone(),
                 pool_pull_mult: bug.magnitude,
+                pool_override: String::new(),
             });
         }
         out
