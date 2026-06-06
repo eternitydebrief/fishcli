@@ -2226,7 +2226,10 @@ impl App {
         }
 
         let movement_allowed = matches!(self.mode, Mode::Insert)
-            && matches!(self.scene, Scene::Overworld | Scene::HouseInterior { .. })
+            && matches!(
+                self.scene,
+                Scene::Overworld | Scene::HouseInterior { .. } | Scene::Perf
+            )
             && self.cast.is_none();
         if movement_allowed {
             if let Some(dir) = self.held_dir {
@@ -3027,8 +3030,13 @@ impl App {
             },
             Scene::BugCatch(_) => self.handle_bug_catch_key(code),
             Scene::Perf => {
+                // Esc / q closes the overlay; every other key falls through
+                // to the overworld handler so the player can keep walking
+                // while watching the perf numbers update live.
                 if matches!(code, KeyCode::Esc | KeyCode::Char('q')) {
                     self.scene = Scene::Overworld;
+                } else {
+                    self.handle_overworld(code);
                 }
             }
             Scene::LureBench { cursor } => {
@@ -6218,6 +6226,16 @@ impl App {
         let caught_snapshot = self.caught.clone();
         let caught_at_snapshot = self.caught_at.clone();
         let caught_context_snapshot = self.caught_context.clone();
+        // Perf overlay: keep rendering the world underneath so the per-cell
+        // instrumentation actually measures real work while the menu is up.
+        // We swap to Overworld for the main match, then restore + draw the
+        // small perf panel on top after everything else.
+        let perf_overlay = matches!(self.scene, Scene::Perf);
+        let saved_scene = if perf_overlay {
+            Some(std::mem::replace(&mut self.scene, Scene::Overworld))
+        } else {
+            None
+        };
         match &mut self.scene {
             Scene::Overworld => {
                 let area = viewport(frame);
@@ -6512,7 +6530,14 @@ impl App {
                 &self.player.bait,
                 self.player.valu,
             ),
-            Scene::Perf => render_perf(frame),
+            Scene::Perf => {
+                // Never hit: we swap to Overworld above so the world keeps
+                // rendering, then draw the perf panel as an overlay at the
+                // bottom of this function.
+            }
+        }
+        if let Some(s) = saved_scene {
+            self.scene = s;
         }
 
         if let Scene::Gear { slot_idx, item_idx } = &self.scene {
@@ -6757,6 +6782,12 @@ impl App {
                 self.stats.catch_streak,
                 self.stats.max_catch_streak,
             );
+        }
+        // Perf overlay — drawn last so it sits above world + HUD without
+        // pausing them. The world view above re-ran with all its scopes,
+        // so the numbers reflect real ongoing render cost.
+        if matches!(self.scene, Scene::Perf) {
+            render_perf_overlay(frame);
         }
     }
 }
@@ -9800,10 +9831,22 @@ fn render_cookbook(
     );
 }
 
-fn render_perf(frame: &mut Frame) {
-    let area = viewport(frame);
-    frame.render_widget(Clear, area);
+fn render_perf_overlay(frame: &mut Frame) {
+    let full = viewport(frame);
     let snap = crate::perf::snapshot();
+    // Compact centered panel — leave the world visible around it.
+    let w = 78u16.min(full.width.saturating_sub(4));
+    let h = ((snap.len() as u16) + 6).min(full.height.saturating_sub(4));
+    if w < 40 || h < 6 {
+        return;
+    }
+    let area = Rect {
+        x: full.x + (full.width.saturating_sub(w)) / 2,
+        y: full.y + (full.height.saturating_sub(h)) / 2,
+        width: w,
+        height: h,
+    };
+    frame.render_widget(Clear, area);
     let title = format!(" perf — {} phases — esc/q close ", snap.len());
     let block = Block::default()
         .borders(Borders::ALL)
