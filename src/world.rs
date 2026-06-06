@@ -3908,17 +3908,21 @@ fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
     let t = tick as f32 * 0.012;
     let fx = x as f32;
     let fy = y as f32;
-    // Three layered sines at different frequencies and a static per-cell
-    // jitter give a smoothly flowing surface — every frame's height field
-    // continuously evolves from the prior frame because all four terms are
-    // continuous in `tick`, so the eye sees fluid motion instead of the
-    // old hashed-grid strobe.
-    let w1 = (fx * 0.731 + fy * 1.117 + t * 1.27).sin() * 0.55;
-    let w2 = (fx * 1.289 - fy * 0.583 + t * 0.94).sin() * 0.40;
-    let w3 = (fx * 0.231 + fy * 0.391 + t * 0.61).sin() * 0.35;
+    // Domain warp: perturb sample coords with their own sines so the
+    // height field's contour lines bend rather than tracing the obvious
+    // diagonals of the underlying frequency vectors. Then mix several
+    // sines with very different frequencies and directions (axis-aligned
+    // + diagonal, slow + fast) plus a strong per-cell jitter so no two
+    // neighbours read as a straight-line ridge.
+    let wx = fx + (fy * 0.27 + t * 0.83).sin() * 1.3;
+    let wy = fy + (fx * 0.31 + t * 0.71).sin() * 0.9;
+    let w1 = (wx * 0.43 + t * 0.95).sin() * 0.5;
+    let w2 = (wy * 0.61 + t * 0.78).sin() * 0.45;
+    let w3 = (wx * 0.27 + wy * 0.31 + t * 1.10).sin() * 0.35;
+    let w4 = (wx * 1.71 - wy * 1.33 + t * 0.42).sin() * 0.25;
     let cell_jitter =
-        (hash2(x, y, 0xA11_BABE) as f32 / u32::MAX as f32 - 0.5) * 0.6;
-    let h = w1 + w2 + w3 + cell_jitter;
+        (hash2(x, y, 0xA11_BABE) as f32 / u32::MAX as f32 - 0.5) * 0.9;
+    let h = w1 + w2 + w3 + w4 + cell_jitter;
     let (glyph, base) = if h > 1.6 {
         ('~', (110, 135, 155))
     } else if h > 0.8 {
