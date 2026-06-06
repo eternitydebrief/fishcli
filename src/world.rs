@@ -559,6 +559,10 @@ pub struct WorldView<'a> {
     /// True during the Night / Midnight time-of-day phases. Drives whether
     /// nocturnal bugs render.
     pub is_night: bool,
+    /// Cells where a bug has already been picked today (filtered to the
+    /// current dim). Suppresses the bug glyph so a caught bug doesn't pop
+    /// right back.
+    pub bugs_picked: &'a [(i32, i32)],
 }
 
 impl<'a> Widget for WorldView<'a> {
@@ -629,7 +633,9 @@ impl<'a> Widget for WorldView<'a> {
                 // the player sees a `,` / `*` / `v` etc dotted across the
                 // biome.
                 let tile = self.world.get(wx, wy);
-                if crate::bugs::tile_hosts_bugs(tile) {
+                if crate::bugs::tile_hosts_bugs(tile)
+                    && !self.bugs_picked.iter().any(|&(px, py)| px == wx && py == wy)
+                {
                     let biome = self.world.biome(wx, wy);
                     if let Some(bug) = crate::bugs::bug_at(
                         wx,

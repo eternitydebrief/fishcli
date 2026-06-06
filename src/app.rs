@@ -118,6 +118,9 @@ pub enum Scene {
     /// Boss fishing fight: two fish and two bars, F/V drive the left bar
     /// and J/N drive the right.
     Boss(crate::boss::Boss),
+    /// Bug-net micro-game. The player faced a bug tile and pressed `f`.
+    /// Space attempts the catch when the cursor is inside the target zone.
+    BugCatch(crate::bug_catch::BugCatch),
     /// Blacksmith menu. Reached by pressing `f` on a Blacksmith NPC.
     /// Branches to Smelt / Forge / sell-ore / sell-gear / leave.
     Blacksmith {
@@ -348,6 +351,14 @@ pub struct App {
     /// Per-bug-species catch count, parallel to `bugs::defs()`. Append-only;
     /// length is zero-extended on load to match the current bug count.
     pub bugs_caught: Vec<u32>,
+    /// Cells where a bug was picked today, keyed by (dim, x, y). Suppresses
+    /// the bug glyph for the rest of the day so the same bug can't be
+    /// caught twice. Cleared when `bugs_picked_day_id` falls behind the
+    /// current game day.
+    pub bugs_picked_today: std::collections::HashSet<(crate::world::Dimension, i32, i32)>,
+    /// In-game day-id the picked set was last populated for. On day rollover
+    /// the set is dropped and rebuilt.
+    pub bugs_picked_day_id: u64,
     /// Tree anchor coords for the in-progress chopping minigame. Consumed
     /// (and cleared) on chop completion to mark exactly one tree as cut.
     pub pending_chop_anchor: Option<(i32, i32)>,
@@ -526,6 +537,8 @@ impl App {
             mastery: vec![0; fishlist::fish().len()],
             cooking_mastery: vec![0; crate::recipes::recipes().len()],
             bugs_caught: vec![0; crate::bugs::defs().len()],
+            bugs_picked_today: std::collections::HashSet::new(),
+            bugs_picked_day_id: 0,
             pending_chop_anchor: None,
             recipe_discovered: vec![false; crate::recipes::recipes().len()],
             discovery_queue: std::collections::VecDeque::new(),
@@ -747,6 +760,16 @@ impl App {
         let nb = crate::bugs::defs().len();
         self.bugs_caught = data.bugs_caught.clone();
         self.bugs_caught.resize(nb, 0);
+        // Picked-today set survives a reload within the same in-game day.
+        // On day rollover we drop it so today's bugs spawn fresh.
+        let today = crate::gametime::game_days(data.play_time_secs);
+        if data.bugs_picked_day_id == today {
+            self.bugs_picked_today = data.bugs_picked.iter().copied().collect();
+            self.bugs_picked_day_id = today;
+        } else {
+            self.bugs_picked_today.clear();
+            self.bugs_picked_day_id = today;
+        }
         if !data.mastery.is_empty() {
             let n = self.mastery.len();
             for (i, &v) in data.mastery.iter().enumerate().take(n) {
@@ -932,6 +955,8 @@ impl App {
                 .collect(),
             bugs_caught: self.bugs_caught.clone(),
             has_bug_net: self.player.has_bug_net,
+            bugs_picked: self.bugs_picked_today.iter().copied().collect(),
+            bugs_picked_day_id: self.bugs_picked_day_id,
         }
     }
 
@@ -1872,6 +1897,7 @@ impl App {
             self.sync_cape();
             self.tick_cape_payout();
             self.tick_market_day_rollover();
+            self.tick_bugs_day_rollover();
         }
         if let Some(t) = self.pending_quit_at {
             if self.anim_tick >= t {
@@ -1912,6 +1938,12 @@ impl App {
 
         if let Scene::Fishing(g) = &mut self.scene {
             g.tick();
+        }
+        if let Scene::BugCatch(b) = &mut self.scene {
+            b.tick(self.anim_tick);
+            if b.result.is_some() {
+                self.resolve_bug_catch();
+            }
         }
         if let Scene::Boss(b) = &mut self.scene {
             b.tick();
@@ -2160,6 +2192,7 @@ impl App {
             self.scene,
             Scene::Notes(_) | Scene::NamePrompt(_) | Scene::Dialogue { .. }
             | Scene::Mining(_) | Scene::Chopping(_) | Scene::Fishing(_) | Scene::Boss(_)
+            | Scene::BugCatch(_)
         ) || fishdex_filtering || cookbook_filtering;
         if code == KeyCode::Char(':') && !cmd_shortcut_blocked {
             self.mode = Mode::Command(String::new());
@@ -2664,6 +2697,7 @@ impl App {
                 }
                 _ => {}
             },
+            Scene::BugCatch(_) => self.handle_bug_catch_key(code),
         }
     }
 
@@ -4196,6 +4230,9 @@ impl App {
         if self.try_interact_faceless(nx, ny) {
             return;
         }
+        if self.try_catch_bug_at(nx, ny) {
+            return;
+        }
         if let Some(npc) = npc::npc_at_dim(nx, ny, self.world.dim, self.world.seed) {
             if npc.id == "sailor" {
                 self.interact_sailor();
@@ -5390,6 +5427,107 @@ impl App {
             .say(npc.response("sold", &[("cost", PICKAXE_COST.to_string())]));
     }
 
+    /// Attempt to open the bug-catch micro-game on the faced cell. Returns
+    /// true if a bug was found and the scene opened (consumes the `f`).
+    fn try_catch_bug_at(&mut self, nx: i32, ny: i32) -> bool {
+        if !self.player.has_bug_net {
+            return false;
+        }
+        let dim = self.world.dim;
+        if self.bugs_picked_today.contains(&(dim, nx, ny)) {
+            return false;
+        }
+        let tile = self.world.get(nx, ny);
+        if !crate::bugs::tile_hosts_bugs(tile) {
+            return false;
+        }
+        let day_id = crate::gametime::game_days(self.total_play_secs());
+        let biome = self.world.biome(nx, ny);
+        let is_night = matches!(
+            crate::gametime::time_of_day(self.total_play_secs()),
+            crate::gametime::TimeOfDay::Night
+                | crate::gametime::TimeOfDay::Midnight
+                | crate::gametime::TimeOfDay::Dusk
+        );
+        let Some(bug) =
+            crate::bugs::bug_at(nx, ny, dim, biome, is_night, day_id, self.world.seed)
+        else {
+            return false;
+        };
+        let widen = self.skill_tree.bug_target_widen();
+        let bc = crate::bug_catch::BugCatch::new(
+            bug.id.clone(),
+            (nx, ny),
+            &mut self.rng_state,
+            self.anim_tick,
+            widen,
+        );
+        self.scene = Scene::BugCatch(bc);
+        self.mode = Mode::Insert;
+        self.narrator
+            .say(format!("You ready the net for the {}.", bug.name));
+        true
+    }
+
+    fn handle_bug_catch_key(&mut self, code: KeyCode) {
+        let Scene::BugCatch(b) = &mut self.scene else { return };
+        match code {
+            KeyCode::Esc => {
+                self.scene = Scene::Overworld;
+            }
+            KeyCode::Char(' ') | KeyCode::Char('f') | KeyCode::Enter => {
+                b.attempt();
+                // resolve_bug_catch will fire from tick() next frame; calling
+                // it directly here would mid-borrow self.scene, so let the
+                // tick path handle it.
+            }
+            _ => {}
+        }
+    }
+
+    /// Clear the picked-today set when the in-game day advances. Called
+    /// periodically from `tick()`.
+    fn tick_bugs_day_rollover(&mut self) {
+        let today = crate::gametime::game_days(self.total_play_secs());
+        if today != self.bugs_picked_day_id {
+            self.bugs_picked_today.clear();
+            self.bugs_picked_day_id = today;
+        }
+    }
+
+    /// Apply a finished bug-catch result. Called from `tick()` once the
+    /// scene's `result` field is populated (either by the player attempting
+    /// or by the deadline expiring).
+    fn resolve_bug_catch(&mut self) {
+        let Scene::BugCatch(b) = &self.scene else { return };
+        let result = b.result;
+        let bug_id = b.bug_id.clone();
+        let xy = b.world_xy;
+        let dim = self.world.dim;
+        self.scene = Scene::Overworld;
+        match result {
+            Some(crate::bug_catch::BugCatchResult::Caught) => {
+                if let Some(idx) = crate::bugs::index_of(&bug_id) {
+                    if let Some(slot) = self.bugs_caught.get_mut(idx) {
+                        *slot = slot.saturating_add(1);
+                    }
+                }
+                self.bugs_picked_today.insert((dim, xy.0, xy.1));
+                let name = crate::bugs::def_by_id(&bug_id)
+                    .map(|b| b.name.clone())
+                    .unwrap_or_else(|| bug_id.clone());
+                self.narrator.say(format!("Caught the {name}."));
+            }
+            Some(crate::bug_catch::BugCatchResult::Missed) => {
+                // Bug flies off for the day either way — missing still
+                // disturbs it. Keeps the catch a real decision.
+                self.bugs_picked_today.insert((dim, xy.0, xy.1));
+                self.narrator.say("It got away.".to_string());
+            }
+            None => {}
+        }
+    }
+
     /// Old Angler hands the player a Bug Net once they've reached a small
     /// catch threshold. Returns true if the interaction was consumed (and
     /// the caller should NOT fall through to the generic dialogue scene).
@@ -5520,6 +5658,13 @@ impl App {
                     .border_style(Style::default().fg(Color::Cyan));
                 let inner = block.inner(area);
                 frame.render_widget(block, area);
+                let dim_now = self.world.dim;
+                let picked_dim: Vec<(i32, i32)> = self
+                    .bugs_picked_today
+                    .iter()
+                    .filter(|(d, _, _)| *d == dim_now)
+                    .map(|(_, x, y)| (*x, *y))
+                    .collect();
                 frame.render_widget(
                     WorldView {
                         world: &self.world,
@@ -5536,6 +5681,7 @@ impl App {
                                 | crate::gametime::TimeOfDay::Midnight
                                 | crate::gametime::TimeOfDay::Dusk
                         ),
+                        bugs_picked: &picked_dim,
                     },
                     inner,
                 );
@@ -5772,6 +5918,7 @@ impl App {
                 // Handled below to side-step the &mut self.scene borrow that
                 // prevents reading other fields of self.
             }
+            Scene::BugCatch(b) => render_bug_catch(frame, b, self.anim_tick),
         }
 
         if let Scene::Gear { slot_idx, item_idx } = &self.scene {
@@ -9002,6 +9149,74 @@ fn render_cookbook(
         Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }),
         inner,
     );
+}
+
+fn render_bug_catch(frame: &mut Frame, b: &crate::bug_catch::BugCatch, tick: u64) {
+    let area = viewport(frame);
+    frame.render_widget(Clear, area);
+    let secs_left = if b.deadline_tick > tick {
+        ((b.deadline_tick - tick) as f32 / 20.0).ceil() as u32
+    } else {
+        0
+    };
+    let in_zone = b.in_target();
+    let title = format!(
+        " bug net — space/f to swing — esc to leave — {secs_left}s "
+    );
+    let border = if in_zone { Color::LightGreen } else { Color::Yellow };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(border));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let bar_width: usize = 60;
+    let lo = (b.target_lo * bar_width as f32) as usize;
+    let hi = ((b.target_hi * bar_width as f32) as usize).min(bar_width.saturating_sub(1));
+    let cursor = (b.cursor * bar_width as f32) as usize;
+    let mut spans: Vec<ratatui::text::Span> = Vec::with_capacity(bar_width + 2);
+    spans.push(ratatui::text::Span::raw("["));
+    for i in 0..bar_width {
+        if i == cursor {
+            spans.push(ratatui::text::Span::styled(
+                "|",
+                Style::default()
+                    .fg(if in_zone { Color::LightGreen } else { Color::White })
+                    .add_modifier(Modifier::BOLD),
+            ));
+        } else if i >= lo && i <= hi {
+            spans.push(ratatui::text::Span::styled(
+                "=",
+                Style::default().fg(Color::Green),
+            ));
+        } else {
+            spans.push(ratatui::text::Span::styled(
+                "-",
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+    }
+    spans.push(ratatui::text::Span::raw("]"));
+    let bar_line = ratatui::text::Line::from(spans).alignment(Alignment::Center);
+
+    let bug_name = crate::bugs::def_by_id(&b.bug_id)
+        .map(|d| d.name.as_str())
+        .unwrap_or(&b.bug_id);
+    let label = ratatui::text::Line::from(ratatui::text::Span::styled(
+        format!("after the {bug_name}"),
+        Style::default().fg(Color::DarkGray),
+    ))
+    .alignment(Alignment::Center);
+
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(label);
+    lines.push(ratatui::text::Line::from(""));
+    lines.push(bar_line);
+    let p = Paragraph::new(lines);
+    frame.render_widget(p, inner);
 }
 
 fn render_chopping(frame: &mut Frame, c: &crate::chop::Chopping, tick: u64) {

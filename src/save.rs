@@ -180,6 +180,12 @@ pub struct SaveData {
     /// quest reward (wired in a later commit).
     #[serde(default)]
     pub has_bug_net: bool,
+    /// Cells whose bug was already caught today. Discarded on load if the
+    /// stored `bugs_picked_day_id` is older than the current game day.
+    #[serde(default)]
+    pub bugs_picked: Vec<(crate::world::Dimension, i32, i32)>,
+    #[serde(default)]
+    pub bugs_picked_day_id: u64,
 }
 
 fn default_stamina() -> f32 {

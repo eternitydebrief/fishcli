@@ -250,6 +250,12 @@ impl SkillTree {
         1.0 + self.sum("snap_reel_mult")
     }
 
+    /// Extra width added to the bug-catch target zone (0.0 by default; the
+    /// Entomologist tree will populate this once added).
+    pub fn bug_target_widen(&self) -> f32 {
+        self.sum("bug_target_widen")
+    }
+
     pub fn line_tension_pct(&self) -> f32 {
         self.sum("line_tension_pct")
     }

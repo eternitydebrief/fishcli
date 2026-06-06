@@ -14,6 +14,7 @@ mod app;
 mod bait;
 mod boss;
 mod buffs;
+mod bug_catch;
 mod bugs;
 mod chop;
 mod daily;
