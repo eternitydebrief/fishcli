@@ -7187,8 +7187,10 @@ fn render_streak_chip(frame: &mut Frame, current: u64, best: u64) {
     if w < 6 || h < 3 {
         return;
     }
-    // Weather/HUD panel is 4 rows tall — start the chip directly under it.
-    let y_off = 4u16;
+    // Weather/HUD panel is 4 rows tall and renders inside the world block's
+    // inner area, which is itself offset by 1 row of border — so the panel
+    // actually covers viewport rows 1..=4. Start the chip at row 5.
+    let y_off = 5u16;
     if area.height <= y_off + h {
         return;
     }
