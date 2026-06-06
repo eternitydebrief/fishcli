@@ -2563,14 +2563,55 @@ fn river_center_y(x: i32, base_y: f32, rh: u32, amp: f32, freq: f32) -> f32 {
 }
 
 fn river_width_at(x: i32, rh: u32, base: f32) -> f32 {
-    // Width is base ± a slow perlin sweep so thin sections and fat ones
-    // alternate gradually instead of cell-by-cell. base ∈ [3, 20].
-    let n = value_noise_fractal(x, 0, rh ^ 0xC0FF_EE0A, 0.012, 3);
-    (base + n * 8.0).max(1.0)
+    // Width is base modulated by a slow perlin sweep so thin sections
+    // and fat ones alternate gradually instead of cell-by-cell. Two
+    // noise octaves run at different frequencies — the slow one shapes
+    // the overall fat/thin segments, the fast one adds local variation
+    // so a "thick" segment still has subtle width changes inside it.
+    let slow = value_noise_fractal(x, 0, rh ^ 0xC0FF_EE0A, 0.006, 2);
+    let fast = value_noise_fractal(x, 0, rh ^ 0xC0FF_EE0B, 0.05, 2);
+    // slow swings ±20, fast swings ±4 — so widths span from ~1 to ~40+
+    // for a spine river with base 22, and 1 to ~12 for a thin band river.
+    (base + slow * 20.0 + fast * 4.0).max(1.0)
 }
 
 pub fn river_at(x: i32, y: i32, seed: u32) -> Option<RiverHit> {
     let band = y.div_euclid(RIVER_BAND_H);
+    // A spine band can host a single map-spanning monster river. Spine
+    // bands are sparser (1 in 11) and use a wider candidate search so
+    // their bigger widths still register from far away. They're
+    // checked first so a spine wins over a thin band river overlapping
+    // the same row.
+    for db in -3..=3 {
+        let sh = hash2(band + db, 0, seed.wrapping_add(0x5217_E001));
+        if sh % 11 != 0 {
+            continue;
+        }
+        let base_y = (band + db) * RIVER_BAND_H
+            + ((sh >> 4) as i32).rem_euclid(RIVER_BAND_H);
+        let amp = 22.0 + ((sh >> 12) & 0x3F) as f32; // 22..86 cells of wander
+        let freq = 0.0025 + ((sh >> 18) & 0x7) as f32 * 0.0003;
+        // base width 18..34 — combined with width-noise, the fat sections
+        // hit 50+ cells across.
+        let base_w = 18.0 + ((sh >> 24) & 0xF) as f32;
+        let center_y = river_center_y(x, base_y as f32, sh, amp, freq);
+        let width = river_width_at(x, sh, base_w);
+        let dist = (y as f32 - center_y).abs();
+        if dist > width {
+            continue;
+        }
+        if in_village_zone(x, y) || village_anchor_for(x, y, seed).is_some() {
+            return None;
+        }
+        let center_y_next = river_center_y(x + 1, base_y as f32, sh, amp, freq);
+        let dy_dx = center_y_next - center_y;
+        let len = (1.0 + dy_dx * dy_dx).sqrt();
+        return Some(RiverHit {
+            dir: (1.0 / len, dy_dx / len),
+            edge_t: (dist / width).min(1.0),
+            wide_bed: width >= 8.0,
+        });
+    }
     for db in -1..=1 {
         let h = hash2(band + db, 0, seed.wrapping_add(0x812E_7100));
         // Roughly 1 in 6 bands hosts a river — so the world might have

@@ -8926,6 +8926,12 @@ fn water_kind_at(world: &World, x: i32, y: i32) -> &'static str {
     if matches!(t, Tile::DeepWater | Tile::Seabed | Tile::Kelp | Tile::Anemone) {
         return "atlantis";
     }
+    // A water cell sitting on a river is "moving water" — river fish
+    // only spawn here. Check before the y-based ocean/lake fallback so
+    // river segments on either side of y=5 still register correctly.
+    if matches!(t, Tile::Water) && crate::world::river_at(x, y, world.seed).is_some() {
+        return "river";
+    }
     if y >= 5 {
         return "ocean";
     }
