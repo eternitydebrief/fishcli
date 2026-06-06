@@ -123,6 +123,9 @@ pub enum Scene {
     BugCatch(crate::bug_catch::BugCatch),
     /// Scales spend menu. j/k pick an axis, enter spends 1 scale.
     Scales { cursor: usize },
+    /// Lure-bench crafting menu. j/k pick a recipe, enter crafts (consumes
+    /// bait inputs + valu, writes to BaitStock).
+    LureBench { cursor: usize },
     /// Blacksmith menu. Reached by pressing `f` on a Blacksmith NPC.
     /// Branches to Smelt / Forge / sell-ore / sell-gear / leave.
     Blacksmith {
@@ -992,6 +995,46 @@ impl App {
     /// stamina (difficulty * 5), and grant a small permanent buff scaled
     /// to the species's difficulty. Unique fish (Fish, Five Elders) can't
     /// be cooked.
+    /// Craft a lure at the bait bench. Consumes inputs + valu, writes the
+    /// output bait id to the player's stock. Refuses gracefully if any
+    /// input is short or the player can't afford the valu cost.
+    fn craft_lure(&mut self, idx: usize) {
+        let recipes = crate::lure_recipes::recipes();
+        let Some(r) = recipes.get(idx) else { return };
+        if self.player.valu < r.valu_cost {
+            self.narrator.say(format!(
+                "Need {}$V for {} — have {}$V.",
+                r.valu_cost, r.name, self.player.valu
+            ));
+            return;
+        }
+        for inp in &r.inputs {
+            let have = self.player.bait.count(&inp.bait_id);
+            if have < inp.count {
+                let label = crate::bait::def_by_id(&inp.bait_id)
+                    .map(|d| d.name.clone())
+                    .unwrap_or_else(|| inp.bait_id.clone());
+                self.narrator.say(format!(
+                    "Need {} {} (have {}).",
+                    inp.count, label, have
+                ));
+                return;
+            }
+        }
+        // Commit.
+        for inp in &r.inputs {
+            let entry = self.player.bait.stock.entry(inp.bait_id.clone()).or_insert(0);
+            *entry = entry.saturating_sub(inp.count);
+        }
+        self.player.valu = self.player.valu.saturating_sub(r.valu_cost);
+        self.player.bait.add(&r.output_bait_id, r.output_count);
+        let out_label = crate::bait::def_by_id(&r.output_bait_id)
+            .map(|d| d.name.clone())
+            .unwrap_or_else(|| r.output_bait_id.clone());
+        self.narrator
+            .say(format!("Crafted {}x {}.", r.output_count, out_label));
+    }
+
     /// Permanent additive bonus for a scales-spendable axis. 0.0005 per
     /// token spent on the matching axis, capped at 1000 tokens per axis
     /// (i.e. max +50% per axis).
@@ -2849,6 +2892,26 @@ impl App {
                 _ => {}
             },
             Scene::BugCatch(_) => self.handle_bug_catch_key(code),
+            Scene::LureBench { cursor } => {
+                let recipes = crate::lure_recipes::recipes();
+                let n = recipes.len();
+                match code {
+                    KeyCode::Esc | KeyCode::Char('q') => self.scene = Scene::Overworld,
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        if n > 0 {
+                            *cursor = (*cursor + 1).min(n - 1);
+                        }
+                    }
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        *cursor = cursor.saturating_sub(1);
+                    }
+                    KeyCode::Enter | KeyCode::Char(' ') => {
+                        let idx = *cursor;
+                        self.craft_lure(idx);
+                    }
+                    _ => {}
+                }
+            }
             Scene::Scales { cursor } => {
                 let n = Self::SCALES_AXES.len();
                 match code {
@@ -4616,6 +4679,10 @@ impl App {
                 self.mode = Mode::Insert;
                 self.tutorial_advance(6);
             }
+            Tile::BaitBench => {
+                self.scene = Scene::LureBench { cursor: 0 };
+                self.mode = Mode::Insert;
+            }
             Tile::OreRock => {
                 if !self.player.has_pickaxe {
                     self.narrator
@@ -6226,6 +6293,12 @@ impl App {
                 self.scales,
                 &self.scales_spent,
             ),
+            Scene::LureBench { cursor } => render_lure_bench(
+                frame,
+                *cursor,
+                &self.player.bait,
+                self.player.valu,
+            ),
         }
 
         if let Scene::Gear { slot_idx, item_idx } = &self.scene {
@@ -6700,6 +6773,7 @@ fn map_glyph_for(world: &World, x: i32, y: i32) -> (char, Style) {
         Tile::Smelter => ('S', Color::Rgb(255, 140, 60)),
         Tile::Forge => ('F', Color::Rgb(255, 90, 60)),
         Tile::CookingPot => ('O', Color::Rgb(255, 200, 120)),
+        Tile::BaitBench => ('=', Color::Rgb(180, 130, 80)),
         Tile::Curio => ('*', Color::Rgb(220, 200, 160)),
         Tile::PortalFrame => ('#', Color::Rgb(190, 175, 200)),
     };
@@ -9464,6 +9538,60 @@ fn render_cookbook(
         Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }),
         inner,
     );
+}
+
+fn render_lure_bench(
+    frame: &mut Frame,
+    cursor: usize,
+    stock: &crate::bait::BaitStock,
+    valu: u64,
+) {
+    let area = viewport(frame);
+    frame.render_widget(Clear, area);
+    let title = format!(" bait bench — j/k pick — enter craft — esc leave — {valu}$V ");
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(Color::Rgb(200, 160, 100)));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let recipes = crate::lure_recipes::recipes();
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    lines.push(ratatui::text::Line::from(""));
+    for (i, r) in recipes.iter().enumerate() {
+        let prefix = if i == cursor { "> " } else { "  " };
+        let style = if i == cursor {
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(40, 30, 18))
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        let out_label = crate::bait::def_by_id(&r.output_bait_id)
+            .map(|d| d.name.clone())
+            .unwrap_or_else(|| r.output_bait_id.clone());
+        let head = format!("{prefix}{}  -> {} (x{})  [{}$V]",
+            r.name, out_label, r.output_count, r.valu_cost);
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(head, style)));
+        if i == cursor {
+            for inp in &r.inputs {
+                let have = stock.count(&inp.bait_id);
+                let label = crate::bait::def_by_id(&inp.bait_id)
+                    .map(|d| d.name.clone())
+                    .unwrap_or_else(|| inp.bait_id.clone());
+                let ok = have >= inp.count;
+                let row = format!("    - {}x {} (have {})", inp.count, label, have);
+                let row_color = if ok { Color::DarkGray } else { Color::Red };
+                lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+                    row,
+                    Style::default().fg(row_color),
+                )));
+            }
+        }
+    }
+    let p = Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false });
+    frame.render_widget(p, inner);
 }
 
 fn render_scales(

@@ -438,6 +438,10 @@ pub enum Tile {
     /// directly so cooking has a discoverable physical home next to the
     /// chef NPC.
     CookingPot,
+    /// Old Angler's bait bench — non-walkable. `f` opens the lure-crafting
+    /// menu so the player can convert bugs / worms / fish into curated
+    /// pool-pull lures.
+    BaitBench,
     /// Sparse inspectable curio. The specific curio (id + glyph + color)
     /// is derived from `curio_at(x, y, dim, seed)` so the same cell always
     /// hosts the same object. Non-walkable — players stand adjacent and
@@ -523,6 +527,7 @@ impl Tile {
             Tile::Smelter => "Smelter",
             Tile::Forge => "Forge",
             Tile::CookingPot => "CookingPot",
+            Tile::BaitBench => "BaitBench",
             Tile::Curio => "Curio",
         }
     }
@@ -762,6 +767,9 @@ impl World {
             return t;
         }
         if let Some(t) = cooking_pot_at(x, y) {
+            return t;
+        }
+        if let Some(t) = bait_bench_at(x, y) {
             return t;
         }
         if let Some(t) = village_tile(x, y) {
@@ -1328,6 +1336,14 @@ impl World {
                 Style::default()
                     .fg(Color::Rgb(255, 200, 120))
                     .bg(Color::Rgb(40, 18, 6))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            // Bait Bench: wooden work surface, brown/tan glyph.
+            Tile::BaitBench => (
+                '=',
+                Style::default()
+                    .fg(Color::Rgb(180, 130, 80))
+                    .bg(Color::Rgb(40, 24, 12))
                     .add_modifier(Modifier::BOLD),
             ),
             Tile::Tombstone => {
@@ -2592,6 +2608,16 @@ pub fn cooking_pot_at(x: i32, y: i32) -> Option<Tile> {
     const CHEF: (i32, i32) = (22, 3);
     if (x, y) == (CHEF.0, CHEF.1 - 1) {
         return Some(Tile::CookingPot);
+    }
+    None
+}
+
+/// Bait Bench tile: anchored one cell north of the Old Angler at (-4, -1)
+/// so `f` from the south opens the lure-crafting menu.
+pub fn bait_bench_at(x: i32, y: i32) -> Option<Tile> {
+    const ANGLER: (i32, i32) = (-4, -1);
+    if (x, y) == (ANGLER.0, ANGLER.1 - 1) {
+        return Some(Tile::BaitBench);
     }
     None
 }

@@ -1,0 +1,10 @@
+[
+  { "_comment": "schema: { id, name, description, valu_cost (u64), inputs (Vec<{bait_id, count}>), output_bait_id, output_count (default 1) }. Inputs reference bait IDs (shop bait id, or 'bug:<bug-id>', or 'fish:<slug>'). Output writes count to BaitStock under output_bait_id (which must already exist in the merged defs list — see bait.rs)." },
+
+  { "id": "bundle-worm-glow",      "name": "Glowfly Worm Bundle",     "description": "",  "valu_cost": 50,    "inputs": [ {"bait_id": "earthworm", "count": 5}, {"bait_id": "bug:meadow-grasshopper", "count": 2} ], "output_bait_id": "glowfly",       "output_count": 1 },
+  { "id": "bundle-moth",           "name": "Midnight Moth Wax",       "description": "",  "valu_cost": 250,   "inputs": [ {"bait_id": "bug:forest-glowworm", "count": 3}, {"bait_id": "bug:swamp-mosquito", "count": 4} ], "output_bait_id": "midnight-moth", "output_count": 1 },
+  { "id": "bundle-honey",          "name": "Sweet Honey Bait",        "description": "",  "valu_cost": 200,   "inputs": [ {"bait_id": "bug:meadow-june-beetle", "count": 4}, {"bait_id": "bug:scrub-ant", "count": 6} ], "output_bait_id": "honey-bait",    "output_count": 1 },
+  { "id": "bundle-roe",            "name": "Atlantean Roe Paste",     "description": "",  "valu_cost": 600,   "inputs": [ {"bait_id": "bug:atlantis-plankton", "count": 3}, {"bait_id": "earthworm", "count": 20} ], "output_bait_id": "atlantean-roe", "output_count": 1 },
+  { "id": "bundle-fey",            "name": "Fey Lure Weave",          "description": "",  "valu_cost": 1500,  "inputs": [ {"bait_id": "bug:cathedral-ghost-moth", "count": 2}, {"bait_id": "bug:forest-mantis", "count": 3} ], "output_bait_id": "fey-lure",      "output_count": 1 },
+  { "id": "bundle-infernal",       "name": "Infernal Scale Reforge",  "description": "",  "valu_cost": 3500,  "inputs": [ {"bait_id": "bug:inferno-lava-tick", "count": 4}, {"bait_id": "bug:allblue-louse", "count": 1} ], "output_bait_id": "infernal-scale","output_count": 1 }
+]
