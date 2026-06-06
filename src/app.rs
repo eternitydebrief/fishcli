@@ -2873,6 +2873,10 @@ impl App {
                                 + self.challenge_bonus_points,
                             self.mastery_milestones,
                             self.skills.encyclopedia_level(),
+                            self.skills.cooking_level(),
+                            self.skills.mining_level(),
+                            self.skills.woodcutting_level(),
+                            self.skills.blacksmithing_level(),
                         );
                         if available == 0 {
                             self.narrator.say("No skill points to spend.");
@@ -6636,6 +6640,10 @@ impl App {
                 self.achievements.points_granted + self.daily_bonus_points + self.challenge_bonus_points,
                 self.mastery_milestones,
                 self.skills.encyclopedia_level(),
+                self.skills.cooking_level(),
+                self.skills.mining_level(),
+                self.skills.woodcutting_level(),
+                self.skills.blacksmithing_level(),
             ),
             Scene::Fishing(g) => {
                 // fishing scene gets the whole frame; log is hidden during reel
@@ -6708,6 +6716,10 @@ impl App {
                         + self.challenge_bonus_points,
                     self.mastery_milestones,
                     self.skills.encyclopedia_level(),
+                    self.skills.cooking_level(),
+                    self.skills.mining_level(),
+                    self.skills.woodcutting_level(),
+                    self.skills.blacksmithing_level(),
                 ),
                 crate::skill_tree::SkillTree::earned(
                     self.skills.fishing_level(),
@@ -6716,6 +6728,10 @@ impl App {
                         + self.challenge_bonus_points,
                     self.mastery_milestones,
                     self.skills.encyclopedia_level(),
+                    self.skills.cooking_level(),
+                    self.skills.mining_level(),
+                    self.skills.woodcutting_level(),
+                    self.skills.blacksmithing_level(),
                 ),
             ),
             Scene::Settings => render_settings(frame, self.settings_cursor, &self.settings),
@@ -8014,6 +8030,10 @@ fn render_skill_tree(
     achievements: u32,
     mastery_milestones: u32,
     encyclopedia_level: u32,
+    cooking_level: u32,
+    mining_level: u32,
+    woodcutting_level: u32,
+    blacksmithing_level: u32,
 ) {
     use crate::skill_tree::{SkillTree, TreeBranch};
     use ratatui::widgets::Paragraph;
@@ -8023,12 +8043,20 @@ fn render_skill_tree(
         achievements,
         mastery_milestones,
         encyclopedia_level,
+        cooking_level,
+        mining_level,
+        woodcutting_level,
+        blacksmithing_level,
     );
     let available = tree.available(
         fishing_level,
         achievements,
         mastery_milestones,
         encyclopedia_level,
+        cooking_level,
+        mining_level,
+        woodcutting_level,
+        blacksmithing_level,
     );
     let branches = TreeBranch::ALL;
     let tab = tab.min(branches.len() - 1);

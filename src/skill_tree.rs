@@ -108,25 +108,32 @@ impl SkillTree {
     }
 
     /// Skill points the player has earned across the lifetime of the
-    /// save. Comes from fishing level + future streams.
-    /// `encyclopedia_level` is a separate channel: each level grants 2
-    /// extra skill points, so wide-roster discovery work is rewarded
-    /// without overshadowing the fishing climb.
+    /// save. Fishing is the primary stream; cooking, mining, woodcutting
+    /// and blacksmithing each contribute a smaller channel so a player
+    /// invested in side-skills can still complete a tree branch without
+    /// grinding fishing exclusively. Encyclopedia is its own scoring
+    /// channel at 2 pts per level — wide-roster discovery rewards.
     pub fn earned(
         fishing_level: u32,
         achievements_unlocked: u32,
         mastery_milestones: u32,
         encyclopedia_level: u32,
+        cooking_level: u32,
+        mining_level: u32,
+        woodcutting_level: u32,
+        blacksmithing_level: u32,
     ) -> u32 {
-        // Tapered curve so the tree doesn't self-complete from levelling
+        // Tapered curve so the tree doesn't self-complete from fishing
         // alone — players have to pick a build instead of a full sweep.
         //   L  1- 30 : 1 per level         (30 pts)
         //   L 31- 60 : 1 per 2 levels      (+15 -> 45 at L60)
         //   L 61-120 : 1 per 3 levels      (+20 -> 65 at L120)
         //   L121-240 : 1 per 5 levels      (+24 -> 89 at L240)
         //   L241+    : 1 per 8 levels
-        // Achievements + mastery still grant 1 each so off-loop play still
-        // contributes meaningfully.
+        // Side skills feed at 1 point per 3 levels each. A dedicated cook
+        // who runs Cooking to L100 picks up 33 points; same for the rest.
+        // Combined a cross-skill player can reasonably reach the ~280
+        // points needed to fully max the tree.
         let l = fishing_level;
         let level_pts = if l <= 30 {
             l
@@ -139,7 +146,12 @@ impl SkillTree {
         } else {
             89 + (l - 240) / 8
         };
+        let side_pts = cooking_level / 3
+            + mining_level / 3
+            + woodcutting_level / 3
+            + blacksmithing_level / 3;
         level_pts
+            .saturating_add(side_pts)
             .saturating_add(achievements_unlocked)
             .saturating_add(mastery_milestones)
             .saturating_add(encyclopedia_level.saturating_mul(2))
@@ -151,9 +163,22 @@ impl SkillTree {
         achievements: u32,
         mastery: u32,
         encyclopedia_level: u32,
+        cooking_level: u32,
+        mining_level: u32,
+        woodcutting_level: u32,
+        blacksmithing_level: u32,
     ) -> u32 {
-        Self::earned(fishing_level, achievements, mastery, encyclopedia_level)
-            .saturating_sub(self.spent)
+        Self::earned(
+            fishing_level,
+            achievements,
+            mastery,
+            encyclopedia_level,
+            cooking_level,
+            mining_level,
+            woodcutting_level,
+            blacksmithing_level,
+        )
+        .saturating_sub(self.spent)
     }
 
     pub fn total_invested(&self) -> u32 {
