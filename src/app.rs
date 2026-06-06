@@ -5303,8 +5303,16 @@ impl App {
                     (cursor, Some(FishmongerStep::PickQuantity { picked, max }))
                 }
                 KeyCode::Enter | KeyCode::Char(' ') => match cursor {
-                    // Order matches the user-facing menu: Sell X / All / One / Quit.
-                    0 => (
+                    // Order matches the user-facing menu: ALL / ONE / X / Quit.
+                    0 => {
+                        let total = self.fishmonger_quote(&picked, max);
+                        (0, Some(FishmongerStep::Confirm { picked, qty: max, total }))
+                    }
+                    1 => {
+                        let total = self.fishmonger_quote(&picked, 1);
+                        (0, Some(FishmongerStep::Confirm { picked, qty: 1, total }))
+                    }
+                    2 => (
                         0,
                         Some(FishmongerStep::EnterQuantity {
                             picked,
@@ -5312,14 +5320,6 @@ impl App {
                             buf: String::new(),
                         }),
                     ),
-                    1 => {
-                        let total = self.fishmonger_quote(&picked, max);
-                        (0, Some(FishmongerStep::Confirm { picked, qty: max, total }))
-                    }
-                    2 => {
-                        let total = self.fishmonger_quote(&picked, 1);
-                        (0, Some(FishmongerStep::Confirm { picked, qty: 1, total }))
-                    }
                     _ => (cursor, Some(FishmongerStep::PickFish)),
                 },
                 _ => (cursor, Some(FishmongerStep::PickQuantity { picked, max })),
@@ -8003,7 +8003,7 @@ fn render_fishmonger(
             frame.render_widget(Paragraph::new(lines), inner);
         }
         FishmongerStep::PickQuantity { picked, max } => {
-            let opts = ["Sell X (type a number)", "Sell ALL", "Sell ONE", "Quit"];
+            let opts = ["Sell ALL", "Sell ONE", "Sell X (type a number)", "Quit"];
             let mut lines: Vec<ratatui::text::Line> = vec![
                 ratatui::text::Line::from(ratatui::text::Span::styled(
                     format!("  How many {picked}? (you have {max})"),
