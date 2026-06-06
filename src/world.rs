@@ -1373,7 +1373,7 @@ impl World {
                 // animation stays underneath so the glyph color is the
                 // matching water blue.
                 if let Some(hit) = river_at(x, y, self.seed) {
-                    glyph.0 = river_flow_glyph(hit.dir, x, y, tick);
+                    glyph.0 = river_flow_glyph(hit.dir, hit.edge_t, x, y, tick);
                 }
                 // Surface ocean: bg darkens with distance from shore and
                 // flips foggy past FOG_DEPTH for the endgame "Fog Sea".
@@ -2597,10 +2597,15 @@ const RIVER_BAND_H: i32 = 60;
 /// normalized distance to the riverbed centre, so the renderer can pick
 /// a glyph that points downstream.
 pub struct RiverHit {
-    /// Flow direction unit vector — usually east-ish but the local
-    /// tangent waves with the perlin curve.
+    /// Flow direction unit vector at this cell. Derived from the exact
+    /// analytical slope of the centerline (closed-form cos), so every
+    /// cell along the channel has a consistent "current vector" and
+    /// the renderer can orient its glyph downstream without any extra
+    /// lookups.
     pub dir: (f32, f32),
-    /// 0.0 at the centre of the channel, 1.0 right at the bank.
+    /// 0.0 at the centre of the channel, 1.0 right at the bank. Drives
+    /// the glyph palette so the middle of the river reads as smoother
+    /// flow than the rocky banks.
     pub edge_t: f32,
     /// True when the channel is wide enough here that a bridge can plant
     /// on it. The bridge gate also hashes against the world seed so the
@@ -2608,109 +2613,151 @@ pub struct RiverHit {
     pub wide_bed: bool,
 }
 
-fn river_center_y(x: i32, base_y: f32, rh: u32, amp: f32, freq: f32) -> f32 {
-    base_y + value_noise_fractal(x, 0, rh, freq, 3) * amp
+/// Resolved river parameters for one candidate band. Derived once from
+/// the band hash; centerline + tangent + width are then closed-form
+/// functions of `x`, no noise lookups at all.
+struct RiverParams {
+    base_y: f32,
+    /// Two-tone meander: a primary low-frequency sweep and a secondary
+    /// higher-frequency wobble. Both encoded as (amp, ang-freq, phase).
+    a1: f32,
+    f1: f32,
+    p1: f32,
+    a2: f32,
+    f2: f32,
+    p2: f32,
+    /// Slow width sweep — one sine, period ~500 cells.
+    base_w: f32,
+    w_amp: f32,
+    w_freq: f32,
+    w_phase: f32,
+    source_x: i32,
 }
 
-fn river_width_at(x: i32, rh: u32, base: f32) -> f32 {
-    // Width is base modulated by a slow perlin sweep so thin sections
-    // and fat ones alternate gradually instead of cell-by-cell. Two
-    // noise octaves run at different frequencies — the slow one shapes
-    // the overall fat/thin segments, the fast one adds local variation
-    // so a "thick" segment still has subtle width changes inside it.
-    let slow = value_noise_fractal(x, 0, rh ^ 0xC0FF_EE0A, 0.006, 2);
-    let fast = value_noise_fractal(x, 0, rh ^ 0xC0FF_EE0B, 0.05, 2);
-    // slow swings ±20, fast swings ±4 — so widths span from ~1 to ~40+
-    // for a spine river with base 22, and 1 to ~12 for a thin band river.
-    (base + slow * 20.0 + fast * 4.0).max(1.0)
+impl RiverParams {
+    fn from_hash(band: i32, h: u32, spine: bool) -> Self {
+        let base_y = band * RIVER_BAND_H + ((h >> 4) as i32).rem_euclid(RIVER_BAND_H);
+        if spine {
+            RiverParams {
+                base_y: base_y as f32,
+                a1: 28.0 + ((h >> 12) & 0x3F) as f32 * 0.7,
+                f1: 0.0035 + ((h >> 18) & 0x7) as f32 * 0.0004,
+                p1: (h as f32) * 1e-4,
+                a2: 10.0 + ((h >> 6) & 0xF) as f32,
+                f2: 0.012 + ((h >> 22) & 0x7) as f32 * 0.001,
+                p2: ((h >> 14) as f32) * 1e-4,
+                base_w: 18.0 + ((h >> 24) & 0xF) as f32,
+                w_amp: 14.0,
+                w_freq: 0.004,
+                w_phase: ((h >> 16) as f32) * 1e-4,
+                source_x: -550 - ((h >> 8) as i32).rem_euclid(200),
+            }
+        } else {
+            RiverParams {
+                base_y: base_y as f32,
+                a1: 12.0 + ((h >> 12) & 0x1F) as f32,
+                f1: 0.006 + ((h >> 17) & 0xF) as f32 * 0.0005,
+                p1: (h as f32) * 1e-4,
+                a2: 3.0 + ((h >> 6) & 0xF) as f32 * 0.5,
+                f2: 0.025 + ((h >> 22) & 0x7) as f32 * 0.001,
+                p2: ((h >> 14) as f32) * 1e-4,
+                base_w: 3.0 + ((h >> 22) & 0xF) as f32,
+                w_amp: 4.0,
+                w_freq: 0.012,
+                w_phase: ((h >> 16) as f32) * 1e-4,
+                source_x: -550 - ((h >> 8) as i32).rem_euclid(200),
+            }
+        }
+    }
+
+    /// y of the centerline at column x. Two sines = two trig calls,
+    /// cheap enough to call per cell without caching.
+    #[inline]
+    fn center_y(&self, x: i32) -> f32 {
+        let fx = x as f32;
+        self.base_y
+            + self.a1 * (fx * self.f1 + self.p1).sin()
+            + self.a2 * (fx * self.f2 + self.p2).sin()
+    }
+
+    /// Exact analytical derivative dy/dx — that's the whole point of
+    /// using closed-form sines. No finite difference, no second center_y
+    /// evaluation, no extra trig per cell beyond the two cos calls.
+    #[inline]
+    fn slope(&self, x: i32) -> f32 {
+        let fx = x as f32;
+        self.a1 * self.f1 * (fx * self.f1 + self.p1).cos()
+            + self.a2 * self.f2 * (fx * self.f2 + self.p2).cos()
+    }
+
+    /// Channel half-width at column x. One sine, capped at 1 so a 0
+    /// width can't get us into divide-by-zero territory downstream.
+    #[inline]
+    fn width(&self, x: i32) -> f32 {
+        let fx = x as f32;
+        (self.base_w + self.w_amp * (fx * self.w_freq + self.w_phase).sin()).max(1.0)
+    }
 }
 
 pub fn river_at(x: i32, y: i32, seed: u32) -> Option<RiverHit> {
-    // Rivers only flow on land. Ocean starts at y >= 5 (matches the lake
-    // generator's gate); anything south of that is sea and should not
-    // get clipped by a river channel running through it.
     if y >= 5 {
         return None;
     }
     let band = y.div_euclid(RIVER_BAND_H);
-    // A spine band can host a single map-spanning monster river. Spine
-    // bands are sparser (1 in 11) and use a wider candidate search so
-    // their bigger widths still register from far away. They're
-    // checked first so a spine wins over a thin band river overlapping
-    // the same row.
-    for db in -3..=3 {
+    // Spine pass — sparse but wide. Scan only 2 bands either side; the
+    // base_y can fall up to ±RIVER_BAND_H from its band, so 2 covers
+    // anything that could spill into the current row.
+    for db in -2..=2 {
         let sh = hash2(band + db, 0, seed.wrapping_add(0x5217_E001));
         if sh % 11 != 0 {
             continue;
         }
-        // mountain source: river only exists east of this x.
-        let source_x = -550 - ((sh >> 8) as i32).rem_euclid(200);
-        if x < source_x {
+        let p = RiverParams::from_hash(band + db, sh, true);
+        if x < p.source_x {
             continue;
         }
-        let base_y = (band + db) * RIVER_BAND_H
-            + ((sh >> 4) as i32).rem_euclid(RIVER_BAND_H);
-        let amp = 22.0 + ((sh >> 12) & 0x3F) as f32; // 22..86 cells of wander
-        let freq = 0.0025 + ((sh >> 18) & 0x7) as f32 * 0.0003;
-        // base width 18..34 — combined with width-noise, the fat sections
-        // hit 50+ cells across.
-        let base_w = 18.0 + ((sh >> 24) & 0xF) as f32;
-        let center_y = river_center_y(x, base_y as f32, sh, amp, freq);
-        let width = river_width_at(x, sh, base_w);
-        let dist = (y as f32 - center_y).abs();
-        if dist > width {
+        let center = p.center_y(x);
+        let dist = y as f32 - center;
+        let w = p.width(x);
+        if dist.abs() > w {
             continue;
         }
         if in_village_zone(x, y) || village_anchor_for(x, y, seed).is_some() {
             return None;
         }
-        let center_y_next = river_center_y(x + 1, base_y as f32, sh, amp, freq);
-        let dy_dx = center_y_next - center_y;
+        let dy_dx = p.slope(x);
         let len = (1.0 + dy_dx * dy_dx).sqrt();
         return Some(RiverHit {
             dir: (1.0 / len, dy_dx / len),
-            edge_t: (dist / width).min(1.0),
-            wide_bed: width >= 8.0,
+            edge_t: (dist.abs() / w).min(1.0),
+            wide_bed: w >= 8.0,
         });
     }
+    // Band rivers — thinner, more common.
     for db in -1..=1 {
         let h = hash2(band + db, 0, seed.wrapping_add(0x812E_7100));
-        // Roughly 1 in 6 bands hosts a river — so the world might have
-        // zero, one, or several.
         if h % 6 != 0 {
             continue;
         }
-        let source_x = -550 - ((h >> 8) as i32).rem_euclid(200);
-        if x < source_x {
+        let p = RiverParams::from_hash(band + db, h, false);
+        if x < p.source_x {
             continue;
         }
-        let base_y = (band + db) * RIVER_BAND_H + ((h >> 4) as i32).rem_euclid(RIVER_BAND_H);
-        // amplitude (how much the river snakes) and frequency (how fast
-        // it snakes) both vary per river so two on the same map look
-        // different.
-        let amp = 14.0 + ((h >> 12) & 0x1F) as f32;
-        let freq = 0.005 + ((h >> 17) & 0xF) as f32 * 0.0005;
-        let base_w = 3.0 + ((h >> 22) & 0xF) as f32;
-        let center_y = river_center_y(x, base_y as f32, h, amp, freq);
-        let width = river_width_at(x, h, base_w);
-        let dist = (y as f32 - center_y).abs();
-        if dist > width {
+        let center = p.center_y(x);
+        let dist = y as f32 - center;
+        let w = p.width(x);
+        if dist.abs() > w {
             continue;
         }
-        // Tangent from a finite-difference of the centerline.
-        // Rivers don't cut through villages — a hit landing inside the
-        // home village or any procedural village footprint resolves as
-        // dry land. Pay the lookup only on a hit, not on every miss.
         if in_village_zone(x, y) || village_anchor_for(x, y, seed).is_some() {
             return None;
         }
-        let center_y_next = river_center_y(x + 1, base_y as f32, h, amp, freq);
-        let dy_dx = center_y_next - center_y;
+        let dy_dx = p.slope(x);
         let len = (1.0 + dy_dx * dy_dx).sqrt();
         return Some(RiverHit {
             dir: (1.0 / len, dy_dx / len),
-            edge_t: (dist / width).min(1.0),
-            wide_bed: width >= 6.0,
+            edge_t: (dist.abs() / w).min(1.0),
+            wide_bed: w >= 6.0,
         });
     }
     None
@@ -2723,74 +2770,64 @@ pub fn river_at(x: i32, y: i32, seed: u32) -> Option<RiverHit> {
 const BRIDGE_SPACING: i32 = 80;
 
 /// Glyph for a river cell flowing in `dir`. Cycles a short marquee of
-/// Glyph for a river cell flowing in `dir`. Models the surface as a
-/// shallow wave field carried downstream by the local tangent.
+/// Glyph for a river cell with flow vector `dir` and edge fraction
+/// `edge_t` (0 at the bed centre, 1 at the bank).
 ///
-///   wave = sin(arc_length * 0.32 - tick * 0.06 + perp_offset * 0.20)
+/// The visible "current" is a single sine wave that slides downstream
+/// at the local tangent. arc = projection of (x, y) onto `dir`; that's
+/// the cell's parametric position along the flow. tick advances the
+/// wave; perp gives the wave a side-to-side stagger across the channel.
 ///
-/// `arc_length` is the projection of the cell onto the flow direction,
-/// so the wave crests visibly slide along the channel — when the river
-/// bends, the wave bends with it because `dir` is the local tangent.
-/// The `perp_offset` term shifts the phase across the channel width,
-/// producing the slow side-to-side swirl real rivers have.
-///
-/// Glyph palette is picked first by the tangent's lean (horizontal /
-/// diagonal / vertical) and then by the wave amplitude (thin trough vs
-/// fat crest), so the visual reads as "water surface, currently bending
-/// here, currently bulging here" rather than a marching marquee.
-pub fn river_flow_glyph(dir: (f32, f32), x: i32, y: i32, tick: u64) -> char {
+/// Glyph orientation is picked by `dir`'s lean (horizontal / diagonal /
+/// vertical), and the cell's edge fraction biases toward the smooth
+/// "─ │ ╱ ╲" forms at the centre and the rougher "~ ¦ /" forms near the
+/// bank — so the bed-centre reads as fast smooth current and the banks
+/// read as rougher edge water.
+pub fn river_flow_glyph(dir: (f32, f32), edge_t: f32, x: i32, y: i32, tick: u64) -> char {
     let fx = x as f32;
     let fy = y as f32;
-    // Arc-length along the tangent. Cells further downstream get higher
-    // values, so a wave at arc s moves toward higher s as tick grows.
     let arc = fx * dir.0 + fy * dir.1;
-    // Perpendicular offset across the channel (left/right side of bed).
-    // Adds an across-channel phase shift so a ripple visible on one side
-    // sits half a wavelength behind the same ripple on the other side.
     let perp = -fy * dir.0 + fx * dir.1;
-    let wave = (arc * 0.32 - tick as f32 * 0.06 + perp * 0.20).sin();
-    let amp = wave.abs(); // 0..=1 — high = crest/trough, low = level
-    // Decide flow leaning. Use the tangent direction.
+    let wave = (arc * 0.32 - tick as f32 * 0.05 + perp * 0.20).sin();
+    let amp = wave.abs();
+    let near_bank = edge_t > 0.70;
     let horizontal = dir.0.abs() > 2.0 * dir.1.abs();
     let vertical = dir.1.abs() > 2.0 * dir.0.abs();
     if horizontal {
-        // east-flowing reach: choose flat/wavy/swell by amplitude
-        if amp > 0.85 {
+        if near_bank {
+            if amp > 0.55 { '~' } else { '-' }
+        } else if amp > 0.85 {
             if wave > 0.0 { '≈' } else { '~' }
-        } else if amp > 0.50 {
+        } else if amp > 0.45 {
             '~'
-        } else if amp > 0.20 {
-            '-'
         } else {
             '─'
         }
     } else if vertical {
-        if amp > 0.85 {
+        if near_bank {
+            if amp > 0.55 { '¦' } else { '|' }
+        } else if amp > 0.85 {
             '╎'
-        } else if amp > 0.50 {
+        } else if amp > 0.45 {
             '¦'
-        } else if amp > 0.20 {
-            '|'
         } else {
             '│'
         }
     } else if dir.0 * dir.1 > 0.0 {
-        // SE / NW diagonal
-        if amp > 0.80 {
-            '╲'
-        } else if amp > 0.40 {
-            '\\'
-        } else {
+        if near_bank {
             '~'
+        } else if amp > 0.55 {
+            '╲'
+        } else {
+            '\\'
         }
     } else {
-        // NE / SW diagonal
-        if amp > 0.80 {
-            '╱'
-        } else if amp > 0.40 {
-            '/'
-        } else {
+        if near_bank {
             '~'
+        } else if amp > 0.55 {
+            '╱'
+        } else {
+            '/'
         }
     }
 }
@@ -4885,53 +4922,6 @@ fn shade(base: (u8, u8, u8), x: i32, y: i32, salt: u32, range: i32) -> Color {
         (base.1 as i32 + dg).clamp(0, 255) as u8,
         (base.2 as i32 + db).clamp(0, 255) as u8,
     )
-}
-
-/// Hash a lattice point to a value in -1..1. Plain value noise (not true
-/// Perlin gradients) — visually similar, cheaper, no axis bias.
-#[inline]
-fn lattice_value(xi: i32, yi: i32, zi: i32, seed: u32) -> f32 {
-    let h = hash2(
-        xi.wrapping_add(zi.wrapping_mul(73_856_093)),
-        yi.wrapping_add(zi.wrapping_mul(19_349_663)),
-        seed,
-    );
-    (h as f32 / u32::MAX as f32) * 2.0 - 1.0
-}
-
-#[inline]
-fn smoothstep(t: f32) -> f32 {
-    t * t * (3.0 - 2.0 * t)
-}
-
-/// 3D value noise via trilinear interpolation between hashed lattice points.
-/// Returns approximately -1..1. Used by water_anim to add an axis-free
-/// noise layer that morphs continuously through time.
-fn value_noise_3d(x: f32, y: f32, z: f32, seed: u32) -> f32 {
-    let xi = x.floor() as i32;
-    let yi = y.floor() as i32;
-    let zi = z.floor() as i32;
-    let xf = x - xi as f32;
-    let yf = y - yi as f32;
-    let zf = z - zi as f32;
-    let u = smoothstep(xf);
-    let v = smoothstep(yf);
-    let w = smoothstep(zf);
-    let n000 = lattice_value(xi, yi, zi, seed);
-    let n100 = lattice_value(xi + 1, yi, zi, seed);
-    let n010 = lattice_value(xi, yi + 1, zi, seed);
-    let n110 = lattice_value(xi + 1, yi + 1, zi, seed);
-    let n001 = lattice_value(xi, yi, zi + 1, seed);
-    let n101 = lattice_value(xi + 1, yi, zi + 1, seed);
-    let n011 = lattice_value(xi, yi + 1, zi + 1, seed);
-    let n111 = lattice_value(xi + 1, yi + 1, zi + 1, seed);
-    let nx00 = n000 * (1.0 - u) + n100 * u;
-    let nx10 = n010 * (1.0 - u) + n110 * u;
-    let nx01 = n001 * (1.0 - u) + n101 * u;
-    let nx11 = n011 * (1.0 - u) + n111 * u;
-    let ny0 = nx00 * (1.0 - v) + nx10 * v;
-    let ny1 = nx01 * (1.0 - v) + nx11 * v;
-    ny0 * (1.0 - w) + ny1 * w
 }
 
 fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
