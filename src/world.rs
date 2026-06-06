@@ -831,7 +831,10 @@ fn render_tile_cached(world: &World, x: i32, y: i32, tick: u64) -> (char, Style)
         0
     };
     let key_full = get_full_key(x, y, world.dim) ^ (bucket << 40);
-    let idx = get_cache_index(key_full);
+    // GLYPH_CACHE is sized at CACHE_SIZE (1<<17). get_cache_index masks to
+    // GET_CACHE_SIZE (1<<22) — use cache_index instead, which masks to
+    // CACHE_SIZE. Both functions mix the key the same way.
+    let idx = cache_index(key_full);
     let gen_now =
         (GET_GEN.load(std::sync::atomic::Ordering::Relaxed) & 0xFFFF_FFFF) as u32;
     let cached: Option<(char, Style)> = GLYPH_CACHE.with(|c| {
