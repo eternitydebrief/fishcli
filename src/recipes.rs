@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Cooking recipes. JSON-driven (assets/recipes.json) so dish names,
 //! ingredient mixes, and stat effects can be rewritten without touching
 //! source. The effect string reuses the buffs format from `buffs.rs`

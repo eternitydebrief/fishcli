@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Forgeable equipment: boots (feet), necklaces (neck), rings (ring), and
 //! capes (cape). Cape is achievement-only; the other three come out of the
 //! blacksmith's forge. Each slot holds an optional gear-id string that
