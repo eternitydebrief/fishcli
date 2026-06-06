@@ -732,8 +732,22 @@ impl<'a> Widget for WorldView<'a> {
                 // Bug overlay: deterministic per-day spawn on host-eligible
                 // tiles. The bug sits on top of the natural tile glyph so
                 // the player sees a `,` / `*` / `v` etc dotted across the
-                // biome.
-                if crate::bugs::tile_hosts_bugs(tile)
+                // biome. Suppressed within a 1-cell halo around any tree
+                // cell so bugs don't visually crawl through the canopy
+                // edge or stick to a trunk's shoulder.
+                let tree_adjacent = (-1..=1).any(|dx: i32| {
+                    (-1..=1).any(|dy: i32| {
+                        if dx == 0 && dy == 0 {
+                            return false;
+                        }
+                        matches!(
+                            self.world.get_cached(wx + dx, wy + dy),
+                            Tile::TreeTrunk | Tile::TreeCanopy
+                        )
+                    })
+                });
+                if !tree_adjacent
+                    && crate::bugs::tile_hosts_bugs(tile)
                     && !self.bugs_picked.iter().any(|&(px, py)| px == wx && py == wy)
                 {
                     let _s = crate::perf::AddScope::new(&crate::perf::WORLD_BUG_NS);
@@ -829,10 +843,11 @@ pub fn bump_world_get_gen() {
 }
 
 /// How many animation ticks share a single cached glyph. Higher = more
-/// cache hits on water/grass at the cost of choppier animation. 2 keeps
-/// the shimmer feeling smooth at 20fps (≈10fps effective anim) while
-/// halving the per-frame glyph compute for animated cells.
-const ANIM_TICK_BUCKET: u64 = 2;
+/// cache hits on water/grass at the cost of choppier animation. 4 ≈ 5
+/// effective fps at 20fps tick — still reads as a flowing shimmer for
+/// the eye but cuts the per-frame water-anim compute by 75%, which is
+/// the difference between buttery and laggy on huge ocean views.
+const ANIM_TICK_BUCKET: u64 = 4;
 
 /// Cached path for the per-cell glyph + style. Static tiles (walls,
 /// paths, doors, trees, rocks, ...) use a (x, y, dim, gen) key so they
@@ -2611,6 +2626,12 @@ fn river_width_at(x: i32, rh: u32, base: f32) -> f32 {
 }
 
 pub fn river_at(x: i32, y: i32, seed: u32) -> Option<RiverHit> {
+    // Rivers only flow on land. Ocean starts at y >= 5 (matches the lake
+    // generator's gate); anything south of that is sea and should not
+    // get clipped by a river channel running through it.
+    if y >= 5 {
+        return None;
+    }
     let band = y.div_euclid(RIVER_BAND_H);
     // A spine band can host a single map-spanning monster river. Spine
     // bands are sparser (1 in 11) and use a wider candidate search so
@@ -2702,24 +2723,76 @@ pub fn river_at(x: i32, y: i32, seed: u32) -> Option<RiverHit> {
 const BRIDGE_SPACING: i32 = 80;
 
 /// Glyph for a river cell flowing in `dir`. Cycles a short marquee of
-/// "current" chars along the dominant axis so the water visibly slides
-/// downstream as `tick` advances.
+/// Glyph for a river cell flowing in `dir`. Models the surface as a
+/// shallow wave field carried downstream by the local tangent.
+///
+///   wave = sin(arc_length * 0.32 - tick * 0.06 + perp_offset * 0.20)
+///
+/// `arc_length` is the projection of the cell onto the flow direction,
+/// so the wave crests visibly slide along the channel — when the river
+/// bends, the wave bends with it because `dir` is the local tangent.
+/// The `perp_offset` term shifts the phase across the channel width,
+/// producing the slow side-to-side swirl real rivers have.
+///
+/// Glyph palette is picked first by the tangent's lean (horizontal /
+/// diagonal / vertical) and then by the wave amplitude (thin trough vs
+/// fat crest), so the visual reads as "water surface, currently bending
+/// here, currently bulging here" rather than a marching marquee.
 pub fn river_flow_glyph(dir: (f32, f32), x: i32, y: i32, tick: u64) -> char {
-    let horizontal = dir.0.abs() >= dir.1.abs();
-    // Phase tied to tick + the projected position along the flow axis
-    // — points further downstream lag those upstream, producing the
-    // wave-marching effect.
-    let phase = if horizontal {
-        (x as i64 - (tick as i64) * dir.0.signum() as i64).rem_euclid(4)
+    let fx = x as f32;
+    let fy = y as f32;
+    // Arc-length along the tangent. Cells further downstream get higher
+    // values, so a wave at arc s moves toward higher s as tick grows.
+    let arc = fx * dir.0 + fy * dir.1;
+    // Perpendicular offset across the channel (left/right side of bed).
+    // Adds an across-channel phase shift so a ripple visible on one side
+    // sits half a wavelength behind the same ripple on the other side.
+    let perp = -fy * dir.0 + fx * dir.1;
+    let wave = (arc * 0.32 - tick as f32 * 0.06 + perp * 0.20).sin();
+    let amp = wave.abs(); // 0..=1 — high = crest/trough, low = level
+    // Decide flow leaning. Use the tangent direction.
+    let horizontal = dir.0.abs() > 2.0 * dir.1.abs();
+    let vertical = dir.1.abs() > 2.0 * dir.0.abs();
+    if horizontal {
+        // east-flowing reach: choose flat/wavy/swell by amplitude
+        if amp > 0.85 {
+            if wave > 0.0 { '≈' } else { '~' }
+        } else if amp > 0.50 {
+            '~'
+        } else if amp > 0.20 {
+            '-'
+        } else {
+            '─'
+        }
+    } else if vertical {
+        if amp > 0.85 {
+            '╎'
+        } else if amp > 0.50 {
+            '¦'
+        } else if amp > 0.20 {
+            '|'
+        } else {
+            '│'
+        }
+    } else if dir.0 * dir.1 > 0.0 {
+        // SE / NW diagonal
+        if amp > 0.80 {
+            '╲'
+        } else if amp > 0.40 {
+            '\\'
+        } else {
+            '~'
+        }
     } else {
-        (y as i64 - (tick as i64) * dir.1.signum() as i64).rem_euclid(4)
-    } as usize;
-    let frames = if horizontal {
-        ['~', '≈', '-', '─']
-    } else {
-        ['|', '¦', '╎', '│']
-    };
-    frames[phase]
+        // NE / SW diagonal
+        if amp > 0.80 {
+            '╱'
+        } else if amp > 0.40 {
+            '/'
+        } else {
+            '~'
+        }
+    }
 }
 
 pub fn bridge_at(x: i32, y: i32, seed: u32) -> bool {
@@ -4865,61 +4938,36 @@ fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
     let t = tick as f32 * 0.012;
     let fx = x as f32;
     let fy = y as f32;
-    // HEAVY two-pass 2D domain warp — amplitudes ~5 (was 1.5) are now
-    // comparable to a full wavelength (~14 cells), so the warp can fully
-    // bend a contour by more than half its own period and rotate the
-    // local "orientation" of blobs randomly across the plane. Without
-    // this big a warp the underlying sine direction vectors leaked
-    // through as diagonal ridges.
-    let q_x = (fx * 0.13 + fy * 0.19 + t * 0.83).sin() * 5.0;
-    let q_y = (fx * 0.17 - fy * 0.11 + t * 0.71).sin() * 4.0;
-    let r_x = (q_y * 0.40 + t * 0.60).sin() * 3.0;
-    let r_y = (q_x * 0.40 - t * 0.70).sin() * 3.0;
-    let wx = fx + q_x + r_x;
-    let wy = fy + q_y + r_y;
-    // Each height layer breathes and wanders independently so blobs grow,
-    // shrink, drift, and merge.
-    let d1x = (t * 0.31).sin() * 5.0;
-    let d1y = (t * 0.43).cos() * 3.5;
-    let d2x = (t * 0.27).cos() * 4.0;
-    let d2y = (t * 0.36).sin() * 5.5;
-    let d3x = (t * 0.19 + 1.7).sin() * 6.0;
-    let d3y = (t * 0.23 + 0.9).cos() * 4.5;
-    let d4x = (t * 0.51).cos() * 2.5;
-    let d4y = (t * 0.47).sin() * 3.0;
-    let amp1 = 0.50 + 0.30 * (t * 0.21).sin();
-    let amp2 = 0.45 + 0.25 * (t * 0.29 + 1.3).sin();
-    let amp3 = 0.35 + 0.20 * (t * 0.17 + 0.6).cos();
-    let amp4 = 0.25 + 0.15 * (t * 0.37 + 2.1).sin();
-    let w1 = ((wx + d1x) * 0.43 + (wy + d1y) * 0.17 + t * 0.95).sin() * amp1;
-    let w2 = ((wx + d2x) * 0.13 + (wy + d2y) * 0.61 + t * 0.78).sin() * amp2;
-    let w3 = ((wx + d3x) * 0.27 - (wy + d3y) * 0.31 + t * 1.10).sin() * amp3;
-    let w4 = ((wx + d4x) * 1.71 + (wy + d4y) * 1.33 + t * 0.42).sin() * amp4;
-    // High-frequency turbulence — short wavelengths chop up any residual
-    // long-wave ridge at the per-cell scale so the eye can't trace a line.
-    let turb1 = (wx * 2.71 + wy * 3.11 + t * 1.60).sin() * 0.15;
-    let turb2 = (wx * 4.29 - wy * 3.73 + t * 1.20).sin() * 0.10;
-    // Value-noise layer (Perlin-style): low-frequency smooth blobs with
-    // no axis bias, interpolated over time so they morph continuously.
-    let n_slow = value_noise_3d(fx * 0.13, fy * 0.13, t * 0.30, 0xC0FF_EE_01) * 0.45;
-    let n_med = value_noise_3d(fx * 0.31, fy * 0.31, t * 0.55, 0xC0FF_EE_02) * 0.25;
+    // Single-pass domain warp — enough to bend ridges so they don't read
+    // as diagonal stripes, way cheaper than the prior two-pass version.
+    let q_x = (fx * 0.13 + fy * 0.19 + t * 0.83).sin() * 4.0;
+    let q_y = (fx * 0.17 - fy * 0.11 + t * 0.71).sin() * 3.5;
+    let wx = fx + q_x;
+    let wy = fy + q_y;
+    // Two breathing height layers (down from four) carry most of the
+    // visual variety. Slower temporal frequency reads as a calmer ocean.
+    let amp1 = 0.55 + 0.25 * (t * 0.21).sin();
+    let amp2 = 0.40 + 0.20 * (t * 0.29 + 1.3).sin();
+    let w1 = (wx * 0.43 + wy * 0.17 + t * 0.95).sin() * amp1;
+    let w2 = (wx * 0.13 + wy * 0.61 + t * 0.78).sin() * amp2;
+    // Cheap per-cell hash jitter takes the place of the per-cell value
+    // noise — same purpose (break long-wave ridges at the pixel scale)
+    // for ~10x the speed.
     let cell_jitter =
-        (hash2(x, y, 0xA11_BABE) as f32 / u32::MAX as f32 - 0.5) * 1.0;
-    let h = w1 + w2 + w3 + w4 + turb1 + turb2 + n_slow + n_med + cell_jitter;
-    let (glyph, base) = if h > 1.6 {
+        (hash2(x, y, 0xA11_BABE) as f32 / u32::MAX as f32 - 0.5) * 0.9;
+    let h = w1 + w2 + cell_jitter;
+    let (glyph, base) = if h > 1.1 {
         ('~', (110, 135, 155))
-    } else if h > 0.8 {
+    } else if h > 0.5 {
         ('~', (85, 110, 135))
-    } else if h > 0.2 {
+    } else if h > -0.1 {
         ('-', (70, 90, 115))
-    } else if h > -0.4 {
+    } else if h > -0.7 {
         ('-', (60, 80, 105))
-    } else if h > -1.0 {
+    } else if h > -1.2 {
         ('.', (50, 70, 95))
-    } else if h > -1.6 {
-        (',', (40, 60, 85))
     } else {
-        ('`', (30, 50, 75))
+        (',', (40, 60, 85))
     };
     (
         glyph,
