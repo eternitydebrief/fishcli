@@ -1000,6 +1000,9 @@ impl World {
         if let Some(t) = procedural_village_tile(x, y, self.seed) {
             return t;
         }
+        if bridge_at(x, y, self.seed) {
+            return Tile::Dock;
+        }
         if y >= 6 {
             return Tile::Water;
         }
@@ -1323,6 +1326,13 @@ impl World {
                 // alive here" rather than a foreign overlay.
                 if let Some((_, _, dx, dy)) = hotspot_at(x, y, self.seed) {
                     glyph.0 = hotspot_glyph(dx, dy, tick);
+                }
+                // River cells get a flowing-glyph override that points
+                // downstream and moves with the tick. The base water
+                // animation stays underneath so the glyph color is the
+                // matching water blue.
+                if let Some(hit) = river_at(x, y, self.seed) {
+                    glyph.0 = river_flow_glyph(hit.dir, x, y, tick);
                 }
                 // Surface ocean: bg darkens with distance from shore and
                 // flips foggy past FOG_DEPTH for the endgame "Fog Sea".
@@ -2520,9 +2530,141 @@ fn lake_collides_with_village(ax: i32, ay: i32, rx: i32, ry: i32, seed: u32) -> 
     false
 }
 
+// ---- rivers -----------------------------------------------------------
+//
+// Rivers are horizontal noise-warped channels stamped across the world.
+// A few exist per seed (the world might have zero or three) and each one
+// spans most of the playable x range, snaking via perlin. Width varies
+// from thin (1 cell) to hugely thick (~20+) along the channel; cells
+// inside the channel render as Water with a flowing-glyph animation
+// derived from the local tangent direction.
+
+const RIVER_BAND_H: i32 = 60;
+
+/// True when (x, y) sits inside any procedural river. Cheap on misses
+/// (only checks a few hash-gated candidate bands above and below the
+/// cell). The Option payload carries the flow tangent and the cell's
+/// normalized distance to the riverbed centre, so the renderer can pick
+/// a glyph that points downstream.
+pub struct RiverHit {
+    /// Flow direction unit vector — usually east-ish but the local
+    /// tangent waves with the perlin curve.
+    pub dir: (f32, f32),
+    /// 0.0 at the centre of the channel, 1.0 right at the bank.
+    pub edge_t: f32,
+    /// True when the channel is wide enough here that a bridge can plant
+    /// on it. The bridge gate also hashes against the world seed so the
+    /// crossings are rare.
+    pub wide_bed: bool,
+}
+
+fn river_center_y(x: i32, base_y: f32, rh: u32, amp: f32, freq: f32) -> f32 {
+    base_y + value_noise_fractal(x, 0, rh, freq, 3) * amp
+}
+
+fn river_width_at(x: i32, rh: u32, base: f32) -> f32 {
+    // Width is base ± a slow perlin sweep so thin sections and fat ones
+    // alternate gradually instead of cell-by-cell. base ∈ [3, 20].
+    let n = value_noise_fractal(x, 0, rh ^ 0xC0FF_EE0A, 0.012, 3);
+    (base + n * 8.0).max(1.0)
+}
+
+pub fn river_at(x: i32, y: i32, seed: u32) -> Option<RiverHit> {
+    let band = y.div_euclid(RIVER_BAND_H);
+    for db in -1..=1 {
+        let h = hash2(band + db, 0, seed.wrapping_add(0x812E_7100));
+        // Roughly 1 in 6 bands hosts a river — so the world might have
+        // zero, one, or several.
+        if h % 6 != 0 {
+            continue;
+        }
+        let base_y = (band + db) * RIVER_BAND_H + ((h >> 4) as i32).rem_euclid(RIVER_BAND_H);
+        // amplitude (how much the river snakes) and frequency (how fast
+        // it snakes) both vary per river so two on the same map look
+        // different.
+        let amp = 14.0 + ((h >> 12) & 0x1F) as f32;
+        let freq = 0.005 + ((h >> 17) & 0xF) as f32 * 0.0005;
+        let base_w = 3.0 + ((h >> 22) & 0xF) as f32;
+        let center_y = river_center_y(x, base_y as f32, h, amp, freq);
+        let width = river_width_at(x, h, base_w);
+        let dist = (y as f32 - center_y).abs();
+        if dist > width {
+            continue;
+        }
+        // Tangent from a finite-difference of the centerline.
+        // Rivers don't cut through villages — a hit landing inside the
+        // home village or any procedural village footprint resolves as
+        // dry land. Pay the lookup only on a hit, not on every miss.
+        if in_village_zone(x, y) || village_anchor_for(x, y, seed).is_some() {
+            return None;
+        }
+        let center_y_next = river_center_y(x + 1, base_y as f32, h, amp, freq);
+        let dy_dx = center_y_next - center_y;
+        let len = (1.0 + dy_dx * dy_dx).sqrt();
+        return Some(RiverHit {
+            dir: (1.0 / len, dy_dx / len),
+            edge_t: (dist / width).min(1.0),
+            wide_bed: width >= 6.0,
+        });
+    }
+    None
+}
+
+/// True at a cell that should render as a bridge crossing this river.
+/// Bridges are deterministic and rare — every BRIDGE_SPACING cells of x,
+/// gated by a per-river-per-x hash. Only fires where the river is wide
+/// enough to need one.
+const BRIDGE_SPACING: i32 = 80;
+
+/// Glyph for a river cell flowing in `dir`. Cycles a short marquee of
+/// "current" chars along the dominant axis so the water visibly slides
+/// downstream as `tick` advances.
+pub fn river_flow_glyph(dir: (f32, f32), x: i32, y: i32, tick: u64) -> char {
+    let horizontal = dir.0.abs() >= dir.1.abs();
+    // Phase tied to tick + the projected position along the flow axis
+    // — points further downstream lag those upstream, producing the
+    // wave-marching effect.
+    let phase = if horizontal {
+        (x as i64 - (tick as i64) * dir.0.signum() as i64).rem_euclid(4)
+    } else {
+        (y as i64 - (tick as i64) * dir.1.signum() as i64).rem_euclid(4)
+    } as usize;
+    let frames = if horizontal {
+        ['~', '≈', '-', '─']
+    } else {
+        ['|', '¦', '╎', '│']
+    };
+    frames[phase]
+}
+
+pub fn bridge_at(x: i32, y: i32, seed: u32) -> bool {
+    let Some(r) = river_at(x, y, seed) else {
+        return false;
+    };
+    if !r.wide_bed {
+        return false;
+    }
+    let nearest = ((x as f32 / BRIDGE_SPACING as f32).round() as i32) * BRIDGE_SPACING;
+    if (x - nearest).abs() > 1 {
+        return false;
+    }
+    let h = hash2(
+        nearest,
+        y.div_euclid(RIVER_BAND_H),
+        seed.wrapping_add(0xB21D_6E50),
+    );
+    h % 3 == 0
+}
+
 fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
     let mut info = CellWaterInfo::default();
     if in_village_zone(x, y) {
+        return info;
+    }
+    // River check first — rivers can span the whole world and aren't
+    // bounded by the lake's `y >= 5` cap.
+    if river_at(x, y, seed).is_some() {
+        info.in_water = true;
         return info;
     }
     if y >= 5 {
