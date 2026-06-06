@@ -6313,8 +6313,33 @@ impl App {
         let name = crate::bait::def_by_id(&full_id)
             .map(|d| d.name.clone())
             .unwrap_or_else(|| bait_id.to_string());
-        self.narrator
-            .say(format!("You {} and find a {name}.", action.verb()));
+        // Tree-related forage actions drop 2-5 wood as a side yield so
+        // hull progression isn't bottlenecked on `:chop`. Roll once per
+        // forage; wood goes into the same stack as chopped trees.
+        let wood = match action {
+            crate::forage::ForageAction::SearchTrunk => {
+                2 + (crate::fish::next_rand_f32(&mut self.rng_state) * 3.0) as u32
+            }
+            crate::forage::ForageAction::SearchLeaves => {
+                1 + (crate::fish::next_rand_f32(&mut self.rng_state) * 2.0) as u32
+            }
+            crate::forage::ForageAction::SearchRoots => {
+                2 + (crate::fish::next_rand_f32(&mut self.rng_state) * 3.0) as u32
+            }
+            _ => 0,
+        };
+        if wood > 0 {
+            self.player.wood = self.player.wood.saturating_add(wood);
+        }
+        if wood > 0 {
+            self.narrator.say(format!(
+                "You {} and find a {name}. (+{wood} wood)",
+                action.verb()
+            ));
+        } else {
+            self.narrator
+                .say(format!("You {} and find a {name}.", action.verb()));
+        }
         // Forage counts as a bug catch in the mastery vec if the underlying
         // entry is a bug — keeps the bug-50/bug-500 landmark capes reachable
         // from foraging alone.
