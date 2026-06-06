@@ -6265,6 +6265,7 @@ impl App {
                     },
                     inner,
                 );
+                crate::perf::flush_world_atomics();
                 if let Some(c) = &self.cast {
                     render_cast_overlay(
                         frame,

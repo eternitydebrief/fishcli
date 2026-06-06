@@ -98,7 +98,10 @@ fn cached_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
         if slot.key == key {
             return slot.info;
         }
-        let info = compute_water_info(x, y, seed);
+        let info = {
+            let _s = crate::perf::AddScope::new(&crate::perf::WORLD_WATER_INFO_NS);
+            compute_water_info(x, y, seed)
+        };
         c[idx] = WaterSlot { key, info };
         info
     })
@@ -593,6 +596,7 @@ impl<'a> Widget for WorldView<'a> {
         let computed: Vec<(char, Style)> = (0..n)
             .into_par_iter()
             .map(|i| {
+                let _cell = crate::perf::AddScope::new(&crate::perf::WORLD_CELL_NS);
                 let sx = (i % area_w) as i32;
                 let sy = (i / area_w) as i32;
                 if sx == half_w && sy == half_h {
@@ -623,13 +627,16 @@ impl<'a> Widget for WorldView<'a> {
                 }
                 // NPCs are per-dim now (atlantean citizens, crypt ghouls,
                 // infernal imps each live only in their own dim).
-                if let Some(npc) = crate::npc::npc_at_dim(wx, wy, self.world.dim, self.world.seed) {
-                    return (
-                        npc.render_char(),
-                        Style::default()
-                            .fg(npc.render_color())
-                            .add_modifier(Modifier::BOLD),
-                    );
+                {
+                    let _s = crate::perf::AddScope::new(&crate::perf::WORLD_NPC_NS);
+                    if let Some(npc) = crate::npc::npc_at_dim(wx, wy, self.world.dim, self.world.seed) {
+                        return (
+                            npc.render_char(),
+                            Style::default()
+                                .fg(npc.render_color())
+                                .add_modifier(Modifier::BOLD),
+                        );
+                    }
                 }
                 if self.faceless.iter().any(|&(fx, fy)| fx == wx && fy == wy) {
                     return (
@@ -639,14 +646,18 @@ impl<'a> Widget for WorldView<'a> {
                             .add_modifier(Modifier::BOLD),
                     );
                 }
+                let tile = {
+                    let _s = crate::perf::AddScope::new(&crate::perf::WORLD_TILE_GET_NS);
+                    self.world.get(wx, wy)
+                };
                 // Bug overlay: deterministic per-day spawn on host-eligible
                 // tiles. The bug sits on top of the natural tile glyph so
                 // the player sees a `,` / `*` / `v` etc dotted across the
                 // biome.
-                let tile = self.world.get(wx, wy);
                 if crate::bugs::tile_hosts_bugs(tile)
                     && !self.bugs_picked.iter().any(|&(px, py)| px == wx && py == wy)
                 {
+                    let _s = crate::perf::AddScope::new(&crate::perf::WORLD_BUG_NS);
                     let biome = self.world.biome(wx, wy);
                     if let Some(bug) = crate::bugs::bug_at(
                         wx,
@@ -668,6 +679,7 @@ impl<'a> Widget for WorldView<'a> {
                 if crate::bugs::tile_hosts_soil(tile)
                     && !self.soil_dug.iter().any(|&(px, py)| px == wx && py == wy)
                 {
+                    let _s = crate::perf::AddScope::new(&crate::perf::WORLD_SOIL_NS);
                     let biome = self.world.biome(wx, wy);
                     if crate::bugs::soil_at(wx, wy, self.world.dim, biome, self.world.seed) {
                         return (
@@ -678,6 +690,7 @@ impl<'a> Widget for WorldView<'a> {
                         );
                     }
                 }
+                let _s = crate::perf::AddScope::new(&crate::perf::WORLD_RENDER_TILE_NS);
                 self.world.render_tile(wx, wy, self.tick)
             })
             .collect();
@@ -1087,10 +1100,14 @@ impl World {
                     .add_modifier(Modifier::BOLD),
             ),
             Tile::Dock => ('=', Style::default().fg(Color::LightYellow)),
-            Tile::Grass => grass_anim(x, y, tick, cached_biome_at(x, y, self.seed)),
+            Tile::Grass => {
+                let _s = crate::perf::AddScope::new(&crate::perf::WORLD_GRASS_ANIM_NS);
+                grass_anim(x, y, tick, cached_biome_at(x, y, self.seed))
+            }
             Tile::Water => {
                 // Specialty dims override the standard ocean blue with a
                 // themed tint so each one reads at a glance.
+                let _s = crate::perf::AddScope::new(&crate::perf::WORLD_WATER_ANIM_NS);
                 let glyph = match self.dim {
                     Dimension::Sewer => sewer_water_glyph(x, y, tick),
                     Dimension::SwampCave => swamp_water_glyph(x, y, tick),
@@ -1137,6 +1154,7 @@ impl World {
                 }
             }
             Tile::TreeTrunk | Tile::TreeCanopy => {
+                let _s = crate::perf::AddScope::new(&crate::perf::WORLD_TREE_RENDER_NS);
                 let base = if let Some(g) = village_oak_glyph(x, y) {
                     g
                 } else {
