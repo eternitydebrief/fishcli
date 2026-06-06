@@ -89,7 +89,11 @@ impl Fishing {
         extra_speed_pct: f32,
     ) -> Self {
         let bar_h = 20usize;
-        let rect_h = (fish.rect_h() + tree.rect_h_bonus()).min(bar_h as f32 - 1.0);
+        // Hard ceiling: a player rectangle wider than 5 pixels trivialises
+        // the minigame regardless of fish difficulty or skill investment.
+        let rect_h = (fish.rect_h() + tree.rect_h_bonus())
+            .min(5.0)
+            .min(bar_h as f32 - 1.0);
         // Player rectangle starts at the very bottom of the bar — the
         // player has to actively reel up to track whatever the fish
         // does. Catch progress starts at 25% so there's a small buffer
@@ -278,7 +282,7 @@ impl Fishing {
         }
         self.rect_vy *= damping;
         self.rect_y += self.rect_vy;
-        let effective_rect_h = self.rect_h + self.rl_rect_h_bonus;
+        let effective_rect_h = (self.rect_h + self.rl_rect_h_bonus).min(5.0);
         let max_top = (self.bar_h as f32) - effective_rect_h;
         if self.rect_y < 0.0 {
             self.rect_y = 0.0;
