@@ -372,6 +372,8 @@ pub struct App {
     /// Per-axis token spend. Read via `scales_bonus(axis)` and applied
     /// additively in the appropriate stat path.
     pub scales_spent: std::collections::BTreeMap<String, u32>,
+    /// Times the player has prestiged. +5% global xp_mult per stack.
+    pub prestige_count: u32,
     /// Tree anchor coords for the in-progress chopping minigame. Consumed
     /// (and cleared) on chop completion to mark exactly one tree as cut.
     pub pending_chop_anchor: Option<(i32, i32)>,
@@ -561,6 +563,7 @@ impl App {
             soil_dug_today: std::collections::HashSet::new(),
             scales: 0,
             scales_spent: std::collections::BTreeMap::new(),
+            prestige_count: 0,
             pending_chop_anchor: None,
             recipe_discovered: vec![false; crate::recipes::recipes().len()],
             discovery_queue: std::collections::VecDeque::new(),
@@ -798,6 +801,7 @@ impl App {
         }
         self.scales = data.scales;
         self.scales_spent = data.scales_spent.clone();
+        self.prestige_count = data.prestige_count;
         if !data.mastery.is_empty() {
             let n = self.mastery.len();
             for (i, &v) in data.mastery.iter().enumerate().take(n) {
@@ -988,6 +992,7 @@ impl App {
             soil_dug: self.soil_dug_today.iter().copied().collect(),
             scales: self.scales,
             scales_spent: self.scales_spent.clone(),
+            prestige_count: self.prestige_count,
         }
     }
 
@@ -995,6 +1000,46 @@ impl App {
     /// stamina (difficulty * 5), and grant a small permanent buff scaled
     /// to the species's difficulty. Unique fish (Fish, Five Elders) can't
     /// be cooked.
+    /// Prestige: requires ≥95% fishdex completion across non-unique non-joke
+    /// species. On commit, resets skill-tree allocations and bumps the
+    /// prestige counter (each stack grants +5% global xp_mult, applied in
+    /// `prestige_xp_mult`).
+    fn do_prestige(&mut self) {
+        let total = fishlist::fish()
+            .iter()
+            .filter(|f| !f.unique && !f.joke)
+            .count() as u32;
+        let caught: u32 = fishlist::fish()
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| !f.unique && !f.joke)
+            .filter(|(i, _)| self.caught.get(*i).copied().unwrap_or(false))
+            .count() as u32;
+        if total == 0 {
+            self.narrator.say("No fish defined.".to_string());
+            return;
+        }
+        let pct = (caught as f32) / (total as f32);
+        if pct < 0.95 {
+            self.narrator.say(format!(
+                "Prestige requires 95% fishdex: {caught}/{total} ({:.0}%).",
+                pct * 100.0
+            ));
+            return;
+        }
+        self.skill_tree = crate::skill_tree::SkillTree::default();
+        self.prestige_count = self.prestige_count.saturating_add(1);
+        self.narrator.say(format!(
+            "*** PRESTIGE {}. Skill tree reset; +5% global xp permanent. ***",
+            self.prestige_count
+        ));
+    }
+
+    /// Permanent global xp mult from prestige stacks. +5% per stack.
+    pub fn prestige_xp_mult(&self) -> f32 {
+        1.0 + (self.prestige_count as f32) * 0.05
+    }
+
     /// Craft a lure at the bait bench. Consumes inputs + valu, writes the
     /// output bait id to the player's stock. Refuses gracefully if any
     /// input is short or the player can't afford the valu cost.
@@ -3636,6 +3681,9 @@ impl App {
                 self.scene = Scene::Scales { cursor: 0 };
                 self.mode = Mode::Insert;
             }
+            "prestige" => {
+                self.do_prestige();
+            }
             cmd if cmd.starts_with("cook ") || cmd == "cook" => {
                 let name = cmd.strip_prefix("cook").unwrap_or("").trim();
                 if name.is_empty() {
@@ -4171,12 +4219,14 @@ impl App {
                     };
                     let dim_bonus = self.dim_bonus_mult();
                     let scales_xp = 1.0 + self.scales_bonus("xp_mult");
+                    let prestige_xp = self.prestige_xp_mult();
                     let gained = ((base_xp as f32)
                         * self.skill_tree.global_xp_mult()
                         * tackle_xp
                         * bait_xp
                         * dim_bonus
-                        * scales_xp) as u64;
+                        * scales_xp
+                        * prestige_xp) as u64;
                     let gained = gained.max(1);
                     // Bait valu_mult: pay a one-time bonus equal to the fish's
                     // sell price * magnitude, right now (so the player doesn't

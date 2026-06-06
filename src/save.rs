@@ -200,6 +200,10 @@ pub struct SaveData {
     /// xp_mult / bite_speed).
     #[serde(default)]
     pub scales_spent: std::collections::BTreeMap<String, u32>,
+    /// Times the player has prestiged. Each prestige resets the skill
+    /// tree allocations and grants a permanent +5% global xp_mult.
+    #[serde(default)]
+    pub prestige_count: u32,
 }
 
 fn default_stamina() -> f32 {
