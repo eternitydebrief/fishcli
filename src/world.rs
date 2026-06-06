@@ -3908,15 +3908,20 @@ fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
     let t = tick as f32 * 0.012;
     let fx = x as f32;
     let fy = y as f32;
-    // Two-pass domain warp: every warp input mixes BOTH axes so the height
-    // field can't bake in row/column banding ("circles on the same y").
-    let q_x = (fx * 0.13 + fy * 0.19 + t * 0.83).sin() * 1.5;
-    let q_y = (fx * 0.17 - fy * 0.11 + t * 0.71).sin() * 1.2;
-    let wx = fx + q_x + (q_y * 0.4 + t * 0.6).sin() * 0.8;
-    let wy = fy + q_y + (q_x * 0.4 - t * 0.7).sin() * 0.8;
-    // Each wave gets its own slow positional drift and a breathing amplitude
-    // so the blobs grow / shrink / wander / merge independently — none of
-    // them lock into a steady-state pattern with another.
+    // HEAVY two-pass 2D domain warp — amplitudes ~5 (was 1.5) are now
+    // comparable to a full wavelength (~14 cells), so the warp can fully
+    // bend a contour by more than half its own period and rotate the
+    // local "orientation" of blobs randomly across the plane. Without
+    // this big a warp the underlying sine direction vectors leaked
+    // through as diagonal ridges.
+    let q_x = (fx * 0.13 + fy * 0.19 + t * 0.83).sin() * 5.0;
+    let q_y = (fx * 0.17 - fy * 0.11 + t * 0.71).sin() * 4.0;
+    let r_x = (q_y * 0.40 + t * 0.60).sin() * 3.0;
+    let r_y = (q_x * 0.40 - t * 0.70).sin() * 3.0;
+    let wx = fx + q_x + r_x;
+    let wy = fy + q_y + r_y;
+    // Each height layer breathes and wanders independently so blobs grow,
+    // shrink, drift, and merge.
     let d1x = (t * 0.31).sin() * 5.0;
     let d1y = (t * 0.43).cos() * 3.5;
     let d2x = (t * 0.27).cos() * 4.0;
@@ -3933,9 +3938,13 @@ fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
     let w2 = ((wx + d2x) * 0.13 + (wy + d2y) * 0.61 + t * 0.78).sin() * amp2;
     let w3 = ((wx + d3x) * 0.27 - (wy + d3y) * 0.31 + t * 1.10).sin() * amp3;
     let w4 = ((wx + d4x) * 1.71 + (wy + d4y) * 1.33 + t * 0.42).sin() * amp4;
+    // High-frequency turbulence — short wavelengths chop up any residual
+    // long-wave ridge at the per-cell scale so the eye can't trace a line.
+    let turb1 = (wx * 2.71 + wy * 3.11 + t * 1.60).sin() * 0.15;
+    let turb2 = (wx * 4.29 - wy * 3.73 + t * 1.20).sin() * 0.10;
     let cell_jitter =
         (hash2(x, y, 0xA11_BABE) as f32 / u32::MAX as f32 - 0.5) * 1.0;
-    let h = w1 + w2 + w3 + w4 + cell_jitter;
+    let h = w1 + w2 + w3 + w4 + turb1 + turb2 + cell_jitter;
     let (glyph, base) = if h > 1.6 {
         ('~', (110, 135, 155))
     } else if h > 0.8 {
