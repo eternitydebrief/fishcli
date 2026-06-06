@@ -2093,6 +2093,12 @@ fn is_tree_anchor(x: i32, y: i32, seed: u32, density: f32) -> bool {
     if y >= 4 || y <= -1000 {
         return false;
     }
+    // Trunk base must stand on solid ground — refuse anchors on cells that
+    // would otherwise be water. The canopy (offset cells) can still extend
+    // over the shore; only the root is restricted.
+    if cached_water_body_at(x, y, seed) {
+        return false;
+    }
     let my_density = tree_density_at(x, y, seed, density);
     if my_density <= 0.0 {
         return false;
@@ -3309,21 +3315,12 @@ fn tree_render(x: i32, y: i32, seed: u32) -> (char, Style) {
     match (sp, part) {
         (TreeSpecies::Round, TreePart::Trunk) => trunk_style(anchor_hash, '|'),
         (TreeSpecies::Round, TreePart::Canopy) => {
-            let dx = x - ax;
-            let g = match dx {
-                -1 => match anchor_hash & 1 {
-                    0 => '(',
-                    _ => 'C',
-                },
-                1 => match anchor_hash & 1 {
-                    0 => ')',
-                    _ => 'O',
-                },
-                _ => match anchor_hash & 1 {
-                    0 => 'O',
-                    _ => '8',
-                },
-            };
+            // Per-cell roll over an extended glyph palette so the same
+            // crown reads as a clump of mixed leaves rather than three
+            // identical letters in a row.
+            const CHARS: &[char] = &['8', '0', 'O', 'C', '(', ')', 'D'];
+            let h = hash2(x, y, anchor_hash);
+            let g = CHARS[(h as usize) % CHARS.len()];
             leaf_style(g, anchor_hash, (90, 145, 80), x, y)
         }
         (TreeSpecies::Pine, TreePart::Trunk) => trunk_style(anchor_hash, 'I'),
