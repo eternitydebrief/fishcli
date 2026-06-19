@@ -141,7 +141,7 @@ impl Boss {
         }
         // Lose an attempt when either meter empties out. The cooldown
         // guarantees one missed bar can't bleed multiple attempts in a
-        // single second — the player has to actually fail again after a
+        // single second · the player has to actually fail again after a
         // 2-second grace before another attempt comes off the stack.
         if self.attempt_cooldown > 0 {
             self.attempt_cooldown -= 1;

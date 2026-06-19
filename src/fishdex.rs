@@ -264,7 +264,7 @@ impl Fishdex {
                         ),
                     ]));
                 }
-                // Sale price intentionally hidden — sell at the fishmonger
+                // Sale price intentionally hidden · sell at the fishmonger
                 // to learn what something is worth.
                 if let Some(eff) = &f.effect {
                     lines.push(Line::from(vec![

@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-//! Fishing School skill tree — data-driven.
+//! Fishing School skill tree · data-driven.
 //!
 //! 75 nodes across 5 trees (Angler / Naturalist / Mariner / Prospector /
 //! Spirit). Each node has 1-5 ranks; investing 1 point in a node unlocks
@@ -112,7 +112,7 @@ impl SkillTree {
     /// and blacksmithing each contribute a smaller channel so a player
     /// invested in side-skills can still complete a tree branch without
     /// grinding fishing exclusively. Encyclopedia is its own scoring
-    /// channel at 2 pts per level — wide-roster discovery rewards.
+    /// channel at 2 pts per level · wide-roster discovery rewards.
     pub fn earned(
         fishing_level: u32,
         achievements_unlocked: u32,
@@ -124,7 +124,7 @@ impl SkillTree {
         blacksmithing_level: u32,
     ) -> u32 {
         // Tapered curve so the tree doesn't self-complete from fishing
-        // alone — players have to pick a build instead of a full sweep.
+        // alone · players have to pick a build instead of a full sweep.
         //   L  1- 30 : 1 per level         (30 pts)
         //   L 31- 60 : 1 per 2 levels      (+15 -> 45 at L60)
         //   L 61-120 : 1 per 3 levels      (+20 -> 65 at L120)
@@ -225,7 +225,7 @@ impl SkillTree {
     }
 
     pub fn inertia_reduce(&self) -> f32 {
-        // legacy node 'legends_t1' contributed 0.20/rank — new tree uses
+        // legacy node 'legends_t1' contributed 0.20/rank · new tree uses
         // a smaller per-rank to avoid runaway robotic control at low ranks.
         (self.sum("inertia_reduce") * 4.0).min(1.0)
     }
@@ -246,7 +246,7 @@ impl SkillTree {
     }
 
     pub fn phantom_pull(&self) -> f32 {
-        // Reserved — no node currently emits this effect.
+        // Reserved · no node currently emits this effect.
         0.0
     }
 
@@ -255,7 +255,7 @@ impl SkillTree {
     }
 
     pub fn tamer_calm_mult(&self) -> f32 {
-        // Reduce fish chaos. Reserved — no node currently emits this.
+        // Reduce fish chaos. Reserved · no node currently emits this.
         1.0
     }
 

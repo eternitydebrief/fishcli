@@ -41,7 +41,7 @@ impl Slot {
 
 /// Per-slot perks. Each field is a multiplier or pct delta that downstream
 /// systems read when computing their numbers. Tier-0/None gear contributes
-/// nothing — `Default` returns the *neutral* perks (mults = 1.0, chances/
+/// nothing · `Default` returns the *neutral* perks (mults = 1.0, chances/
 /// counts = 0) so `combined_perks()` can start from the no-op baseline.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Perks {

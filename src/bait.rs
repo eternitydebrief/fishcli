@@ -33,7 +33,7 @@ pub struct BaitDef {
     /// 1.5 mild, 3.0 strong, 5.0 extreme. 0 = no pull.
     #[serde(default)]
     pub pool_pull_mult: f32,
-    /// Force a specific loot pool for the next cast — bypasses the normal
+    /// Force a specific loot pool for the next cast · bypasses the normal
     /// biome/water filter. Used by ore-as-bait so chipping a ruby out of
     /// the mines and throwing it on a hook drops you into the mineral
     /// variant table where Ruby fish actually live. Empty = no override.
@@ -97,7 +97,7 @@ pub fn defs() -> &'static [BaitDef] {
         // of ruby on the hook in the mines pulls Ruby variant fish at 4x
         // weight (≈ 60-70% of catches given the variant rarities). Pool
         // override forces the picker into the mineral pool so the variants
-        // are eligible at all — they're otherwise gated to The Rod casts.
+        // are eligible at all · they're otherwise gated to The Rod casts.
         for ore in crate::mining::ORES {
             out.push(BaitDef {
                 id: format!("ore:{}", ore.name),

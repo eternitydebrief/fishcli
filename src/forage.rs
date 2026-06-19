@@ -37,11 +37,11 @@ impl ForageAction {
     }
 
     /// Flavor line shown when the player tries to forage a cell that's
-    /// still cooling down. Deliberately vague about timing — the user
+    /// still cooling down. Deliberately vague about timing · the user
     /// should feel that they cleaned the spot out, not consult a clock.
     pub fn empty_line(self) -> &'static str {
         match self {
-            ForageAction::LiftRock => "Already lifted this rock — nothing crawls under it now.",
+            ForageAction::LiftRock => "Already lifted this rock · nothing crawls under it now.",
             ForageAction::PickAtRock => "Picked clean. Try a different stone.",
             ForageAction::PryFromBoulder => "The boulder's good flakes are gone for now.",
             ForageAction::SearchTrunk => "This trunk's hollow is empty for now.",

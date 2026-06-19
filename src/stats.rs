@@ -31,7 +31,7 @@ pub struct Stats {
     pub max_catch_streak: u64,
     /// Lifetime shiny catches across all species. Shinies roll at 1/8192
     /// per successful catch, are purely cosmetic, and grant nothing
-    /// mechanically — the whole point is the dopamine of the roll.
+    /// mechanically · the whole point is the dopamine of the roll.
     #[serde(default)]
     pub shiny_catches: u64,
     /// Lifetime fossilized catches (from the mines). Drives the Fossil
@@ -55,7 +55,7 @@ pub struct Skills {
     pub blacksmithing_xp: u64,
     #[serde(default)]
     pub cooking_xp: u64,
-    /// Encyclopedia xp — accumulated from first-time discoveries (a fish
+    /// Encyclopedia xp · accumulated from first-time discoveries (a fish
     /// you've never caught, a recipe that's just been unlocked). Levels
     /// reward you with skill points like the other lines.
     #[serde(default)]

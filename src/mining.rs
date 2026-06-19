@@ -1,7 +1,7 @@
 //! Mining: ore definitions, per-cell ore lookup, vein cooldown state.
 //!
-//! Each OreRock cell has a *predetermined* ore — derived from a hash of
-//! (x, y, dim, seed) — so the same vein always gives the same ore.
+//! Each OreRock cell has a *predetermined* ore · derived from a hash of
+//! (x, y, dim, seed) · so the same vein always gives the same ore.
 //!
 //! Each vein has 3 charges. After the third successful mine, the vein
 //! enters a 30-minute real-time cooldown. The cooldown is wall-clock
@@ -27,27 +27,27 @@ pub struct OreDef {
     pub min_pickaxe_tier: u32,
     /// Tier of the ingot produced when smelted. Drives recipe-gating in
     /// the forge and the per-ingot sell value (ingot_value = value * 4 +
-    /// 10 — slight markup so smelting is profitable).
+    /// 10 · slight markup so smelting is profitable).
     pub tier: u32,
     /// Number of raw ores fused per ingot in the smelt minigame.
     pub ore_per_ingot: u32,
 }
 
 pub const ORES: &[OreDef] = &[
-    // tier 1 — starter pickaxe can hit these
+    // tier 1 · starter pickaxe can hit these
     OreDef { name: "copper",     value: 60,  color: Color::Rgb(220, 130, 90),  min_pickaxe_tier: 1, tier: 1, ore_per_ingot: 4 },
     OreDef { name: "iron",       value: 80,  color: Color::Rgb(180, 130, 100), min_pickaxe_tier: 1, tier: 1, ore_per_ingot: 4 },
     OreDef { name: "turquoise",  value: 90,  color: Color::Rgb(100, 220, 180), min_pickaxe_tier: 1, tier: 1, ore_per_ingot: 4 },
-    // tier 2 — copper-forged pickaxe
+    // tier 2 · copper-forged pickaxe
     OreDef { name: "silver",     value: 120, color: Color::Rgb(200, 220, 240), min_pickaxe_tier: 2, tier: 2, ore_per_ingot: 4 },
     OreDef { name: "amethyst",   value: 130, color: Color::Rgb(180, 160, 220), min_pickaxe_tier: 2, tier: 2, ore_per_ingot: 4 },
-    // tier 3 — iron-forged pickaxe
+    // tier 3 · iron-forged pickaxe
     OreDef { name: "gold",       value: 200, color: Color::Rgb(230, 200, 90),  min_pickaxe_tier: 3, tier: 3, ore_per_ingot: 4 },
     OreDef { name: "ruby",       value: 220, color: Color::Rgb(240, 100, 100), min_pickaxe_tier: 3, tier: 3, ore_per_ingot: 4 },
-    // tier 4 — silver-forged pickaxe
+    // tier 4 · silver-forged pickaxe
     OreDef { name: "sapphire",   value: 220, color: Color::Rgb(80, 200, 240),  min_pickaxe_tier: 4, tier: 4, ore_per_ingot: 4 },
     OreDef { name: "emerald",    value: 240, color: Color::Rgb(100, 220, 130), min_pickaxe_tier: 4, tier: 4, ore_per_ingot: 4 },
-    // tier 5 — gold-forged pickaxe
+    // tier 5 · gold-forged pickaxe
     OreDef { name: "diamond",    value: 500, color: Color::Rgb(230, 245, 255), min_pickaxe_tier: 5, tier: 5, ore_per_ingot: 4 },
 ];
 
@@ -76,7 +76,7 @@ fn hash3(x: i32, y: i32, dim: u32, seed: u32) -> u32 {
 }
 
 /// Resolve which ore lives at this vein. Pure function of position +
-/// dimension + world seed — the same vein always yields the same ore.
+/// dimension + world seed · the same vein always yields the same ore.
 pub fn ore_at_vein(x: i32, y: i32, dim: Dimension, seed: u32) -> &'static OreDef {
     let h = hash3(x, y, dim as u32, seed);
     // Weighted lookup: commons (copper, iron) most likely; diamond rare.

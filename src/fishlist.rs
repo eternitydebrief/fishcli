@@ -74,7 +74,7 @@ const BASE_SPECIES: &[&str] = &[
     "common carp",
     "rainbow trout",
     "largemouth bass",
-    // Expansion round — popular real-world picks + a couple iconic outliers
+    // Expansion round · popular real-world picks + a couple iconic outliers
     "bluegill",
     "yellow perch",
     "chinook salmon",
@@ -114,7 +114,7 @@ fn generate_variants(base: &[FishDef]) -> Vec<FishDef> {
         for v in VARIANTS {
             let mut f = b.clone();
             // Variant naming: "<base name> (<Variant>)". The base
-            // description is preserved verbatim — the variant is a cosmetic
+            // description is preserved verbatim · the variant is a cosmetic
             // / stat overlay, not a different species, so it shouldn't
             // overwrite the lore the user wrote for the base fish.
             f.name = format!("{} ({})", b.name, v.prefix);

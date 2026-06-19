@@ -63,7 +63,7 @@ pub struct SaveData {
     pub items: Vec<Item>,
     #[serde(default)]
     pub pinned_quest: Option<String>,
-    /// Legacy single-dimension seen-cells (used for save backcompat — old
+    /// Legacy single-dimension seen-cells (used for save backcompat · old
     /// saves only ever explored the Surface). New saves use `seen_by_dim`.
     #[serde(default)]
     pub seen_cells: Vec<(i32, i32)>,
@@ -196,7 +196,7 @@ pub struct SaveData {
     pub soil_dug: Vec<(crate::world::Dimension, i32, i32)>,
     /// Cells whose forageable object (rock, tree, cactus, flower, pebble)
     /// has been searched today. Shares the day rollover.
-    /// Deprecated as of the 30-minute forage cooldown — kept for save
+    /// Deprecated as of the 30-minute forage cooldown · kept for save
     /// backward-compat but no longer written or read by the engine.
     #[serde(default)]
     pub foraged: Vec<(crate::world::Dimension, i32, i32)>,

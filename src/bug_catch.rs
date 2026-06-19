@@ -84,7 +84,7 @@ impl BugCatch {
             self.direction = 1.0;
         }
         if current_tick >= self.deadline_tick {
-            // Timing out consumes the whole bug — no more attempts.
+            // Timing out consumes the whole bug · no more attempts.
             self.result = Some(BugCatchResult::Missed);
         }
     }

@@ -47,7 +47,7 @@ thread_local! {
         } }; CACHE_SIZE]
     );
     /// Per-cell rendered glyph cache. Direct-mapped, keyed by (x, y, dim)
-    /// — only populated for tiles whose render is tick-independent. The
+    /// · only populated for tiles whose render is tick-independent. The
     /// gen counter matches the global GET_GEN so chopping a tree or
     /// changing dims invalidates every stale slot implicitly.
     static GLYPH_CACHE: RefCell<Vec<GlyphSlot>> = RefCell::new(
@@ -321,7 +321,7 @@ fn biome_params(b: Biome) -> BiomeParams {
 
 pub fn biome_at(x: i32, y: i32, seed: u32) -> Biome {
     // Procedural villages always force their own provenance biome over
-    // their footprint — so a desert town is desert throughout, never a
+    // their footprint · so a desert town is desert throughout, never a
     // meadow patch in the middle.
     if let Some(b) = village_biome_override(x, y, seed) {
         return b;
@@ -407,11 +407,11 @@ pub enum Tile {
     Roof,
     DoorRod,
     DoorSchool,
-    /// Plain dwelling door — leads to a procedural one-room interior keyed
+    /// Plain dwelling door · leads to a procedural one-room interior keyed
     /// on the door's world position.
     DoorHouse,
     /// Specialty dim portal (sparse). The destination is recomputed from
-    /// the cell's (x, y, seed) hash at interact time — no extra state.
+    /// the cell's (x, y, seed) hash at interact time · no extra state.
     DimPortal,
     /// Decorative stone arch wrapped around a DimPortal anchor (5w x 4h
     /// gateway). Non-walkable; the player approaches the anchor cell from
@@ -455,39 +455,39 @@ pub enum Tile {
     InfernoWall,
     /// inferno floor (cracked, hot)
     InfernoFloor,
-    /// lava pool — fishable like MineralWater but in the inferno dim
+    /// lava pool · fishable like MineralWater but in the inferno dim
     Lava,
     /// generic landmark wall (Atlantean castle, Crypt, Fallen Fish's keep).
     /// Coloring is dim-specific in render_tile.
     LandmarkWall,
-    /// generic landmark door — walkable, no scene transition.
+    /// generic landmark door · walkable, no scene transition.
     LandmarkDoor,
     /// tombstone (mines crypt)
     Tombstone,
-    /// blacksmith's smelter — non-walkable. `f` opens the smelt minigame.
+    /// blacksmith's smelter · non-walkable. `f` opens the smelt minigame.
     /// Spawned next to every Blacksmith NPC (static + procedural).
     Smelter,
-    /// blacksmith's forge — non-walkable. `f` opens the forge minigame.
+    /// blacksmith's forge · non-walkable. `f` opens the forge minigame.
     /// Spawned next to every Blacksmith NPC (static + procedural).
     Forge,
-    /// the Chef's cooking pot — non-walkable. `f` opens the cookbook menu
+    /// the Chef's cooking pot · non-walkable. `f` opens the cookbook menu
     /// directly so cooking has a discoverable physical home next to the
     /// chef NPC.
     CookingPot,
-    /// Old Angler's bait bench — non-walkable. `f` opens the lure-crafting
+    /// Old Angler's bait bench · non-walkable. `f` opens the lure-crafting
     /// menu so the player can convert bugs / worms / fish into curated
     /// pool-pull lures.
     BaitBench,
     /// Sparse inspectable curio. The specific curio (id + glyph + color)
     /// is derived from `curio_at(x, y, dim, seed)` so the same cell always
-    /// hosts the same object. Non-walkable — players stand adjacent and
+    /// hosts the same object. Non-walkable · players stand adjacent and
     /// use `x` while facing it to read its description. Lore lives in
     /// `assets/inspect.json` under `curio:<id>` keys.
     Curio,
     // --- mountains (surface) ---
-    /// gray rocky mountain body — spiky, blocks movement
+    /// gray rocky mountain body · spiky, blocks movement
     Mountain,
-    /// snow-capped mountain peak — white, blocks movement
+    /// snow-capped mountain peak · white, blocks movement
     MountainSnow,
     /// enterable cave mouth at the base of a mountain (`f` -> MountainCave dim)
     MountainEntrance,
@@ -679,7 +679,7 @@ impl<'a> Widget for WorldView<'a> {
                         }
                     };
                     // When the player is standing on a TreeCanopy cell
-                    // (the leaves or — for village oaks — the back row
+                    // (the leaves or · for village oaks · the back row
                     // of trunk), borrow that tile's foreground so the
                     // arrow blends with what's around it instead of
                     // sticking out as a white smear.
@@ -802,7 +802,7 @@ impl<'a> Widget for WorldView<'a> {
 
 // Global direct-mapped cache for World::get results. Shared across all
 // rayon workers and the pregen thread so a warmed cell is hot for every
-// reader. 2^22 slots × 8 bytes = 32 MB — heavy but explicitly authorised.
+// reader. 2^22 slots × 8 bytes = 32 MB · heavy but explicitly authorised.
 //
 // Slot encoding (u64): [key_low: 32][gen: 24][tile_id+1: 8]. tile_id is
 // the Tile enum's #[repr(u8)] discriminant; we store id+1 so the all-zero
@@ -844,7 +844,7 @@ pub fn bump_world_get_gen() {
 
 /// How many animation ticks share a single cached glyph. Higher = more
 /// cache hits on water/grass at the cost of choppier animation. 8 ≈
-/// 2.5 effective fps at 20fps tick — water is calm enough that this
+/// 2.5 effective fps at 20fps tick · water is calm enough that this
 /// reads as natural slow shimmer, and it cuts the per-frame water-anim
 /// compute by ~88% vs the un-bucketed path.
 const ANIM_TICK_BUCKET: u64 = 8;
@@ -864,7 +864,7 @@ fn render_tile_cached(world: &World, x: i32, y: i32, tick: u64) -> (char, Style)
     };
     let key_full = get_full_key(x, y, world.dim) ^ (bucket << 40);
     // GLYPH_CACHE is sized at CACHE_SIZE (1<<17). get_cache_index masks to
-    // GET_CACHE_SIZE (1<<22) — use cache_index instead, which masks to
+    // GET_CACHE_SIZE (1<<22) · use cache_index instead, which masks to
     // CACHE_SIZE. Both functions mix the key the same way.
     let idx = cache_index(key_full);
     let gen_now =
@@ -1143,7 +1143,7 @@ impl World {
             }
         }
         // Lakebed cave zone: mostly mineral water with the very occasional
-        // stone island. No ores in the water — they only live on wall margins.
+        // stone island. No ores in the water · they only live on wall margins.
         if lakebed_region(x, y, self.seed) {
             let r = hash2(x, y, self.seed.wrapping_add(0x1A4E_BED0)) % 1000;
             if r < 20 {
@@ -1157,7 +1157,7 @@ impl World {
         let open = cave_open_at(x, y, self.seed);
         let r = hash2(x, y, self.seed.wrapping_add(0xCAFE_C0DE)) % 1000;
         if !open {
-            // Ores ONLY on wall cells that touch an open neighbor — i.e.
+            // Ores ONLY on wall cells that touch an open neighbor · i.e.
             // the very borders of wall masses. Walls deep inside a mass
             // never produce ore (and render invisible elsewhere).
             if r < 80 && is_mines_wall_margin(x, y, self.seed) {
@@ -1168,7 +1168,7 @@ impl World {
             }
             return Tile::CaveWall;
         }
-        // Small underground pools — check FIRST so we don't sprinkle
+        // Small underground pools · check FIRST so we don't sprinkle
         // stalagmites and rocks in the water.
         if mineral_pool_at(x, y, self.seed) {
             return Tile::MineralWater;
@@ -1188,14 +1188,14 @@ impl World {
 
     /// Atlantis: the wet plane. Open deep water everywhere, with patches of
     /// seabed, coral structures, and kelp forests. The player can fish from
-    /// any cell — there is no surface here.
+    /// any cell · there is no surface here.
     fn atlantis_get(&self, x: i32, y: i32) -> Tile {
         // The Five Elders' castle anchored at (0, 0)
         if let Some(t) = atlantis_castle_at(x, y) {
             return t;
         }
         let r = hash2(x, y, self.seed.wrapping_add(0x0A71_A715)) % 1000;
-        // Coral "trees" — same 4-cell structure as surface trees, but coral.
+        // Coral "trees" · same 4-cell structure as surface trees, but coral.
         if let Some(part) = coral_at(x, y, self.seed) {
             return part;
         }
@@ -1257,7 +1257,7 @@ impl World {
 
     pub fn render_tile(&self, x: i32, y: i32, tick: u64) -> (char, Style) {
         // In dims with cave-shaped walls, any cell fully buried inside a
-        // wall mass renders as pure black — the player can't see through
+        // wall mass renders as pure black · the player can't see through
         // stone. This catches CaveWall, Stalactite, and anything else the
         // wall-zone procedural noise may have placed there.
         match self.dim {
@@ -1285,7 +1285,7 @@ impl World {
         }
         match self.get(x, y) {
             Tile::Wall => {
-                // Player can't see inside walls — buried wall cells go
+                // Player can't see inside walls · buried wall cells go
                 // pitch-black regardless of dim. Only the outer surface
                 // of any wall mass is rendered.
                 if wall_buried(self, x, y) {
@@ -1686,7 +1686,7 @@ fn cave_floor_glyph(x: i32, y: i32) -> (char, Style) {
         5 => ':',
         _ => ' ',
     };
-    // dark dirt floor — keeps the walls feeling tall
+    // dark dirt floor · keeps the walls feeling tall
     let shade = 30 + (h % 18) as u8;
     (
         g,
@@ -1922,7 +1922,7 @@ fn deep_water_glyph(x: i32, y: i32, tick: u64) -> (char, Style) {
 /// The Five Elders' castle in Atlantis. 16-wide x 9-tall rectangle around
 /// (0, 0). Interior is open seabed. Door at south-center (0, 4).
 fn atlantis_castle_at(x: i32, y: i32) -> Option<Tile> {
-    // Satellite outpost — small fortified ring around 23, 16 (south-east)
+    // Satellite outpost · small fortified ring around 23, 16 (south-east)
     if let Some(t) = small_hut_at(x, y, 21, 14)
         .or_else(|| small_hut_at(x, y, 25, 14))
         .or_else(|| small_hut_at(x, y, 19, 17))
@@ -1985,31 +1985,31 @@ fn atlantis_satellite_city(x: i32, y: i32) -> Option<Tile> {
         huts: &'static [(i32, i32)],
     }
     const CITIES: &[City] = &[
-        // North-east — "the Crested Reef" city
+        // North-east · "the Crested Reef" city
         City {
             cx: 60, cy: -45, thw: 5, thh: 3,
             huts: &[(-12, 4), (-7, 6), (0, 7), (7, 6), (12, 4),
                     (-8, -6), (8, -6), (-3, -8), (3, -8)],
         },
-        // South-west — "the Trench" city, tighter layout
+        // South-west · "the Trench" city, tighter layout
         City {
             cx: -70, cy: 35, thw: 6, thh: 3,
             huts: &[(-13, 5), (-6, 6), (0, 7), (6, 6), (13, 5),
                     (-10, -5), (10, -5)],
         },
-        // South-east — "the Open Pearl" city, larger temple
+        // South-east · "the Open Pearl" city, larger temple
         City {
             cx: 85, cy: 55, thw: 7, thh: 4,
             huts: &[(-14, 6), (-7, 7), (7, 7), (14, 6),
                     (-9, -7), (0, -8), (9, -7)],
         },
-        // North-west — "the Cold Bell" city
+        // North-west · "the Cold Bell" city
         City {
             cx: -55, cy: -55, thw: 4, thh: 3,
             huts: &[(-9, 5), (-3, 6), (3, 6), (9, 5),
                     (-7, -5), (7, -5)],
         },
-        // Far-east outpost — "the Long Drift", just a handful of huts
+        // Far-east outpost · "the Long Drift", just a handful of huts
         City {
             cx: 130, cy: 0, thw: 4, thh: 2,
             huts: &[(-8, 4), (-3, 5), (3, 5), (8, 4),
@@ -2044,7 +2044,7 @@ fn atlantis_satellite_city(x: i32, y: i32) -> Option<Tile> {
 /// The Crypt in the Mines. 11x7 rectangle around (0, 0), interior dotted
 /// with tombstones. Door at south. A smaller secondary crypt sits east.
 fn mines_crypt_at(x: i32, y: i32) -> Option<Tile> {
-    // Second crypt — east of central, smaller (7x5)
+    // Second crypt · east of central, smaller (7x5)
     let sx = x - 22;
     let sy = y;
     if (-3..=3).contains(&sx) && (-2..=2).contains(&sy) {
@@ -2284,13 +2284,13 @@ fn big_rock_at(x: i32, y: i32, seed: u32, density: f32) -> bool {
 enum TreeSpecies {
     /// Single-cell mossy bush, no canopy.
     Bush,
-    /// Compact rounded tree — trunk + 3-cell canopy directly above.
+    /// Compact rounded tree · trunk + 3-cell canopy directly above.
     Round,
     /// Standard 5-cell pine.
     Pine,
-    /// Wide oak — 2-tall trunk-and-canopy footprint, 5-wide top tier.
+    /// Wide oak · 2-tall trunk-and-canopy footprint, 5-wide top tier.
     BigOak,
-    /// Tall pine — adds a fourth canopy row on top of a normal Pine.
+    /// Tall pine · adds a fourth canopy row on top of a normal Pine.
     TallPine,
 }
 
@@ -2413,7 +2413,7 @@ fn is_tree_anchor(x: i32, y: i32, seed: u32, density: f32) -> bool {
     if y >= 4 || y <= -1000 {
         return false;
     }
-    // Trunk base must stand on solid ground — refuse anchors on cells that
+    // Trunk base must stand on solid ground · refuse anchors on cells that
     // would otherwise be water. The canopy (offset cells) can still extend
     // over the shore; only the root is restricted.
     if cached_water_body_at(x, y, seed) {
@@ -2499,7 +2499,7 @@ fn value_noise_2d(x: i32, y: i32, seed: u32, freq: f32) -> f32 {
 }
 
 /// Stacked octaves of value noise. Cheap proxy for fractional Brownian
-/// motion — good enough for landmass contours and river meanders.
+/// motion · good enough for landmass contours and river meanders.
 fn value_noise_fractal(x: i32, y: i32, seed: u32, base_freq: f32, octaves: u32) -> f32 {
     let mut sum = 0.0;
     let mut amp = 1.0;
@@ -2520,7 +2520,7 @@ fn value_noise_fractal(x: i32, y: i32, seed: u32, base_freq: f32, octaves: u32) 
 
 /// True when a candidate water body at (ax, ay) with radius (rx, ry)
 /// overlaps a procedural Town or Hamlet's footprint. Floating villages
-/// (lake villages) are exempt — they're meant to sit on water.
+/// (lake villages) are exempt · they're meant to sit on water.
 fn lake_collides_with_village(ax: i32, ay: i32, rx: i32, ry: i32, seed: u32) -> bool {
     // Check village anchors in the 3x3 grid of PV cells around the lake.
     let cx = ax.div_euclid(PV_CELL_W);
@@ -2622,7 +2622,7 @@ struct RiverParams {
     a2: f32,
     f2: f32,
     p2: f32,
-    /// Slow width sweep — one sine, period ~500 cells.
+    /// Slow width sweep · one sine, period ~500 cells.
     base_w: f32,
     w_amp: f32,
     w_freq: f32,
@@ -2676,7 +2676,7 @@ impl RiverParams {
             + self.a2 * (fx * self.f2 + self.p2).sin()
     }
 
-    /// Exact analytical derivative dy/dx — that's the whole point of
+    /// Exact analytical derivative dy/dx · that's the whole point of
     /// using closed-form sines. No finite difference, no second center_y
     /// evaluation, no extra trig per cell beyond the two cos calls.
     #[inline]
@@ -2700,7 +2700,7 @@ pub fn river_at(x: i32, y: i32, seed: u32) -> Option<RiverHit> {
         return None;
     }
     let band = y.div_euclid(RIVER_BAND_H);
-    // Spine pass — sparse but wide. Scan only 2 bands either side; the
+    // Spine pass · sparse but wide. Scan only 2 bands either side; the
     // base_y can fall up to ±RIVER_BAND_H from its band, so 2 covers
     // anything that could spill into the current row.
     for db in -2..=2 {
@@ -2728,7 +2728,7 @@ pub fn river_at(x: i32, y: i32, seed: u32) -> Option<RiverHit> {
             edge_t: (dist.abs() / w).min(1.0),
         });
     }
-    // Band rivers — thinner, more common.
+    // Band rivers · thinner, more common.
     for db in -1..=1 {
         let h = hash2(band + db, 0, seed.wrapping_add(0x812E_7100));
         if h % 6 != 0 {
@@ -2758,7 +2758,7 @@ pub fn river_at(x: i32, y: i32, seed: u32) -> Option<RiverHit> {
 }
 
 /// True at a cell that should render as a bridge crossing this river.
-/// Bridges are deterministic and rare — every BRIDGE_SPACING cells of x,
+/// Bridges are deterministic and rare · every BRIDGE_SPACING cells of x,
 /// gated by a per-river-per-x hash. Only fires where the river is wide
 /// enough to need one.
 const BRIDGE_SPACING: i32 = 80;
@@ -2775,11 +2775,11 @@ const BRIDGE_SPACING: i32 = 80;
 /// Glyph orientation is picked by `dir`'s lean (horizontal / diagonal /
 /// vertical), and the cell's edge fraction biases toward the smooth
 /// "─ │ ╱ ╲" forms at the centre and the rougher "~ ¦ /" forms near the
-/// bank — so the bed-centre reads as fast smooth current and the banks
+/// bank · so the bed-centre reads as fast smooth current and the banks
 /// read as rougher edge water.
 pub fn river_flow_glyph(dir: (f32, f32), edge_t: f32, x: i32, y: i32, tick: u64) -> char {
     // Glyph selection is driven primarily by a per-cell hash so adjacent
-    // cells never share the same character — that's what was producing
+    // cells never share the same character · that's what was producing
     // the "\\\\\\\\\" and "╲╲╲╲╲╲╲" wallpaper stripes on diagonal reaches.
     // A slow tick-driven crest wave passes through and biases the
     // palette toward heavier glyphs (the actual visible "swell"); the
@@ -2791,7 +2791,7 @@ pub fn river_flow_glyph(dir: (f32, f32), edge_t: f32, x: i32, y: i32, tick: u64)
     let perp = -fy * dir.0 + fx * dir.1;
     let wave = (arc * 0.20 - tick as f32 * 0.05 + perp * 0.12).sin();
     // Stricter crest gate (0.78 vs 0.55) so swells sit at the peak ~10%
-    // of cells instead of ~30% — heavy ≈ / ╲ / ╱ chars then read as
+    // of cells instead of ~30% · heavy ≈ / ╲ / ╱ chars then read as
     // periodic accents rather than ambient noise.
     let crest = wave > 0.78;
     let h = hash2(x, y, 0xAA11_BB22) as usize;
@@ -2821,7 +2821,7 @@ pub fn river_flow_glyph(dir: (f32, f32), edge_t: f32, x: i32, y: i32, tick: u64)
             P[h % P.len()]
         }
     } else if dir.0 * dir.1 > 0.0 {
-        // SE / NW diagonal — render mostly as flat water with a single
+        // SE / NW diagonal · render mostly as flat water with a single
         // slash accent per ~8 cells so the lean is suggested rather
         // than spammed. Crests bump that density to ~50% so the eye
         // catches the periodic swell as it walks downstream.
@@ -2863,7 +2863,7 @@ pub fn bridge_at(x: i32, y: i32, seed: u32) -> bool {
         return false;
     }
     let band = y.div_euclid(RIVER_BAND_H);
-    // Spine bands first — wide rivers are the only ones that bother to
+    // Spine bands first · wide rivers are the only ones that bother to
     // host a bridge anyway. Same band-scan as river_at but evaluated at
     // x = nearest (the bridge centerline), not at the cell's x, so the
     // bridge actually stays put across the channel as you walk along it.
@@ -2921,7 +2921,7 @@ fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
     if in_village_zone(x, y) {
         return info;
     }
-    // River check first — rivers can span the whole world and aren't
+    // River check first · rivers can span the whole world and aren't
     // bounded by the lake's `y >= 5` cap.
     if river_at(x, y, seed).is_some() {
         info.in_water = true;
@@ -2995,7 +2995,7 @@ fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
                 17..=22 => (90, 32, LakeKind::HugeLake),
                 _ => (180, 60, LakeKind::Sea),
             };
-            // Far cells can't reach this candidate — skip the heavy math.
+            // Far cells can't reach this candidate · skip the heavy math.
             // Doubling the radius gives a safe bound that still rules out
             // most non-overlapping candidates.
             if (x - ax).abs() > rx * 2 || (y - ay).abs() > ry * 2 {
@@ -3005,8 +3005,8 @@ fn compute_water_info(x: i32, y: i32, seed: u32) -> CellWaterInfo {
                 continue;
             }
             // Town/Hamlet anchors push lakes away. Lake villages (the
-            // Floating kind) are allowed to overlap — they're literally
-            // meant to sit on water — so they're not gated here.
+            // Floating kind) are allowed to overlap · they're literally
+            // meant to sit on water · so they're not gated here.
             if lake_collides_with_village(ax, ay, rx, ry, seed) {
                 continue;
             }
@@ -3100,7 +3100,7 @@ fn tree_at(x: i32, y: i32, seed: u32, density: f32) -> Option<Tile> {
     let _ = density;
     // Scan from the southern-most candidate down. The first anchor whose
     // footprint covers (x, y) wins, so when two trees overlap the one
-    // further south occludes the one further north — matches the
+    // further south occludes the one further north · matches the
     // "draw bottom-row first" Z-order convention. The wider BigOak /
     // TallPine outer cells are checked before the cheaper inner box so
     // a big southern tree can shadow a small northern one.
@@ -3130,7 +3130,7 @@ fn tree_at(x: i32, y: i32, seed: u32, density: f32) -> Option<Tile> {
         for dx in -2..=1i32 {
             let ax = x + dx;
             let ay = y + dy;
-            // dx=-2 only matters for BigOak / TallPine outer cells —
+            // dx=-2 only matters for BigOak / TallPine outer cells 
             // skip it on the cheap path so we don't double-pay.
             if dx == -2 {
                 let sp = tree_species(ax, ay, seed);
@@ -3163,7 +3163,7 @@ pub fn find_tree_anchor_pub(x: i32, y: i32, seed: u32) -> Option<(i32, i32)> {
 }
 
 /// Wood-yield multiplier for the tree at this cell. Bushes give half,
-/// round trees baseline, pines half-again, village oaks double — bigger
+/// round trees baseline, pines half-again, village oaks double · bigger
 /// trees, more logs.
 pub fn tree_yield_mult_at(x: i32, y: i32, seed: u32) -> f32 {
     // Hand-placed village oaks have no procedural anchor; resolve them
@@ -3183,7 +3183,7 @@ pub fn tree_yield_mult_at(x: i32, y: i32, seed: u32) -> f32 {
 }
 
 fn find_tree_anchor(x: i32, y: i32, seed: u32) -> Option<(i32, i32, TreeSpecies, TreePart)> {
-    // Same southern-priority scan as tree_at — needed so the chop
+    // Same southern-priority scan as tree_at · needed so the chop
     // lookup picks the same anchor the renderer drew.
     for dy in (3..=4i32).rev() {
         for dx in -2..=1i32 {
@@ -3345,7 +3345,7 @@ pub fn villages_in_rect(
 /// flavor text from `inspect.json` (key `curio:<id>`). User writes the
 /// prose; engine just places the objects.
 /// (id, glyph_string, rgb_color). `glyph_string` is 1-N pure-ASCII chars
-/// — single chars for tiny objects, multi-char ASCII art for richer
+/// · single chars for tiny objects, multi-char ASCII art for richer
 /// constructions (anchors / sarcophagi / chains / etc). The string's
 /// length defines the curio's horizontal footprint.
 type CurioEntry = (&'static str, &'static str, (u8, u8, u8));
@@ -3507,15 +3507,15 @@ fn curio_pool_for(dim: Dimension) -> &'static [CurioEntry] {
         // Lakebed shares the cave-flavour curio pool with the Mines until
         // it gets its own lore drops.
         Dimension::Lakebed => CURIOS_MINES,
-        // Mountain cave reuses the Iceshelf pool — both are cold-cave
+        // Mountain cave reuses the Iceshelf pool · both are cold-cave
         // flavoured until a dedicated lore drop list is authored.
         Dimension::MountainCave => CURIOS_ICESHELF,
     }
 }
 
-/// Anchor check — returns the curio whose footprint *begins* at (x, y).
+/// Anchor check · returns the curio whose footprint *begins* at (x, y).
 /// Density: 1 in 5000 cells. Calibrated so a typical ~5600-cell viewport
-/// surfaces ~1 curio at a time on screen — rare enough that finding one
+/// surfaces ~1 curio at a time on screen · rare enough that finding one
 /// feels like a discovery, not background clutter.
 fn curio_anchor_at(x: i32, y: i32, dim: Dimension, seed: u32) -> Option<&'static CurioEntry> {
     let h = hash2(x, y, seed.wrapping_add(0xC0_71_05_03) ^ (dim as u32).wrapping_mul(0x9E37_79B1));
@@ -3582,7 +3582,7 @@ pub fn blacksmith_station_at(x: i32, y: i32, seed: u32) -> Option<Tile> {
     }
     // Proc-village smelter/forge sit at smith.y ± 1, and proc village
     // anchors are constrained to `ay <= -8`. So smelter.y <= -9 and
-    // forge.y <= -7. If y > -7 there's no chance of a proc station —
+    // forge.y <= -7. If y > -7 there's no chance of a proc station 
     // skip the expensive village_anchor_for call entirely. This is
     // hit once per tile per frame, so the early-out matters.
     if y > -7 {
@@ -3603,11 +3603,11 @@ pub fn blacksmith_station_at(x: i32, y: i32, seed: u32) -> Option<Tile> {
 /// Resolve which procedural-village merchant (if any) stands at this
 /// world cell. Returns the template id. Each procedural village hosts
 /// one blacksmith east of the well, one fishmonger west, and one
-/// archeologist south — all on the central paths so the player can walk
+/// archeologist south · all on the central paths so the player can walk
 /// up and press `f`.
 pub fn proc_village_merchant_id_at(x: i32, y: i32, seed: u32) -> Option<&'static str> {
     // Proc village anchors sit at ay <= -8. Merchants stand within 3
-    // cells of the anchor, so y > -5 can't host any of them — skip the
+    // cells of the anchor, so y > -5 can't host any of them · skip the
     // expensive village_anchor_for lookup in that band.
     if y > -5 {
         return None;
@@ -3628,7 +3628,7 @@ pub fn proc_village_merchant_id_at(x: i32, y: i32, seed: u32) -> Option<&'static
 fn village_anchor_for(x: i32, y: i32, seed: u32) -> Option<PVillage> {
     // Villages anchor at ay <= -8 and the biggest footprint reaches 46
     // cells from the anchor on every axis. So any cell at y > 38 can't
-    // possibly be inside a village — skip the 9-cell hash sweep.
+    // possibly be inside a village · skip the 9-cell hash sweep.
     if y > 38 {
         return None;
     }
@@ -3688,11 +3688,11 @@ fn procedural_village_tile(x: i32, y: i32, seed: u32) -> Option<Tile> {
 }
 
 /// Town footprint half-width / half-height. Picked from the village
-/// hash so each town has its own size — small ones are ~24 wide, big
+/// hash so each town has its own size · small ones are ~24 wide, big
 /// ones up to ~70 wide. The walled rectangle uses these as the inner
 /// extent; the wall row sits one tile beyond.
 fn town_half_extents(vhash: u32) -> (i32, i32) {
-    // 5 size buckets — tuned so the largest comfortably hosts 15-20
+    // 5 size buckets · tuned so the largest comfortably hosts 15-20
     // procedural houses while staying inside the village radius gate.
     let (hw, hh) = match (vhash >> 18) % 5 {
         0 => (12, 6),  // tiny
@@ -3728,7 +3728,7 @@ fn town_house_at(dx: i32, dy: i32, vhash: u32) -> Option<Tile> {
         return None;
     }
     let slot_hash = hash2(sx, sy, vhash.wrapping_add(0xB0A7_5E11));
-    // density gate — ~70% of slots host a house
+    // density gate · ~70% of slots host a house
     if slot_hash % 10 < 3 {
         return None;
     }
@@ -3848,7 +3848,7 @@ fn town_tile(dx: i32, dy: i32, vhash: u32) -> Option<Tile> {
 /// Lake-village layout. Wide central plaza + winding piers fanning out
 /// to scattered hut clusters perched on the sea. Each pier is a straight
 /// line from the plaza to its hut, perturbed perpendicular by perlin
-/// noise — so two villages with the same anchor hash never lay out the
+/// noise · so two villages with the same anchor hash never lay out the
 /// same way.
 fn floating_tile(dx: i32, dy: i32, vhash: u32) -> Option<Tile> {
     const HUTS: &[(i32, i32, Tile)] = &[
@@ -3861,7 +3861,7 @@ fn floating_tile(dx: i32, dy: i32, vhash: u32) -> Option<Tile> {
         (-22, -6, Tile::DoorHouse),
         (24, 6, Tile::DoorHouse),
     ];
-    // hut walls — 5 wide x 3 tall, door middle-bottom
+    // hut walls · 5 wide x 3 tall, door middle-bottom
     for &(hx, hy, door) in HUTS {
         let lx = dx - hx;
         let ly = dy - hy;
@@ -3910,7 +3910,7 @@ fn on_winding_pier(dx: i32, dy: i32, hx: i32, hy: i32, vhash: u32) -> bool {
     let inv_len = 1.0 / len2.sqrt();
     let perp_x = -ly * inv_len;
     let perp_y = lx * inv_len;
-    // perlin offset along the path — sample at the projected point so it
+    // perlin offset along the path · sample at the projected point so it
     // shifts smoothly as you walk the pier
     let n = value_noise_fractal(px as i32, py as i32, vhash ^ 0x71E_5A001, 0.08, 2);
     let off = n * 5.0; // ±5 cell wander
@@ -3935,7 +3935,7 @@ fn hash2(x: i32, y: i32, seed: u32) -> u32 {
 /// outside the village zone and never inside water. The anchor cell becomes
 /// the interactable MineEntrance; the 5 surrounding cells render as MineFrame.
 fn is_mine_entrance_anchor(x: i32, y: i32, seed: u32) -> bool {
-    // Hash test FIRST — only ~1/12000 cells pass it. The expensive water
+    // Hash test FIRST · only ~1/12000 cells pass it. The expensive water
     // / village / neighbor checks below run for a vanishingly small slice
     // of cells instead of all of them.
     let h = hash2(x, y, seed.wrapping_add(0xE17E_ED01));
@@ -3952,7 +3952,7 @@ fn is_mine_entrance_anchor(x: i32, y: i32, seed: u32) -> bool {
         return false;
     }
     // Also reject if any of the 5 frame cells (3 wide x 2 tall above the
-    // anchor) would sit on water — that's how entrances were spawning
+    // anchor) would sit on water · that's how entrances were spawning
     // half-in-a-lake and the player couldn't reach them.
     for dx in -1..=1i32 {
         for dy in -1..=0i32 {
@@ -3995,7 +3995,7 @@ fn is_mine_entrance_anchor(x: i32, y: i32, seed: u32) -> bool {
 /// exits the moment it hits land.
 // Direct-mapped thread-local cache for ocean_depth_at. The flood-search
 // otherwise calls World::get() up to ~1000 times per water cell, and the
-// player typically sees ~1500 water cells per frame — that was the entire
+// player typically sees ~1500 water cells per frame · that was the entire
 // frametime budget.
 #[derive(Clone, Copy)]
 struct DepthSlot {
@@ -4009,7 +4009,7 @@ thread_local! {
 }
 
 pub fn ocean_depth_at(world: &World, x: i32, y: i32) -> u32 {
-    // Keyed by (x, y, dim) — dim shifts which dispatch World::get runs.
+    // Keyed by (x, y, dim) · dim shifts which dispatch World::get runs.
     let key = pack_xy(x, y) ^ ((world.dim as u32 as u64) << 56);
     let idx = cache_index(key);
     if let Some(d) = DEPTH_CACHE.with(|c| {
@@ -4111,7 +4111,7 @@ const HOTSPOT_CELL_H: i32 = 20;
 
 /// If (x, y) sits inside an active hotspot, return its top-left anchor
 /// and the (dx, dy) offset within the patch. Only checks the (cx-1, cy)
-/// / (cx, cy) pair on each axis — anchors in (cx+1, *) or (*, cy+1)
+/// / (cx, cy) pair on each axis · anchors in (cx+1, *) or (*, cy+1)
 /// can't extend left/up into the current cell, so those 5 neighbors are
 /// always misses and the check skips them.
 pub fn hotspot_at(x: i32, y: i32, seed: u32) -> Option<(i32, i32, i32, i32)> {
@@ -4164,7 +4164,7 @@ pub fn hotspot_glyph(dx: i32, dy: i32, tick: u64) -> char {
     }
 }
 
-/// Region noise that marks "lakebed cave zones" — patches of the world
+/// Region noise that marks "lakebed cave zones" · patches of the world
 /// where the underground is mostly flooded. Cheap to evaluate (2 sines).
 pub fn lakebed_region(x: i32, y: i32, seed: u32) -> bool {
     let fx = x as f32;
@@ -4302,7 +4302,7 @@ fn is_inferno_wall_margin(x: i32, y: i32, seed: u32) -> bool {
 }
 
 /// True when (x,y) is a wall cell with NO open neighbor in any of the 8
-/// directions — i.e. fully buried inside a wall mass. Rendered pitch black
+/// directions · i.e. fully buried inside a wall mass. Rendered pitch black
 /// so the cave reads as solid stone instead of a sea of tiled hashes.
 /// Water counts as air here: a neighbor that renders as water (lakebed
 /// pools in the mines, hot-spring water spread by the 1-cell render
@@ -4350,7 +4350,7 @@ fn lava_pool_at(x: i32, y: i32, seed: u32) -> bool {
     s + t > 0.8
 }
 
-/// Sand bars under the ocean — rounded patches of light seabed in the deep.
+/// Sand bars under the ocean · rounded patches of light seabed in the deep.
 fn seabed_patch_at(x: i32, y: i32, seed: u32) -> bool {
     let fx = x as f32;
     let fy = y as f32;
@@ -4729,7 +4729,7 @@ fn village_tile(x: i32, y: i32) -> Option<Tile> {
         }
     }
 
-    // pier and well — pier sits over the path so the dock visibly extends
+    // pier and well · pier sits over the path so the dock visibly extends
     // through the south gate instead of being masked by the corridor.
     if pier_cell(x, y) {
         return Some(Tile::Dock);
@@ -4993,7 +4993,7 @@ fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
     let t = tick as f32 * 0.012;
     let fx = x as f32;
     let fy = y as f32;
-    // Single-pass domain warp — enough to bend ridges so they don't read
+    // Single-pass domain warp · enough to bend ridges so they don't read
     // as diagonal stripes, way cheaper than the prior two-pass version.
     let q_x = (fx * 0.13 + fy * 0.19 + t * 0.83).sin() * 4.0;
     let q_y = (fx * 0.17 - fy * 0.11 + t * 0.71).sin() * 3.5;
@@ -5006,7 +5006,7 @@ fn water_anim(x: i32, y: i32, tick: u64) -> (char, Style) {
     let w1 = (wx * 0.43 + wy * 0.17 + t * 0.95).sin() * amp1;
     let w2 = (wx * 0.13 + wy * 0.61 + t * 0.78).sin() * amp2;
     // Cheap per-cell hash jitter takes the place of the per-cell value
-    // noise — same purpose (break long-wave ridges at the pixel scale)
+    // noise · same purpose (break long-wave ridges at the pixel scale)
     // for ~10x the speed.
     let cell_jitter =
         (hash2(x, y, 0xA11_BABE) as f32 / u32::MAX as f32 - 0.5) * 0.9;
@@ -5062,26 +5062,26 @@ fn wall_glyph(x: i32, y: i32) -> (char, Style) {
 }
 
 /// Per-house wall variants. The house's door coords seed the variant
-/// so every house renders with a distinct style — timber, brick, stone,
+/// so every house renders with a distinct style · timber, brick, stone,
 /// adobe, driftwood, etc. Cell-level noise still adds within-house
 /// variation; the house seed only picks the palette + glyph family.
 fn wall_glyph_for_house(x: i32, y: i32, door: (i32, i32)) -> (char, Style) {
     const FAMILIES: &[(&[char], (u8, u8, u8))] = &[
-        // 0 — warm timber (vertical planks)
+        // 0 · warm timber (vertical planks)
         (&['|', 'I', '|', '|'], (140, 95, 55)),
-        // 1 — brick + mortar
+        // 1 · brick + mortar
         (&['#', '=', '#', 'H'], (155, 85, 70)),
-        // 2 — fieldstone (jumbled stones)
+        // 2 · fieldstone (jumbled stones)
         (&['o', 'O', '@', '0'], (140, 130, 115)),
-        // 3 — adobe/sandstone
+        // 3 · adobe/sandstone
         (&['#', '%', '#', '#'], (190, 150, 95)),
-        // 4 — bleached driftwood
+        // 4 · bleached driftwood
         (&['|', '/', '\\', '|'], (180, 165, 140)),
-        // 5 — dark slate
+        // 5 · dark slate
         (&['H', 'M', 'H', '#'], (80, 90, 110)),
-        // 6 — mossy green-tinted
+        // 6 · mossy green-tinted
         (&['#', 'V', 'Y', '#'], (95, 130, 80)),
-        // 7 — whitewashed cottage
+        // 7 · whitewashed cottage
         (&['|', ':', '|', '|'], (215, 210, 195)),
     ];
     let h = hash2(door.0, door.1, 0x5E5E_C0DE);
@@ -5113,21 +5113,21 @@ fn roof_glyph(x: i32, y: i32) -> (char, Style) {
 /// Per-house roof palettes. Same seeding scheme as wall_glyph_for_house.
 fn roof_glyph_for_house(x: i32, y: i32, door: (i32, i32)) -> (char, Style) {
     const PALETTES: &[(&[char], (u8, u8, u8))] = &[
-        // 0 — red clay tile
+        // 0 · red clay tile
         (&['#', '%', '#'], (170, 70, 50)),
-        // 1 — grey shingle
+        // 1 · grey shingle
         (&['#', '=', '#'], (110, 110, 120)),
-        // 2 — slate blue
+        // 2 · slate blue
         (&['#', '~', '#'], (75, 95, 130)),
-        // 3 — mossy green
+        // 3 · mossy green
         (&['%', '#', '%'], (90, 130, 70)),
-        // 4 — straw thatch
+        // 4 · straw thatch
         (&['/', '\\', '/'], (200, 165, 95)),
-        // 5 — dark tar
+        // 5 · dark tar
         (&['#', '#', '%'], (55, 50, 55)),
-        // 6 — sun-bleached cream
+        // 6 · sun-bleached cream
         (&['#', '%', '#'], (220, 200, 160)),
-        // 7 — copper-green patina
+        // 7 · copper-green patina
         (&['~', '%', '#'], (95, 150, 130)),
     ];
     let h = hash2(door.0, door.1, 0x720F_720F);
@@ -5141,7 +5141,7 @@ fn roof_glyph_for_house(x: i32, y: i32, door: (i32, i32)) -> (char, Style) {
     )
 }
 
-/// Chimney location for a house — picked by hashing the door coords,
+/// Chimney location for a house · picked by hashing the door coords,
 /// always sitting on one of the roof cells. Returns true if (x, y) is
 /// the chimney cell.
 fn house_chimney_at(x: i32, y: i32, door: (i32, i32)) -> bool {
@@ -5185,7 +5185,7 @@ fn chimney_glyph(_x: i32, _y: i32, door: (i32, i32)) -> (char, Style) {
 }
 
 /// Door-seed lookup for any house on the Surface. Returns the door's
-/// (x, y) — stable per house — when (x, y) sits inside any home-village
+/// (x, y) · stable per house · when (x, y) sits inside any home-village
 /// or procedural-village hut. Used by render to give every house its
 /// own wall + roof palette.
 ///
@@ -5207,7 +5207,7 @@ pub fn house_seed_at(qx: i32, qy: i32, seed: u32) -> Option<(i32, i32)> {
             return Some(door);
         }
     }
-    // Procedural villages — only relevant when qy is within reach of any
+    // Procedural villages · only relevant when qy is within reach of any
     // proc village. Anchors are at ay <= -8 with radius <= 35, so houses
     // can occupy roughly y in [ay-7, ay+7]. If qy is way south of that
     // (e.g. qy > 8 in the ocean), skip the anchor sweep.
@@ -5380,7 +5380,7 @@ const PORTAL_FRAME_OFFSETS: &[(i32, i32)] = &[
 ];
 
 /// Hash + biome candidate check for a procedural surface portal. Does NOT
-/// validate the surrounding 5x4 footprint — that's `dim_portal_for`'s job
+/// validate the surrounding 5x4 footprint · that's `dim_portal_for`'s job
 /// once we've decided the cell is a plausible anchor.
 fn dim_portal_candidate(x: i32, y: i32, seed: u32) -> Option<Dimension> {
     if in_village_zone(x, y) {
@@ -5424,11 +5424,11 @@ fn dim_portal_candidate(x: i32, y: i32, seed: u32) -> Option<Dimension> {
 /// Returns the destination dim if this surface cell is a portal anchor.
 /// Sparse hash-gated per dim, with biome filters where it makes sense.
 /// Procedural portals additionally require their full 5x4 stone-arch
-/// footprint plus southern approach lane to sit on clear land — without
+/// footprint plus southern approach lane to sit on clear land · without
 /// this the structure clips into water/villages. None for cells that
 /// aren't a portal.
 pub fn dim_portal_for(x: i32, y: i32, seed: u32) -> Option<Dimension> {
-    // Bespoke first — these escape the village/water early-returns and
+    // Bespoke first · these escape the village/water early-returns and
     // don't get a stone arch (they're flavor manholes / ocean rifts).
     if (x, y) == SEWER_PORTAL_XY {
         return Some(Dimension::Sewer);
@@ -5455,7 +5455,7 @@ pub fn dim_portal_for(x: i32, y: i32, seed: u32) -> Option<Dimension> {
     Some(dest)
 }
 
-/// True if `(x, y)` is a procedural arch-style portal anchor — i.e. a
+/// True if `(x, y)` is a procedural arch-style portal anchor · i.e. a
 /// validated `dim_portal_for` hit that isn't one of the bespoke fixed
 /// coords. Used by `portal_frame_at` so the bespoke manhole/wreckage
 /// portals don't grow stone arches.
@@ -5520,7 +5520,7 @@ fn portal_frame_glyph(x: i32, y: i32, seed: u32) -> (char, Style) {
 //
 // Each macro cell (M × M) hosts one *anchor* placed at a hash-derived offset
 // inside the cell. The anchor carries a recipe (shape kind + dimensions)
-// so adjacent macro cells produce wildly different rooms — small squares
+// so adjacent macro cells produce wildly different rooms · small squares
 // next to long corridors next to round chambers next to tall halls.
 // L-corridors connect every anchor to its right + lower neighbour so the
 // whole labyrinth is reachable.
@@ -5560,9 +5560,9 @@ fn room_shape(h: u32, macro_size: i32) -> (i32, i32, bool) {
         0 => ((8 + r1 * 2).min(max_hw), (3 + r2).min(max_hh), false),
         // long horizontal corridor (very wide, short)
         1 => ((max_hw).min(14 + r1 * 2), (1 + r2 / 2).min(max_hh), false),
-        // tall vertical hall (narrow on screen but tall — needs ~6 world hw to look narrow-ish)
+        // tall vertical hall (narrow on screen but tall · needs ~6 world hw to look narrow-ish)
         2 => ((4 + r1).min(max_hw), (max_hh).min(7 + r2), false),
-        // round room on screen — ellipse hw=2*hh in world coords
+        // round room on screen · ellipse hw=2*hh in world coords
         3 => {
             let hh = (3 + r2).min(max_hh);
             ((hh * 2).min(max_hw), hh, true)
@@ -5645,9 +5645,9 @@ fn labyrinth_cell(x: i32, y: i32, macro_size: i32, seed: u32) -> LabCell {
     LabCell::Wall
 }
 
-/// Sewer: brick chambers of every shape and size — small rectangular
+/// Sewer: brick chambers of every shape and size · small rectangular
 /// cisterns, long horizontal aqueducts, tall vertical shafts, round
-/// pump rooms — strung together by L-shaped maintenance corridors.
+/// pump rooms · strung together by L-shaped maintenance corridors.
 /// Bigger rooms get a small dark river in the centre; smaller ones
 /// stay dry path.
 fn sewer_get(x: i32, y: i32) -> Tile {
@@ -5691,8 +5691,8 @@ fn hot_spring_get(x: i32, y: i32, seed: u32) -> Tile {
     }
 }
 
-/// Pyramid: tomb chambers of every shape — small antechambers, long
-/// hieroglyph halls, round burial pits, tall granary shafts — buried in
+/// Pyramid: tomb chambers of every shape · small antechambers, long
+/// hieroglyph halls, round burial pits, tall granary shafts · buried in
 /// sandstone. Bigger tombs get a sacred pool. Corridors are sand-floored
 /// passages between chambers.
 fn pyramid_get(x: i32, y: i32) -> Tile {
@@ -5722,7 +5722,7 @@ fn pyramid_get(x: i32, y: i32) -> Tile {
 /// climbs back to the exact island they descended from. Each exit gets
 /// a 3x3 cave-floor pocket so they're not immediately walled or drowned.
 fn lakebed_get(x: i32, y: i32, seed: u32) -> Tile {
-    // Exits project through from the surface entrances — same (x, y).
+    // Exits project through from the surface entrances · same (x, y).
     if is_lakebed_entrance_anchor(x, y, seed) {
         return Tile::MineExit;
     }
@@ -5741,7 +5741,7 @@ fn lakebed_get(x: i32, y: i32, seed: u32) -> Tile {
     let r = hash2(x, y, lb.wrapping_add(0xCAFE_C0DE)) % 1000;
     if !open {
         // Wall margins seed stalactites and the occasional pebbled rock,
-        // but no ore — lakebed is a fishing dim, not a mining dim.
+        // but no ore · lakebed is a fishing dim, not a mining dim.
         if r < 60 {
             return Tile::Stalactite;
         }
@@ -5764,7 +5764,7 @@ fn lakebed_get(x: i32, y: i32, seed: u32) -> Tile {
 //
 // Each river has a deterministic "source" mountain anchored a few hundred
 // cells west of the world origin (the river then flows east across the
-// map). The mountain is a spiky pyramid shape — its base is wider than
+// map). The mountain is a spiky pyramid shape · its base is wider than
 // its top, the top ~30% is rendered snow-capped. A single MountainEntrance
 // sits at the base, leading to the MountainCave dim.
 
@@ -5772,7 +5772,7 @@ const MOUNTAIN_HALF_W: i32 = 18;
 const MOUNTAIN_H: i32 = 24;
 
 /// Source anchor for one river-spawning mountain. Returns the (ax, ay)
-/// world coords of the *base* of the mountain — its peak sits at
+/// world coords of the *base* of the mountain · its peak sits at
 /// (ax, ay - MOUNTAIN_H). Returns None if this band hosts no river.
 fn mountain_anchor_for_band(band: i32, db: i32, seed: u32, spine: bool) -> Option<(i32, i32, u32)> {
     let salt = if spine { 0x5217_E001 } else { 0x812E_7100 };
@@ -5791,7 +5791,7 @@ fn mountain_anchor_for_band(band: i32, db: i32, seed: u32, spine: bool) -> Optio
 /// Iterate every plausible mountain near (x, y) and return Some if (x, y)
 /// is part of the spiky pyramid footprint. Pyramid shape: for vertical
 /// offset dy from base (0 at base, MOUNTAIN_H at peak), the slab half-
-/// width is MOUNTAIN_HALF_W * (1 - dy / MOUNTAIN_H) — then perlin-warped
+/// width is MOUNTAIN_HALF_W * (1 - dy / MOUNTAIN_H) · then perlin-warped
 /// so the edge is jagged.
 pub fn mountain_at(x: i32, y: i32, seed: u32) -> Option<Tile> {
     let band = y.div_euclid(RIVER_BAND_H);
@@ -5894,7 +5894,7 @@ fn mountain_cave_get(x: i32, y: i32, seed: u32) -> Tile {
     if r < 110 {
         return Tile::Rock;
     }
-    // Meltwater pools fill the rest — the same "MineralWater" type so
+    // Meltwater pools fill the rest · the same "MineralWater" type so
     // existing cave-water rendering and fishing both apply.
     Tile::MineralWater
 }
@@ -5916,8 +5916,8 @@ fn swamp_cave_get(x: i32, y: i32, seed: u32) -> Tile {
     Tile::CaveFloor
 }
 
-/// Bog Cathedral: flooded chapels of varying scale — confessionals,
-/// long naves, round rotundas, tall bell-shafts — joined by stone
+/// Bog Cathedral: flooded chapels of varying scale · confessionals,
+/// long naves, round rotundas, tall bell-shafts · joined by stone
 /// causeways across dark altar water. Each chapel floods with water
 /// around a central stone altar.
 fn bog_cathedral_get(x: i32, y: i32) -> Tile {
@@ -6010,7 +6010,7 @@ fn wreckage_get(x: i32, y: i32) -> Tile {
 }
 
 /// Crater: cosmic basins scattered across a starlit plain. Rooms are
-/// the basins themselves (varied shape — round impact craters, long
+/// the basins themselves (varied shape · round impact craters, long
 /// trenches, tiny pockmarks), each with a cosmic pool at the centre.
 /// Corridors are starlit walkways between basins.
 fn crater_get(x: i32, y: i32) -> Tile {
@@ -6043,7 +6043,7 @@ fn crater_get(x: i32, y: i32) -> Tile {
     }
 }
 
-/// Colosseum: marble amphitheatres of every scale — small training
+/// Colosseum: marble amphitheatres of every scale · small training
 /// rings, long colonnades, round arenas, tall vomitoria. Larger arenas
 /// hold a flooded combat pit at their centre.
 fn colosseum_get(x: i32, y: i32) -> Tile {
@@ -6066,7 +6066,7 @@ fn colosseum_get(x: i32, y: i32) -> Tile {
     }
 }
 
-/// All Blue: pure open ocean. No clutter — every cell is fishable
+/// All Blue: pure open ocean. No clutter · every cell is fishable
 /// DeepWater, and the pool dispatch decides what bites.
 fn all_blue_get(_x: i32, _y: i32, _seed: u32) -> Tile {
     Tile::DeepWater
@@ -6096,7 +6096,7 @@ fn water_bg_for(dim: Dimension) -> Color {
         Dimension::Wreckage => Color::Rgb(4, 12, 14),
         Dimension::BogCathedral => Color::Rgb(8, 6, 14),
         Dimension::Pyramid => Color::Rgb(14, 10, 4),
-        // Lakebed water: drowned cave deep — colder and bluer than the
+        // Lakebed water: drowned cave deep · colder and bluer than the
         // surface ocean baseline so the flooded cavern feels submerged
         // rather than just dark.
         Dimension::Lakebed => Color::Rgb(2, 8, 22),
@@ -6109,7 +6109,7 @@ fn mineral_bg_for(dim: Dimension) -> Color {
         Dimension::HotSpring => Color::Rgb(14, 4, 4),
         Dimension::Crater => Color::Rgb(12, 4, 14),
         Dimension::MirrorLake => Color::Rgb(10, 12, 14),
-        // Lakebed mineral water reads as deep aquamarine — the cave is
+        // Lakebed mineral water reads as deep aquamarine · the cave is
         // mostly water, so this is the dominant tile and deserves a
         // recognisable hue.
         Dimension::Lakebed => Color::Rgb(2, 16, 26),
@@ -6119,7 +6119,7 @@ fn mineral_bg_for(dim: Dimension) -> Color {
 
 // For the non-sewer dims: one defining hue per tile role (wall / floor /
 // water), with small shade jitter for texture and an *occasional* tiny
-// accent — never a competing secondary that would scatter the palette.
+// accent · never a competing secondary that would scatter the palette.
 
 fn sandstone_wall_glyph(x: i32, y: i32) -> (char, Style) {
     let h = hash2(x, y, 0x5A04_57E0);
@@ -6153,7 +6153,7 @@ fn sewer_brick_glyph(x: i32, y: i32) -> (char, Style) {
     // KEEP-AS-IS: user has signed off on the sewer palette. Mostly dark
     // muddy brown brick (~80%), olive green mortar (~15%), rare cyan
     // rust pipe (~5%). Do NOT regularise this back to single-tone like
-    // the other dims — they wanted the sewer to keep its triadic look.
+    // the other dims · they wanted the sewer to keep its triadic look.
     let h = hash2(x, y, 0x5E_EB_4_C00);
     let g = match h % 5 { 0 => '%', 1 => '=', 2 => '|', _ => '#' };
     let bucket = (h >> 8) % 100;
@@ -6193,7 +6193,7 @@ fn roman_floor_glyph(x: i32, y: i32) -> (char, Style) {
 }
 
 fn sewer_walk_glyph(x: i32, y: i32) -> (char, Style) {
-    // KEEP-AS-IS triadic palette like sewer_brick_glyph — user signed
+    // KEEP-AS-IS triadic palette like sewer_brick_glyph · user signed
     // off on the sewers.
     let h = hash2(x, y, 0x5E_EB_5_EE7);
     let g = match h % 4 { 0 => '.', 1 => ',', 2 => ':', _ => '`' };
@@ -6367,7 +6367,7 @@ pub fn village_inside(x: i32, y: i32) -> bool {
 
 /// Spatial visibility mask: returns true if a cell at (wx, wy) should be
 /// rendered from the player's vantage at (px, py). Only the village uses
-/// this currently — the player can't see through perimeter walls in
+/// this currently · the player can't see through perimeter walls in
 /// either direction. The strip south of the village (y > WALL_BOT_EDGE,
 /// the dock + ocean) is always visible from inside (south gate).
 pub fn cell_visible_from(px: i32, py: i32, wx: i32, wy: i32) -> bool {
@@ -6377,7 +6377,7 @@ pub fn cell_visible_from(px: i32, py: i32, wx: i32, wy: i32) -> bool {
         return true;
     }
     // Perimeter walls + their corner caps are always visible from either
-    // side — they're the surface you're meant to look at, not an
+    // side · they're the surface you're meant to look at, not an
     // obstruction.
     if village_perimeter(wx, wy).is_some() {
         return true;

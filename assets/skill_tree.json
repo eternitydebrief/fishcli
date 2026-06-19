@@ -1,5 +1,5 @@
 [
-  { "_comment": "schema: { id (kebab-case string), tree ('Angler'|'Naturalist'|'Mariner'|'Prospector'|'Spirit'), parents ([] for roots, otherwise list of node ids — ANY parent at rank>=1 unlocks), label, description, max_rank (u32 1-5), effect (string id matched in skill_tree.rs effect_for), per_rank (f32 magnitude). description fields are user-editable narrative." },
+  { "_comment": "schema: { id (kebab-case string), tree ('Angler'|'Naturalist'|'Mariner'|'Prospector'|'Spirit'), parents ([] for roots, otherwise list of node ids; ANY parent at rank>=1 unlocks), label, description, max_rank (u32 1-5), effect (string id matched in skill_tree.rs effect_for), per_rank (f32 magnitude). description fields are user-editable narrative." },
 
   { "id": "ang-quick-strike",   "tree": "Angler", "parents": [],                  "label": "Quick Strike",     "description": "Catch progress fills 1% faster per rank.",                       "max_rank": 5, "effect": "catch_speed_mult",   "per_rank": 0.01 },
   { "id": "ang-steady-hand",    "tree": "Angler", "parents": ["ang-quick-strike"], "label": "Steady Hand",      "description": "Rectangle drifts less; +0.5% control per rank.",                 "max_rank": 5, "effect": "inertia_reduce",      "per_rank": 0.005 },

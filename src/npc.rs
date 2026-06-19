@@ -26,7 +26,7 @@ pub struct Npc {
     /// Transactional response strings keyed by short event id. Format
     /// placeholders like `{cost}`, `{have}`, `{need}`, `{count}` are
     /// substituted by the caller. All gameplay-visible NPC text lives
-    /// here or in `dialogue` — never hardcoded in source.
+    /// here or in `dialogue` · never hardcoded in source.
     #[serde(default)]
     pub responses: HashMap<String, String>,
 }

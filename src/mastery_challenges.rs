@@ -5,7 +5,7 @@
 //! wins and hard fish are long campaigns. Completing a challenge grants
 //! skill points (fed into the skill tree).
 //!
-//! Challenges are *generated*, not authored — there are too many fish to
+//! Challenges are *generated*, not authored · there are too many fish to
 //! hand-write per-species. If the user wants narrative variants for
 //! specific fish (e.g. story bosses), wire a JSON override file later.
 

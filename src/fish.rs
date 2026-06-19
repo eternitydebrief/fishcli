@@ -92,7 +92,7 @@ impl FishDef {
     // rect_h_bonus, max +2 with Iron Arms + Wide Net fully ranked) is
     // designed to land in the 4-5 cell band across the player's whole
     // progression. Out-of-level encounters drop to 3 cells occasionally
-    // (rare, intended), but 2 cells is never a target — that floor is
+    // (rare, intended), but 2 cells is never a target · that floor is
     // enforced by capping the base at 3 even at diff 10.
     //
     // The base ramp here goes 5 → 3 across diff 1 → 10. The skill
@@ -107,7 +107,7 @@ impl FishDef {
     }
 
     pub fn fish_speed(&self) -> f32 {
-        // diff 1: 0.45, diff 10: 1.05 — every fish actively dodges.
+        // diff 1: 0.45, diff 10: 1.05 · every fish actively dodges.
         0.45 + self.t() * 0.60
     }
 
@@ -120,12 +120,12 @@ impl FishDef {
         if self.price > 0 {
             return self.price;
         }
-        // Steeper curve: base 10 + difficulty^2.5 * 4 — keeps low-diff
+        // Steeper curve: base 10 + difficulty^2.5 * 4 · keeps low-diff
         // common fish around 14-25 valu, ramps hard for tier-10 prey
         // (≈ 1275 valu base). Combined with the fishing-level / min-level
         // decay applied at sale time, this means catching low-tier fish
         // in the late game pays much less per minute than working harder
-        // species — preventing "fish carp forever" as a strategy.
+        // species · preventing "fish carp forever" as a strategy.
         let d = self.difficulty as f32;
         (10.0 + d.powf(2.5) * 4.0) as u64
     }
@@ -235,9 +235,9 @@ impl FishDef {
 /// Pick a fish honouring an optional pool override. When `pool` is `Some`,
 /// only fish whose `pool` tag list contains that name are eligible. When it
 /// is `None`, the normal biome/water filter is used and fish carrying any
-/// pool tag are excluded — variant fish (cosmic/divine/mineral) only
+/// pool tag are excluded · variant fish (cosmic/divine/mineral) only
 /// appear when their pool is explicitly chosen. When `rare_boost` is true,
-/// fish with very low rarity (< 0.01) get a 10x weight multiplier — used
+/// fish with very low rarity (< 0.01) get a 10x weight multiplier · used
 /// for Dusk/Midnight windows. `weather` (if provided) applies a 3x weight
 /// boost to fish that list it in `preferred_weather`. `catches` is the
 /// player's lifetime catch count; for the first 100 catches, easier fish
@@ -346,7 +346,7 @@ pub fn pick_fish_full<'a>(
     };
     // Trash gate. Junk fish (boots, cans, soda bottles) now live in a
     // separate pre-roll sub-pool instead of competing on weight with real
-    // fish — gives an explicit, dial-able trash chance. Override pools
+    // fish · gives an explicit, dial-able trash chance. Override pools
     // (cosmic / divine / pyramid / etc.) skip this: their fish list is
     // already curated and joke items aren't tagged into them.
     //

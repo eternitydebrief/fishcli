@@ -78,7 +78,7 @@ impl Fishing {
     /// Construct a Fishing scene with skill-tree effects + cast strength
     /// (used by Quickcatch T2's "perfect throw" bonus).
     /// `extra_speed_pct` is an additive catch-speed bonus from sources
-    /// outside the skill tree — weather, dim presence, etc. 0.0 = none.
+    /// outside the skill tree · weather, dim presence, etc. 0.0 = none.
     pub fn new_with_skills(
         fish: &'static FishDef,
         rng_seed: u32,
@@ -94,7 +94,7 @@ impl Fishing {
         let rect_h = (fish.rect_h() + tree.rect_h_bonus())
             .min(5.0)
             .min(bar_h as f32 - 1.0);
-        // Player rectangle starts at the very bottom of the bar — the
+        // Player rectangle starts at the very bottom of the bar · the
         // player has to actively reel up to track whatever the fish
         // does. Catch progress starts at 25% so there's a small buffer
         // but not enough to coast a catch.
@@ -154,7 +154,7 @@ impl Fishing {
         s
     }
 
-    /// Active rectangle boost — Rod of Legends T2. Adds +1 to the rectangle
+    /// Active rectangle boost · Rod of Legends T2. Adds +1 to the rectangle
     /// height for the configured duration. One use per fishing scene.
     pub fn input_legends_boost(&mut self) {
         if !self.rl_boost_available || self.rl_boost_max_frames == 0 {
@@ -165,7 +165,7 @@ impl Fishing {
         self.rl_rect_h_bonus = 1.0;
     }
 
-    /// Active fish slow — Tamer T2. Reduces fish_speed for 5 seconds (100
+    /// Active fish slow · Tamer T2. Reduces fish_speed for 5 seconds (100
     /// frames at 20fps). One use per fishing scene.
     pub fn input_tamer_slow(&mut self) {
         if !self.tm_slow_available || self.tm_slow_strength <= 0.0 {
@@ -220,7 +220,7 @@ impl Fishing {
         }
     }
 
-    /// Hard upward yank — mirror of yank_down for symmetry.
+    /// Hard upward yank · mirror of yank_down for symmetry.
     pub fn input_yank_up(&mut self, kind: KeyEventKind) {
         if matches!(kind, KeyEventKind::Press) {
             self.rect_vy -= 1.20;

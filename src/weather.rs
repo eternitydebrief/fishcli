@@ -6,7 +6,7 @@
 //!   - Inferno:  Temperature       (Low / Medium / High)
 //!   - Atlantis: Population        (Low / Medium / High)
 //!
-//! Weather changes daily — the same in-game day produces the same weather
+//! Weather changes daily · the same in-game day produces the same weather
 //! everywhere (so you can rely on it for the day).
 
 use crate::gametime::Season;
@@ -272,7 +272,7 @@ fn weather_for_season(
         Dimension::Crater => three_tier(day, 0x509, seed, [Weather::StardustLow, Weather::StardustMedium, Weather::StardustHigh]),
         Dimension::Colosseum => three_tier(day, 0x50A, seed, [Weather::SoundLow, Weather::SoundMedium, Weather::SoundHigh]),
         Dimension::AllBlue => Weather::Calm,
-        // Lakebed runs on the same tectonic cycle as the Mines — both are
+        // Lakebed runs on the same tectonic cycle as the Mines · both are
         // subterranean and share the cave-bottom rumble.
         Dimension::Lakebed => {
             let h = hash_day(day, 0x50B, seed) % 3;
@@ -282,7 +282,7 @@ fn weather_for_season(
                 _ => Weather::TectonicHigh,
             }
         }
-        // Mountain caves run on the cold cycle — alpine wind seasons.
+        // Mountain caves run on the cold cycle · alpine wind seasons.
         Dimension::MountainCave => {
             let h = hash_day(day, 0x50C, seed) % 3;
             match h {

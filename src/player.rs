@@ -10,7 +10,7 @@ pub struct Player {
     pub valu: u64,
     pub inventory: Vec<&'static FishDef>,
     /// Fossilized catches from the mines. Stored separately from the fish
-    /// basket — they can't be sold or cooked, only handed to an
+    /// basket · they can't be sold or cooked, only handed to an
     /// archeologist NPC who unearths them for a fee.
     pub fossils: Vec<&'static FishDef>,
     pub items: Vec<Item>,
@@ -28,7 +28,7 @@ pub struct Player {
     /// Required to catch bugs on biome tiles. Granted by an NPC quest reward.
     pub has_bug_net: bool,
     /// Doubles the shiny roll (1/8192 -> 1/4096). Auto-granted on the
-    /// 1000th lifetime shiny. Still does nothing else — shinies remain
+    /// 1000th lifetime shiny. Still does nothing else · shinies remain
     /// cosmetic.
     pub has_shiny_charm: bool,
     /// Currently-equipped tackle (hat / vest / line / lure).
@@ -48,12 +48,12 @@ pub struct Player {
     pub hull_tier: u32,
     /// Crew hunger gauge (0..=100). +1 per catch made while `on_boat`. Use
     /// `:feed <n>` to sacrifice fish from the basket (-3 hunger per fish).
-    /// At 100 the crew refuses to row — fishing is blocked until you feed
+    /// At 100 the crew refuses to row · fishing is blocked until you feed
     /// them. Idle on land = no drain.
     pub crew_hunger: u32,
     /// Engine biofuel (0..=200). Drains 1 per step taken while `on_boat`.
     /// Hitting 0 dumps you back at the home pier and disembarks the boat.
-    /// Refill with `:burn <n>` — each fish yields `5 * difficulty` units.
+    /// Refill with `:burn <n>` · each fish yields `5 * difficulty` units.
     pub biofuel: u32,
     /// Logs in the player's stack from `:chop`-ping trees. Currency for
     /// shipwright hull upgrades.

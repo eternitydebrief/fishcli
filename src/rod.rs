@@ -76,7 +76,7 @@ pub struct OwnedRods {
 /// any non-unique non-joke fish of that difficulty before this rod tier is
 /// buyable. Tiers below 26 (the easy on-ramp) are ungated; tiers 201/202
 /// (Fishing Rod, The Rod) have their own custom Pantheon gates and skip
-/// this check. Keeps players from money-saving past whole biomes — but
+/// this check. Keeps players from money-saving past whole biomes · but
 /// late-game bands ask for fewer catches because the underlying species
 /// are rarer and the player is already committed.
 pub fn mastery_gate(tier: u32) -> Option<(u8, u32)> {

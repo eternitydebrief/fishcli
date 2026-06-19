@@ -73,7 +73,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
     let mut dirty = true; // render at least once on startup
     while app.running {
         // Render only when something changed or the tick fired. Without
-        // this we drew every event-loop iteration — i.e. once per key
+        // this we drew every event-loop iteration · i.e. once per key
         // event PLUS once per tick, so holding a movement key drove the
         // CPU much harder than 20fps required.
         if dirty {

@@ -5,7 +5,7 @@
 //!
 //! Definitions live in `assets/bugs.json`. The order there is the canonical
 //! index used by the per-bug parallel `bugs_caught` mastery vector on
-//! `SaveData` — only append to that file, never reorder, or old saves'
+//! `SaveData` · only append to that file, never reorder, or old saves'
 //! mastery counts will land on the wrong species.
 
 use crate::world::{Biome, Dimension};
@@ -156,7 +156,7 @@ pub fn index_of(id: &str) -> Option<usize> {
     defs().iter().position(|d| d.id == id)
 }
 
-/// True if `(x, y)` in `dim`/`biome` is a soil patch — a rare grass cell
+/// True if `(x, y)` in `dim`/`biome` is a soil patch · a rare grass cell
 /// where the bug net can be used to dig up worms. Deterministic from the
 /// world seed so a patch never moves.
 pub fn soil_at(x: i32, y: i32, dim: Dimension, biome: Biome, seed: u32) -> bool {

@@ -24,7 +24,7 @@ use ratatui::{
 
 /// A headline event surfaced at the top of the viewport. Each kind picks
 /// its own border colour and prefix; the body is a plain string the
-/// caller controls. Many banners can coexist — they stack vertically in
+/// caller controls. Many banners can coexist · they stack vertically in
 /// the order they were pushed.
 #[derive(Clone)]
 pub enum BannerKind {
@@ -80,7 +80,7 @@ const COOKBOOK_MILES: &[EncyclopediaMilestone] = &[
     EncyclopediaMilestone { threshold:  15, label: "Grand Chef",        valu: 100_000, skill_points:  5, permanent_effect: Some("walk_speed:0.02") },
     EncyclopediaMilestone { threshold:  20, label: "Pantheon Palate",   valu: 500_000, skill_points: 10, permanent_effect: Some("price_mult:0.10") },
     // post-20 milestones reward true cookbook completionists. Total
-    // recipes will keep growing as the game adds more — these scale
+    // recipes will keep growing as the game adds more · these scale
     // alongside without requiring fresh code per tier.
     EncyclopediaMilestone { threshold:  30, label: "Iron Spatula",      valu: 1_500_000, skill_points: 15, permanent_effect: Some("xp_mult:0.05") },
     EncyclopediaMilestone { threshold:  50, label: "Hearth Sovereign",  valu: 5_000_000, skill_points: 25, permanent_effect: Some("price_mult:0.15") },
@@ -174,7 +174,7 @@ pub enum Scene {
         cursor: usize,
     },
     /// Gear-slot manager. `slot_idx` tabs the slot (Feet / Neck / Ring /
-    /// Pickaxe — Cape is auto-managed and not editable). `item_idx` picks
+    /// Pickaxe · Cape is auto-managed and not editable). `item_idx` picks
     /// from the owned items eligible for that slot. Enter equips, `u`
     /// unequips.
     Gear {
@@ -211,11 +211,11 @@ pub enum Scene {
 
 #[derive(Clone, Debug)]
 pub enum FishmongerStep {
-    /// Browsing the basket — pick which fish type to sell.
+    /// Browsing the basket · pick which fish type to sell.
     PickFish,
     /// A fish is chosen (`picked_name` + max available). Pick a quantity option.
     PickQuantity { picked: String, max: u64 },
-    /// Custom quantity input — typed digits into `buf`.
+    /// Custom quantity input · typed digits into `buf`.
     EnterQuantity { picked: String, max: u64, buf: String },
     /// Final confirmation before money changes hands. Shows the total
     /// payout for transparency; y/Enter confirms, n/Esc cancels.
@@ -287,7 +287,7 @@ pub struct CastState {
 /// are roughly 2:1 - a vertical step covers ~2x the visual distance of a horizontal one.
 const MOVE_INTERVAL_H: u64 = 2;
 // Vertical was 4 (twice horizontal, matching 2:1 cell aspect). Slightly
-// snappier at 3 — still visually slower than horizontal but doesn't
+// snappier at 3 · still visually slower than horizontal but doesn't
 // feel sluggish.
 const MOVE_INTERVAL_V: u64 = 3;
 
@@ -359,7 +359,7 @@ pub struct App {
     pub current_location: Option<String>,
     /// shown when location changes, ticks down to 0
     pub biome_popup_ticks: u32,
-    /// Active banner stack — discoveries, achievements, xp gains and any
+    /// Active banner stack · discoveries, achievements, xp gains and any
     /// other "headline" event share this queue and render top-down so a
     /// burst of events doesn't have one obscure another.
     pub banners: Vec<Banner>,
@@ -411,7 +411,7 @@ pub struct App {
     pub soil_dug_today: std::collections::HashSet<(crate::world::Dimension, i32, i32)>,
     /// Wall-clock cooldown per foraged cell: keyed by (dim, x, y), value is
     /// the unix-seconds timestamp when the cell becomes searchable again.
-    /// 30 minutes per harvest. Survives day rollover — the cooldown is the
+    /// 30 minutes per harvest. Survives day rollover · the cooldown is the
     /// only gate, since a daily-only lock made the world feel barren.
     pub foraged_cooldown: std::collections::HashMap<(crate::world::Dimension, i32, i32), u64>,
     /// Scales: persistent token currency. Drops at ~5% per fish catch.
@@ -438,7 +438,7 @@ pub struct App {
     /// Highest fishdex milestone index already paid out (so the same
     /// reward isn't re-granted across saves). Indexes into FISHDEX_MILES.
     pub fishdex_milestones_granted: u32,
-    /// Highest cookbook milestone index already paid out — indexes into
+    /// Highest cookbook milestone index already paid out · indexes into
     /// COOKBOOK_MILES.
     pub cookbook_milestones_granted: u32,
     /// Total mastery milestones earned across all species (sum, not per-fish).
@@ -493,7 +493,7 @@ pub struct App {
     pub daily_bonus_points: u32,
     /// Per-fish mastery challenge progress (challenge id -> current count).
     pub challenge_progress: std::collections::BTreeMap<String, u32>,
-    /// Completed challenge ids — guarantees one-time reward.
+    /// Completed challenge ids · guarantees one-time reward.
     pub challenge_done: Vec<String>,
     /// Total skill points awarded by completed challenges (sum). Feeds
     /// `skill_tree.available`.
@@ -525,7 +525,7 @@ pub struct App {
     pub last_market_day: u64,
     /// Random countdown of steps before the next stamina drain event.
     /// Rerolled to 5..=20 every time it fires. NOT persisted (ephemeral
-    /// per session is fine — at worst you get a slightly easy first walk).
+    /// per session is fine · at worst you get a slightly easy first walk).
     steps_until_drain: u32,
 }
 
@@ -536,7 +536,7 @@ pub const STAMINA_BASE_MAX: f32 = 100.0;
 
 /// FNV-1a hash of the player's name. Used to seed the world so each name
 /// produces a unique-but-deterministic map. Two players who pick the
-/// same name will see the same world — that's the design intent (the
+/// same name will see the same world · that's the design intent (the
 /// name *is* the seed; pick a different name for a different world).
 pub fn seed_from_name(name: &str) -> u32 {
     let mut h: u32 = 0x811C_9DC5;
@@ -898,7 +898,7 @@ impl App {
         let n = crate::recipes::recipes().len();
         self.cooking_mastery = data.cooking_mastery.clone();
         self.cooking_mastery.resize(n, 0);
-        // Recipe discovery is derived from caught[] — every recipe whose
+        // Recipe discovery is derived from caught[] · every recipe whose
         // ingredient list mentions any fish the player has already caught
         // is auto-discovered on load. Cheap and avoids a new save field.
         self.recipe_discovered = vec![false; n];
@@ -992,7 +992,7 @@ impl App {
             quest_done: self.quest_done.clone(),
             items: self.player.items.clone(),
             pinned_quest: self.pinned_quest.clone(),
-            // legacy field — surface tiles only, written for old loaders
+            // legacy field · surface tiles only, written for old loaders
             seen_cells: self
                 .seen_cells
                 .get(&crate::world::Dimension::Surface)
@@ -1242,7 +1242,7 @@ impl App {
         let Some(r) = recipes.get(idx) else { return };
         if self.player.valu < r.valu_cost {
             self.narrator.say(format!(
-                "Need {}$V for {} — have {}$V.",
+                "Need {}$V for {} · have {}$V.",
                 r.valu_cost, r.name, self.player.valu
             ));
             return;
@@ -1435,7 +1435,7 @@ impl App {
     /// Feed `n` fish from the basket to the crew. Each fish drops crew
     /// hunger by 3 (saturating at 0). Pulls from the front of the basket
     /// so the player can chain feedings without picking a species. Unique
-    /// fish are skipped — sacrificing the deity is a war crime.
+    /// fish are skipped · sacrificing the deity is a war crime.
     fn do_feed_crew(&mut self, n: u32) {
         if self.player.hull_tier == 0 {
             self.narrator.say("No boat. The Shipwright builds the first hull.");
@@ -1525,7 +1525,7 @@ impl App {
         // Resolve which anchor this trunk/canopy belongs to so the chop
         // can mark exactly one tree as cut down. Village oaks are static
         // (no anchor in the proc system), so they fall back to (tx, ty)
-        // as a pseudo-anchor — chopping a village oak still removes its
+        // as a pseudo-anchor · chopping a village oak still removes its
         // canopy via the chopped-map lookup on that cell.
         let anchor =
             crate::world::find_tree_anchor_pub(tx, ty, self.world.seed)
@@ -1596,7 +1596,7 @@ impl App {
         }
     }
 
-    /// Open the shipwright upgrade menu — switches to Scene::Shipwright
+    /// Open the shipwright upgrade menu · switches to Scene::Shipwright
     /// with the cursor on the cheapest available hull upgrade.
     fn do_open_shipwright(&mut self) {
         self.scene = Scene::Shipwright { cursor: 0 };
@@ -1612,7 +1612,7 @@ impl App {
             KeyCode::Char('k') | KeyCode::Up => *cursor = cursor.saturating_sub(1),
             KeyCode::Enter | KeyCode::Char(' ') => {
                 let target_from = *cursor as u32;
-                // Only allow buying the *next* tier — older tiers are
+                // Only allow buying the *next* tier · older tiers are
                 // already owned, deeper tiers are out of reach.
                 if target_from != self.player.hull_tier {
                     self.narrator.say(format!(
@@ -1879,7 +1879,7 @@ impl App {
             ));
             return;
         }
-        // Consume ingredients — first match wins per (name, qty) entry.
+        // Consume ingredients · first match wins per (name, qty) entry.
         for (name, qty) in &r.ingredients {
             let mut left = *qty;
             while left > 0 {
@@ -1943,7 +1943,7 @@ impl App {
             }
         }
         if first_cook {
-            // First time the player actually plates this dish — separate
+            // First time the player actually plates this dish · separate
             // event from "discovered" (which fires on the ingredient
             // fish-catch). Encyclopedia xp + the recipe banner so the
             // player gets a clear "you cooked something new" moment.
@@ -2087,7 +2087,7 @@ impl App {
     /// portalled into a labyrinth dim where their saved coords now
     /// happen to be wall), sweep outward in expanding rings until a
     /// walkable cell is found and snap them there. Gives up after
-    /// radius 80 — past that the dim is broken anyway.
+    /// radius 80 · past that the dim is broken anyway.
     fn snap_player_to_walkable(&mut self) {
         let (px, py) = (self.player.x, self.player.y);
         if self.world.get(px, py).walkable() {
@@ -2373,7 +2373,7 @@ impl App {
                 self.scene = Scene::Fishing(f);
             }
             CastPhase::Waiting => {
-                // No '!' on the bobber yet — pressing space here aborts the
+                // No '!' on the bobber yet · pressing space here aborts the
                 // cast instead of doing nothing. Saves the player a separate
                 // Esc keystroke.
                 self.cast = None;
@@ -2383,7 +2383,7 @@ impl App {
         }
     }
 
-    /// Per-tick stamina regen. Only the Meditative skill ticks here —
+    /// Per-tick stamina regen. Only the Meditative skill ticks here 
     /// fishing's restorative payoff is the per-catch lump grant, not a
     /// continuous drip.
     fn tick_stamina(&mut self) {
@@ -2470,7 +2470,7 @@ impl App {
                         MOVE_INTERVAL_V
                     };
                     // Exhausted: each step interval is ~1.43x longer (30%
-                    // slower). Doesn't block movement — just drags it.
+                    // slower). Doesn't block movement · just drags it.
                     let stam_mult = if self.stamina <= 0.0 { 1.0 / 0.7 } else { 1.0 };
                     let gear_mult = self.player.gear.combined_perks().move_speed_mult.max(0.2);
                     let interval = ((base as f32) * self.buffs.walk_mult() * stam_mult * gear_mult)
@@ -2566,12 +2566,12 @@ impl App {
                         return;
                     }
                     KeyCode::Char('r') => {
-                        // "yank up" — a stronger explicit upward pull.
+                        // "yank up" · a stronger explicit upward pull.
                         g.input_yank_up(key.kind);
                         return;
                     }
                     KeyCode::Char('t') | KeyCode::Enter => {
-                        // "yank down" — strength scales with Rod of
+                        // "yank down" · strength scales with Rod of
                         // Legends "Heavy Yank" skill (weak → equal to yank-up)
                         let strength = self.skill_tree.yank_down_strength();
                         g.input_yank_down(key.kind, strength);
@@ -2624,7 +2624,7 @@ impl App {
                 self.player.name = name.clone();
                 // Derive the world seed from the player's name so it's
                 // deterministic per save (two saves under the same name
-                // generate the same map — intended; the user wants this).
+                // generate the same map · intended; the user wants this).
                 let seed = seed_from_name(&name);
                 self.world = World::new(seed);
                 self.rng_state = seed ^ 0xC0FF_EE42;
@@ -2709,7 +2709,7 @@ impl App {
         if !f.walkable() {
             return;
         }
-        // Don't auto-exit on stepping onto the door tile — the player must
+        // Don't auto-exit on stepping onto the door tile · the player must
         // press f while facing it. Otherwise it's too easy to slide out by
         // accident.
         *px = nx;
@@ -2767,13 +2767,13 @@ impl App {
                         KeyCode::Char('/') => d.start_filter(),
                         KeyCode::Char('c') => {
                             // Jump from the selected fish into the
-                            // cookbook with the filter set to its name —
+                            // cookbook with the filter set to its name 
                             // but only if the player is standing at a
                             // cooking pot.
                             let sel = d.state.selected().unwrap_or(0);
                             let known = self.caught.get(sel).copied().unwrap_or(false);
                             if !known {
-                                // skip silently — fish not caught yet
+                                // skip silently · fish not caught yet
                             } else if !self.is_near_cooking_pot() {
                                 self.narrator.say(
                                     "You need to be at a cooking pot. Find the Chef's pot in the village.",
@@ -3540,7 +3540,7 @@ impl App {
         }
     }
 
-    /// Slots editable in the Gear scene. Cape is omitted — auto-managed.
+    /// Slots editable in the Gear scene. Cape is omitted · auto-managed.
     const GEAR_SLOTS: [crate::gear::Slot; 4] = [
         crate::gear::Slot::Feet,
         crate::gear::Slot::Neck,
@@ -3700,7 +3700,7 @@ impl App {
 
     fn handle_smelt_key(&mut self, code: KeyCode) {
         match code {
-            // Only Esc quits — 'q' is a valid character in ore names
+            // Only Esc quits · 'q' is a valid character in ore names
             // (turquoise) and must remain typeable.
             KeyCode::Esc => {
                 self.scene = Scene::Overworld;
@@ -3730,7 +3730,7 @@ impl App {
                 return;
             }
             KeyCode::Char(c) => {
-                // Type the ORE NAME (one per row) — same flavor as the
+                // Type the ORE NAME (one per row) · same flavor as the
                 // mining minigame, so smelting copper feels different from
                 // smelting diamond.
                 let ore_picked: Option<&'static crate::mining::OreDef> = {
@@ -3779,7 +3779,7 @@ impl App {
 
     fn handle_forge_key(&mut self, code: KeyCode) {
         match code {
-            // Only Esc quits — 'q' is needed in some forged-piece names.
+            // Only Esc quits · 'q' is needed in some forged-piece names.
             KeyCode::Esc => {
                 self.scene = Scene::Overworld;
                 return;
@@ -3816,7 +3816,7 @@ impl App {
                         if let Some(t) = target.as_deref() {
                             let next_idx = typed.chars().count();
                             if let Some(exp) = t.chars().nth(next_idx) {
-                                // skip spaces transparently — typing fluid
+                                // skip spaces transparently · typing fluid
                                 if exp == ' ' {
                                     typed.push(' ');
                                     if let Some(exp2) = t.chars().nth(typed.chars().count()) {
@@ -3860,7 +3860,7 @@ impl App {
 
     fn handle_mining_key(&mut self, code: KeyCode) {
         match code {
-            // Only Esc quits — 'q' is a valid character in ore names
+            // Only Esc quits · 'q' is a valid character in ore names
             // (turquoise) and must be available to type.
             KeyCode::Esc => {
                 self.scene = Scene::Overworld;
@@ -4029,7 +4029,7 @@ impl App {
             cmd if cmd.starts_with("cook ") || cmd == "cook" => {
                 let name = cmd.strip_prefix("cook").unwrap_or("").trim();
                 if name.is_empty() {
-                    // Open the recipe menu — but only if standing at a
+                    // Open the recipe menu · but only if standing at a
                     // cooking pot. Otherwise the player has to track one
                     // down (Chef's pot at home, or a procedural village).
                     if !self.is_near_cooking_pot() {
@@ -4210,7 +4210,7 @@ impl App {
                 }
             }
             "" => {}
-            // :travel <name>  — jump to a specialty dim if your rod tier
+            // :travel <name>  · jump to a specialty dim if your rod tier
             // qualifies. Surface is always free; leaving uses :l.
             other if other.starts_with("travel ") || other.starts_with("t ") => {
                 let name = other.splitn(2, ' ').nth(1).unwrap_or("").trim();
@@ -4366,7 +4366,7 @@ impl App {
             *entry = entry.saturating_sub(*qty);
         }
         // Bank the gear. Auto-equip *only* if the slot is currently empty
-        // — never clobber a deliberately-worn piece. Use `:gear` to swap.
+        // · never clobber a deliberately-worn piece. Use `:gear` to swap.
         self.player.gear.add_owned(&def.id);
         if let Some(slot) = def.slot_enum() {
             if self.player.gear.equipped(slot).is_none() {
@@ -4552,7 +4552,7 @@ impl App {
                         }
                         if bonus > 0 {
                             self.narrator
-                                .say("Your necklace hums — a second fish slides into the basket.");
+                                .say("Your necklace hums · a second fish slides into the basket.");
                         }
                         let name = fish_ref.name.clone();
                         if fish_ref.unique {
@@ -4615,13 +4615,13 @@ impl App {
                         }
                     }
                     // Scales drop: ~5% per catch. Token currency is its own
-                    // axis-shaped slow-burn upgrade — see `:scales`.
+                    // axis-shaped slow-burn upgrade · see `:scales`.
                     if crate::fish::next_rand_f32(&mut self.rng_state) < 0.05 {
                         self.scales = self.scales.saturating_add(1);
                         self.narrator.say("A scale catches in the line. (+1 scale)".to_string());
                     }
                     // Each catch gives a small fixed dose of stamina back
-                    // — 5..=10, jittered per catch. Scaled by Relaxed.
+                    // · 5..=10, jittered per catch. Scaled by Relaxed.
                     let r = crate::fish::next_rand_f32(&mut self.rng_state);
                     let relax = (5.0 + r * 5.0) * self.skill_tree.stamina_fish_regen_mult();
                     self.grant_stamina(relax);
@@ -4700,7 +4700,7 @@ impl App {
                     self.tick_mastery_challenges_catch(&fish_ref.name, size);
                     // Fish mastery: bump per-species counter. The narrator
                     // celebrates the soft milestones (1/5/10/25/50/100), but
-                    // only the deeper ones (50, 250) grant a skill point —
+                    // only the deeper ones (50, 250) grant a skill point 
                     // otherwise 600+ species × 6 free points each drowns
                     // the tree in income and it self-completes from a single
                     // "catch one of everything" sweep.
@@ -4827,7 +4827,7 @@ impl App {
         let t = self.world.get(tx, ty);
         // Inspect-to-board: if the player has a boat and the inspected
         // tile is open water, step in and become the boat. Otherwise just
-        // describe what's there — every tile has a describe() entry.
+        // describe what's there · every tile has a describe() entry.
         if is_boatable(t) && self.player.has_boat && !self.player.on_boat {
             self.player.on_boat = true;
             self.player.x = tx;
@@ -4890,8 +4890,8 @@ impl App {
             self.narrator.say("You step ashore, leaving the boat behind.");
         }
         // Biofuel drains 1 per step while aboard. Hitting empty dumps the
-        // player back at the home pier — single-coord teleport (0, 5) at
-        // the top of the dock — and disembarks. The crew's hunger stays as
+        // player back at the home pier · single-coord teleport (0, 5) at
+        // the top of the dock · and disembarks. The crew's hunger stays as
         // is, so a long run back to land is still a punishment.
         if self.player.on_boat && self.player.hull_tier > 0 {
             self.player.biofuel = self.player.biofuel.saturating_sub(1);
@@ -5117,7 +5117,7 @@ impl App {
                 self.world.dim = crate::world::Dimension::MountainCave;
                 self.quest_progress("visit_dim", "Mountain Cave");
                 self.narrator
-                    .say("You step inside. The air bites — meltwater drips from every crag.");
+                    .say("You step inside. The air bites · meltwater drips from every crag.");
             }
             Tile::DoorHouse => {
                 let seed = ((nx as u32).wrapping_mul(0x9E37_79B1))
@@ -5321,7 +5321,7 @@ impl App {
                 let (bait_used, bait_effect) = if skip_bait {
                     if let Some((_, _, name)) = &bait_effect_peek {
                         self.narrator
-                            .say(format!("Necklace pulses — your {name} survives the cast."));
+                            .say(format!("Necklace pulses · your {name} survives the cast."));
                     }
                     let eff = bait_effect_peek
                         .as_ref()
@@ -5370,7 +5370,7 @@ impl App {
                     .as_ref()
                     .map(|(tag, mult)| (tag.as_str(), *mult));
                 // Bait pool override is only used when the rod isn't
-                // forcing its own pool — so The Rod's mineral cast still
+                // forcing its own pool · so The Rod's mineral cast still
                 // wins over an ore-bait override layered underneath.
                 let effective_pool = pool_override
                     .as_deref()
@@ -5452,7 +5452,7 @@ impl App {
     }
 
     /// Drive the Fishmonger menu. Takes ownership of the prior (cursor,
-    /// step) and returns the next (cursor, Option<step>) — None means the
+    /// step) and returns the next (cursor, Option<step>) · None means the
     /// caller should restore the Overworld scene.
     fn handle_fishmonger(
         &mut self,
@@ -5574,8 +5574,8 @@ impl App {
             return;
         }
         while self.faceless.len() < Self::FACELESS_COUNT {
-            // Spawn close enough to be on-screen — not arm's reach but well
-            // within the viewport — so there are always 2-3 visible.
+            // Spawn close enough to be on-screen · not arm's reach but well
+            // within the viewport · so there are always 2-3 visible.
             if let Some(p) = self.random_walkable_near(self.player.x, self.player.y, 5, 14) {
                 self.faceless.push(p);
             } else {
@@ -5655,12 +5655,12 @@ impl App {
         }
         let idx = self.faceless.iter().position(|&(x, y)| x == nx && y == ny);
         let Some(idx) = idx else { return false };
-        // Remove this faceless on encounter — they only appear once each.
+        // Remove this faceless on encounter · they only appear once each.
         self.faceless.swap_remove(idx);
         let roll = crate::fish::next_rand_f32(&mut self.rng_state);
         if roll < 0.25 {
             // Blessing: +25% mining xp for 60 seconds. The friendly one
-            // turns out to have a name — generated on the spot.
+            // turns out to have a name · generated on the spot.
             self.mining_boost_until = crate::mining::now_secs() + 60;
             let name = random_friendly_name(&mut self.rng_state);
             let line = crate::inspect_text::get("faceless:blessing").replace("{name}", &name);
@@ -5749,13 +5749,13 @@ impl App {
 
     /// Valu granted per unlocked achievement on each in-game month rollover.
     /// Tunable. With ~50 achievements you'd get 12,500$V/month at full
-    /// unlock — meaningful stipend at endgame, modest reward early.
+    /// unlock · meaningful stipend at endgame, modest reward early.
     const CAPE_VALU_PER_ACHIEVEMENT: u64 = 250;
 
     /// Synthetic cape "id" tracks the unlocked-achievement count. The cape
     /// is auto-equipped and unforgeable; the EquippedGear.cape slot stores
     /// this id so the inventory panel can render "Cape of N Memories".
-    /// def_by_id lookups return None for capes — they don't compose with
+    /// def_by_id lookups return None for capes · they don't compose with
     /// the standard gear perks.
     fn sync_cape(&mut self) {
         let n = self.achievements.unlocked.len();
@@ -5788,7 +5788,7 @@ impl App {
         let cur = self.current_month_id();
         if self.last_cape_payout_month == 0 {
             // Baseline: bump to (cur + 1) so the *next* month rollover triggers
-            // the first payout — players get a clean monthly cadence.
+            // the first payout · players get a clean monthly cadence.
             self.last_cape_payout_month = cur + 1;
             return;
         }
@@ -5857,7 +5857,7 @@ impl App {
         let mut remaining = cap.saturating_sub(self.ore_sold_today);
         if remaining == 0 {
             self.narrator.say(format!(
-                "Blacksmith: \"Cart's full for today — bring more tomorrow. (cap {cap}/day at your Blacksmithing level.)\""
+                "Blacksmith: \"Cart's full for today · bring more tomorrow. (cap {cap}/day at your Blacksmithing level.)\""
             ));
             return;
         }
@@ -5942,7 +5942,7 @@ impl App {
     }
 
     /// True when the player stands on or adjacent (8-neighbourhood) to a
-    /// CookingPot tile. Cooking requires this — you can't reduce sauce in
+    /// CookingPot tile. Cooking requires this · you can't reduce sauce in
     /// open air.
     fn is_near_cooking_pot(&self) -> bool {
         let (px, py) = (self.player.x, self.player.y);
@@ -6127,7 +6127,7 @@ impl App {
         let remaining = cap.saturating_sub(self.fish_sold_today) as u64;
         if remaining == 0 {
             self.narrator.say(format!(
-                "Fishmonger: \"Stall's full for today — bring 'em back tomorrow. (cap {cap}/day at your Fishing level.)\""
+                "Fishmonger: \"Stall's full for today · bring 'em back tomorrow. (cap {cap}/day at your Fishing level.)\""
             ));
             return;
         }
@@ -6232,7 +6232,7 @@ impl App {
     }
 
     /// Sailor on the pier. Until 1000 fish lifetime, he just chats. After
-    /// that, he offers to row you out and dive — instantly puts you in
+    /// that, he offers to row you out and dive · instantly puts you in
     /// Atlantis.
     /// Shipwright: builds the player a boat once they've caught 1250 fish.
     /// One-time. After the build, the player can `:inspect` water to board.
@@ -6402,7 +6402,7 @@ impl App {
                 .say(format!("You {} and find a {name}.", action.verb()));
         }
         // Forage counts as a bug catch in the mastery vec if the underlying
-        // entry is a bug — keeps the bug-50/bug-500 landmark capes reachable
+        // entry is a bug · keeps the bug-50/bug-500 landmark capes reachable
         // from foraging alone.
         if let Some(idx) = crate::bugs::index_of(bait_id) {
             if let Some(slot) = self.bugs_caught.get_mut(idx) {
@@ -6466,7 +6466,7 @@ impl App {
                 self.narrator.say(format!("Caught the {name}. (+1 to bait stock)"));
             }
             Some(crate::bug_catch::BugCatchResult::Missed) => {
-                // Bug flies off for the day either way — missing still
+                // Bug flies off for the day either way · missing still
                 // disturbs it. Keeps the catch a real decision.
                 self.bugs_picked_today.insert((dim, xy.0, xy.1));
                 self.narrator.say("It got away.".to_string());
@@ -6483,7 +6483,7 @@ impl App {
     const UNEARTH_FEE_PER_DIFF: u64 = 75;
 
     fn interact_archeologist(&mut self, npc: &'static npc::Npc) {
-        // No fossils to unearth — flavor-only response.
+        // No fossils to unearth · flavor-only response.
         let Some(&fossil) = self.player.fossils.first() else {
             self.narrator.say(npc.response("no_fossils", &[]));
             return;
@@ -6511,7 +6511,7 @@ impl App {
         self.player.fossils.remove(0);
         self.player.inventory.push(living);
         self.stats.fossils_unearthed = self.stats.fossils_unearthed.saturating_add(1);
-        // Auto-discover the living counterpart too — it's a "first catch"
+        // Auto-discover the living counterpart too · it's a "first catch"
         // moment for the species in the encyclopedia even though no rod
         // was involved.
         if let Some(idx) = fishlist::fish().iter().position(|f| std::ptr::eq(f, living)) {
@@ -6590,7 +6590,7 @@ impl App {
     fn mark_seen_around_player(&mut self) {
         const VIEW_W: i32 = 50;
         const VIEW_H: i32 = 18;
-        // Mapped Mind / fog_radius_bonus widens the reveal — each rank adds
+        // Mapped Mind / fog_radius_bonus widens the reveal · each rank adds
         // one coarse cell on every side.
         let fog_bonus = self.skill_tree.fog_radius_bonus() as i32;
         let extra_w = fog_bonus * crate::app::MAP_CELL_W;
@@ -7076,7 +7076,7 @@ impl App {
         // (so the player can read inspect output). Every other scene is a
         // full-screen menu and shouldn't have the log slab on it. Perf is
         // a transparent overlay over the live overworld, so treat it like
-        // Overworld here — the player needs to see the full HUD beneath.
+        // Overworld here · the player needs to see the full HUD beneath.
         let in_modal = !matches!(
             self.scene,
             Scene::Overworld | Scene::HouseInterior { .. } | Scene::Perf
@@ -7207,7 +7207,7 @@ impl App {
                 self.stats.max_catch_streak,
             );
         }
-        // Perf overlay — drawn last so it sits above world + HUD without
+        // Perf overlay · drawn last so it sits above world + HUD without
         // pausing them. The world view above re-ran with all its scopes,
         // so the numbers reflect real ongoing render cost.
         if matches!(self.scene, Scene::Perf) {
@@ -7233,7 +7233,7 @@ fn active_quest_ids(done: &[String]) -> Vec<String> {
 /// is written. Thread exits cleanly when the sender (App) is dropped.
 /// Spin a background thread that pre-warms the global world cache around
 /// the origin so the player's first few thousand cell views hit cache.
-/// Non-blocking — the game starts immediately and progressively speeds up
+/// Non-blocking · the game starts immediately and progressively speeds up
 /// as the warm completes.
 fn kick_off_pregen(seed: u32) {
     std::thread::spawn(move || {
@@ -7493,7 +7493,7 @@ fn render_streak_chip(frame: &mut Frame, current: u64, best: u64) {
         return;
     }
     // Weather/HUD panel is 4 rows tall and renders inside the world block's
-    // inner area, which is itself offset by 1 row of border — so the panel
+    // inner area, which is itself offset by 1 row of border · so the panel
     // actually covers viewport rows 1..=4. Start the chip at row 5.
     let y_off = 5u16;
     if area.height <= y_off + h {
@@ -7506,7 +7506,7 @@ fn render_streak_chip(frame: &mut Frame, current: u64, best: u64) {
         height: h,
     };
     frame.render_widget(Clear, rect);
-    // Low-sat fiery orange — close to a banked-coal tone, not a saturated
+    // Low-sat fiery orange · close to a banked-coal tone, not a saturated
     // alert orange. Stands out from the cyan/yellow borders used elsewhere.
     let fire = Color::Rgb(200, 110, 50);
     let block = Block::default()
@@ -8018,7 +8018,7 @@ fn render_location_popup(frame: &mut Frame, label: &str) {
     frame.render_widget(p, popup);
 }
 
-// (weather visual overlay removed — HUD-only)
+// (weather visual overlay removed · HUD-only)
 // ---- top-right HUD: date / time / weather ---------------------------
 
 fn render_world_hud(
@@ -8111,7 +8111,7 @@ fn render_world_hud(
         height: panel_h,
     };
     use ratatui::widgets::{Clear, Paragraph};
-    // Clear wipes each cell's style fully before drawing — otherwise the
+    // Clear wipes each cell's style fully before drawing · otherwise the
     // HUD text inherits whatever modifiers (BOLD, etc.) the underlying
     // world cell had, so digits would flicker bold over tree/wall cells.
     frame.render_widget(Clear, rect);
@@ -8903,7 +8903,7 @@ fn render_debug_console(
 }
 
 /// True if the player can ride a boat onto this tile. (Swimming isn't a
-/// thing — fish are dangerous. Only a boat lets you cross water.)
+/// thing · fish are dangerous. Only a boat lets you cross water.)
 /// Normalize an item-name string into the canonical ore name used in
 /// `mining::ORES`. Ore items are pushed with `ore.name` already, so this
 /// just lowercases and trims as a defensive measure against case drift.
@@ -8942,7 +8942,7 @@ fn water_kind_at(world: &World, x: i32, y: i32) -> &'static str {
     if matches!(t, Tile::DeepWater | Tile::Seabed | Tile::Kelp | Tile::Anemone) {
         return "atlantis";
     }
-    // A water cell sitting on a river is "moving water" — river fish
+    // A water cell sitting on a river is "moving water" · river fish
     // only spawn here. Check before the y-based ocean/lake fallback so
     // river segments on either side of y=5 still register correctly.
     if matches!(t, Tile::Water) && crate::world::river_at(x, y, world.seed).is_some() {
@@ -9009,7 +9009,7 @@ fn dim_default_pool(
         // ---- specialty dim → pool tag ----
         // On a "High" weather day the dim's weather can override the pool
         // (e.g. Cathedral on Supernatural-High routes to "divine" instead
-        // of the default cathedral pool — see weather::weather_modifiers).
+        // of the default cathedral pool · see weather::weather_modifiers).
         crate::world::Dimension::Sewer => Some(crate::weather::weather_modifiers(weather).pool_override.unwrap_or("sewer")),
         crate::world::Dimension::HotSpring => Some(crate::weather::weather_modifiers(weather).pool_override.unwrap_or("hotspring")),
         crate::world::Dimension::Pyramid => Some(crate::weather::weather_modifiers(weather).pool_override.unwrap_or("pyramid")),
@@ -9021,7 +9021,7 @@ fn dim_default_pool(
         crate::world::Dimension::Crater => Some(crate::weather::weather_modifiers(weather).pool_override.unwrap_or("crater")),
         crate::world::Dimension::Colosseum => Some(crate::weather::weather_modifiers(weather).pool_override.unwrap_or("colosseum")),
         crate::world::Dimension::Lakebed => Some("lakebed"),
-        // All Blue is the endgame "everything" pool — we route to "allblue"
+        // All Blue is the endgame "everything" pool · we route to "allblue"
         // for the rare apex fish AND occasionally fall back to None so the
         // entire fish list is reachable (the picker handles None).
         crate::world::Dimension::AllBlue => {
@@ -9166,7 +9166,7 @@ fn render_stats(
     lines.push(section("BOAT"));
     lines.push(row(
         "Hull",
-        format!("tier {} — {}", hull_tier, crate::player::hull_label(hull_tier)),
+        format!("tier {} · {}", hull_tier, crate::player::hull_label(hull_tier)),
     ));
     let max_depth = crate::player::ocean_depth_max(hull_tier);
     let depth_label = if max_depth == u32::MAX {
@@ -9263,7 +9263,7 @@ fn render_stats(
         lines.push(row(label, val));
     }
     let perks = gear.combined_perks();
-    // (combined walk-speed already shown in BUFFS — gear's component is folded in there)
+    // (combined walk-speed already shown in BUFFS · gear's component is folded in there)
     lines.push(row(
         "Stamina drain mult",
         format!("x{:.2}", perks.stamina_loss_mult),
@@ -9575,7 +9575,7 @@ fn render_inventory(
         Category::Fossils => {
             // Fossils are catch-but-not-sellable. Group identical entries
             // and render their basket count. Cooking / selling never reach
-            // this list — the only thing you can do with them is take them
+            // this list · the only thing you can do with them is take them
             // to a procedural-village archeologist.
             let mut grouped: Vec<(&'static crate::fish::FishDef, usize)> = Vec::new();
             for f in fossils.iter() {
@@ -9721,7 +9721,7 @@ fn render_house(frame: &mut Frame, px: i32, py: i32, seed: u32, facing: (i32, i3
             buf[(sx, sy)].set_char(g).set_style(style);
         }
     }
-    // Player on top — facing-direction glyph matches the overworld.
+    // Player on top · facing-direction glyph matches the overworld.
     let sx = ox + px as u16;
     let sy = oy + py as u16;
     let glyph = match facing {
@@ -9867,7 +9867,7 @@ fn render_shipwright(
     let mut lines: Vec<ratatui::text::Line> = Vec::new();
     lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
         format!(
-            "  Current hull: tier {hull_tier} — {}",
+            "  Current hull: tier {hull_tier} · {}",
             crate::player::hull_label(hull_tier)
         ),
         Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD),
@@ -9883,7 +9883,7 @@ fn render_shipwright(
         Style::default().fg(Color::DarkGray),
     )));
     lines.push(ratatui::text::Line::from(""));
-    // Tier rows 0..=6 — show all upgrades + their state. cursor index is
+    // Tier rows 0..=6 · show all upgrades + their state. cursor index is
     // the *from* tier, so cursor==hull_tier is the next buyable row.
     for from in 0u32..=5 {
         let selected = (from as usize) == cursor;
@@ -10312,7 +10312,7 @@ fn render_cookbook(
 fn render_perf_overlay(frame: &mut Frame) {
     let full = viewport(frame);
     let snap = crate::perf::snapshot();
-    // Compact centered panel — leave the world visible around it.
+    // Compact centered panel · leave the world visible around it.
     let w = 78u16.min(full.width.saturating_sub(4));
     let h = ((snap.len() as u16) + 6).min(full.height.saturating_sub(4));
     if w < 40 || h < 6 {
@@ -10325,7 +10325,7 @@ fn render_perf_overlay(frame: &mut Frame) {
         height: h,
     };
     frame.render_widget(Clear, area);
-    let title = format!(" perf — {} phases — esc/q close ", snap.len());
+    let title = format!(" perf · {} phases · esc/q close ", snap.len());
     let block = Block::default()
         .borders(Borders::ALL)
         .title(title)
@@ -10375,7 +10375,7 @@ fn render_lure_bench(
 ) {
     let area = viewport(frame);
     frame.render_widget(Clear, area);
-    let title = format!(" bait bench — j/k pick — enter craft — esc leave — {valu}$V ");
+    let title = format!(" bait bench · j/k pick · enter craft · esc leave · {valu}$V ");
     let block = Block::default()
         .borders(Borders::ALL)
         .title(title)
@@ -10429,7 +10429,7 @@ fn render_scales(
 ) {
     let area = viewport(frame);
     frame.render_widget(Clear, area);
-    let title = format!(" scales — j/k pick — enter spend 1 — esc leave — bank {bank} ");
+    let title = format!(" scales · j/k pick · enter spend 1 · esc leave · bank {bank} ");
     let block = Block::default()
         .borders(Borders::ALL)
         .title(title)
@@ -10472,7 +10472,7 @@ fn render_bug_catch(frame: &mut Frame, b: &crate::bug_catch::BugCatch, tick: u64
     };
     let in_zone = b.in_target();
     let title = format!(
-        " bug net — space/f to swing — esc to leave — {secs_left}s — {}/{} swings ",
+        " bug net · space/f to swing · esc to leave · {secs_left}s · {}/{} swings ",
         b.attempts_left,
         crate::bug_catch::MAX_ATTEMPTS,
     );
@@ -10546,9 +10546,9 @@ fn render_chopping(frame: &mut Frame, c: &crate::chop::Chopping, tick: u64) {
         Color::LightGreen
     };
     let title = if lockout_secs > 0 {
-        format!(" chopping — LOCKED OUT {lockout_secs}s — Esc to leave ")
+        format!(" chopping · LOCKED OUT {lockout_secs}s · Esc to leave ")
     } else {
-        " chopping — type the F/G/H/J sequence — Esc to leave ".to_string()
+        " chopping · type the F/G/H/J sequence · Esc to leave ".to_string()
     };
     let block = Block::default()
         .borders(Borders::ALL)
@@ -10631,7 +10631,7 @@ fn render_gear_panel(
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" gear — h/l switch slot, j/k pick, Enter equip, u unequip, q leave ")
+        .title(" gear · h/l switch slot, j/k pick, Enter equip, u unequip, q leave ")
         .border_style(Style::default().fg(Color::Cyan));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -10681,7 +10681,7 @@ fn render_gear_panel(
         .collect();
     if owned.is_empty() {
         lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
-            "  (none owned — forge one at the blacksmith)",
+            "  (none owned · forge one at the blacksmith)",
             Style::default().fg(Color::DarkGray),
         )));
     } else {
@@ -10724,7 +10724,7 @@ fn render_sell_gear(
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(format!(" sell forged gear — j/k pick, Enter sell, q back · today {ore_sold_today}/{cap} "))
+        .title(format!(" sell forged gear · j/k pick, Enter sell, q back · today {ore_sold_today}/{cap} "))
         .border_style(Style::default().fg(Color::LightRed));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -10752,7 +10752,7 @@ fn render_sell_gear(
                 })
                 .unwrap_or(0);
             let price = ((ingot_total as f32) * 1.10 * valu_mult).round() as u64;
-            let worn = if equipped.contains(id) { " (equipped — will unequip)" } else { "" };
+            let worn = if equipped.contains(id) { " (equipped · will unequip)" } else { "" };
             let prefix = if i == cursor { "> " } else { "  " };
             let style = if i == cursor {
                 Style::default()
@@ -10785,7 +10785,7 @@ fn render_blacksmith_menu(
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" blacksmith — j/k pick, Enter select, q/esc leave ")
+        .title(" blacksmith · j/k pick, Enter select, q/esc leave ")
         .border_style(Style::default().fg(Color::LightRed));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -10800,7 +10800,7 @@ fn render_blacksmith_menu(
     )));
     lines.push(ratatui::text::Line::from(""));
     lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
-        "  (smelt at the Smelter (S), forge at the Forge (F) — both next to the smith)",
+        "  (smelt at the Smelter (S), forge at the Forge (F) · both next to the smith)",
         Style::default().fg(Color::DarkGray),
     )));
     lines.push(ratatui::text::Line::from(""));
@@ -10838,7 +10838,7 @@ fn render_smelt(
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" smelting — j/k pick ore · type the ore's name to smelt one ingot · esc to leave ")
+        .title(" smelting · j/k pick ore · type the ore's name to smelt one ingot · esc to leave ")
         .border_style(Style::default().fg(Color::Yellow));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -10906,7 +10906,7 @@ fn render_forge(
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(format!(" forging — Blacksmithing lv {bs_level} · j/k pick · type the item name · esc to leave "))
+        .title(format!(" forging · Blacksmithing lv {bs_level} · j/k pick · type the item name · esc to leave "))
         .border_style(Style::default().fg(Color::Magenta));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -10914,7 +10914,7 @@ fn render_forge(
     let mut lines: Vec<ratatui::text::Line> = Vec::new();
     if avail.is_empty() {
         lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
-            "no eligible recipes — smelt ingots, level up Blacksmithing, or save valu",
+            "no eligible recipes · smelt ingots, level up Blacksmithing, or save valu",
             Style::default().fg(Color::DarkGray),
         )));
     } else {

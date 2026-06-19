@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-//! Landmark capes — flat-list progression beats that fire once when their
+//! Landmark capes · flat-list progression beats that fire once when their
 //! criteria are first met. Each unlock grants small permanent additive
 //! bonuses (xp/valu/rare) that accumulate across the run.
 //!

@@ -1,5 +1,5 @@
 [
-  { "_comment": "schema: { id, name, description, valu_cost (u64), inputs (Vec<{bait_id, count}>), output_bait_id, output_count (default 1) }. Inputs reference bait IDs (shop bait id, or 'bug:<bug-id>', or 'fish:<slug>'). Output writes count to BaitStock under output_bait_id (which must already exist in the merged defs list — see bait.rs)." },
+  { "_comment": "schema: { id, name, description, valu_cost (u64), inputs (Vec<{bait_id, count}>), output_bait_id, output_count (default 1) }. Inputs reference bait IDs (shop bait id, or 'bug:<bug-id>', or 'fish:<slug>'). Output writes count to BaitStock under output_bait_id (which must already exist in the merged defs list; see bait.rs)." },
 
   { "id": "bundle-worm-glow",      "name": "Glowfly Worm Bundle",     "description": "",  "valu_cost": 50,    "inputs": [ {"bait_id": "earthworm", "count": 5}, {"bait_id": "bug:meadow-grasshopper", "count": 2} ], "output_bait_id": "glowfly",       "output_count": 1 },
   { "id": "bundle-moth",           "name": "Midnight Moth Wax",       "description": "",  "valu_cost": 250,   "inputs": [ {"bait_id": "bug:forest-glowworm", "count": 3}, {"bait_id": "bug:swamp-mosquito", "count": 4} ], "output_bait_id": "midnight-moth", "output_count": 1 },
