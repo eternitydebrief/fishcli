@@ -39,11 +39,11 @@
     "glyph": "B",
     "color": "lightred",
     "dialogue": [
-      "TODO: blacksmith intro line — user to write."
+      "TODO: blacksmith intro line; user to write."
     ],
     "responses": {
-      "no_business": "TODO: nothing-to-do response — user to write.",
-      "cap_full": "TODO: cap-reached response — user to write."
+      "no_business": "TODO: nothing-to-do response; user to write.",
+      "cap_full": "TODO: cap-reached response; user to write."
     }
   },
   {
@@ -54,11 +54,11 @@
     "glyph": "B",
     "color": "lightred",
     "dialogue": [
-      "TODO: procedural-village blacksmith line — user to write."
+      "TODO: procedural-village blacksmith line; user to write."
     ],
     "responses": {
-      "no_business": "TODO: nothing-to-do response — user to write.",
-      "cap_full": "TODO: cap-reached response — user to write."
+      "no_business": "TODO: nothing-to-do response; user to write.",
+      "cap_full": "TODO: cap-reached response; user to write."
     }
   },
   {
@@ -69,10 +69,10 @@
     "glyph": "$",
     "color": "yellow",
     "dialogue": [
-      "TODO: procedural-village fishmonger line — user to write."
+      "TODO: procedural-village fishmonger line; user to write."
     ],
     "responses": {
-      "cap_full": "TODO: cap-reached response — user to write."
+      "cap_full": "TODO: cap-reached response; user to write."
     }
   },
   {
@@ -83,12 +83,12 @@
     "glyph": "&",
     "color": "lightyellow",
     "dialogue": [
-      "TODO: procedural-village archeologist line — user to write."
+      "TODO: procedural-village archeologist line; user to write."
     ],
     "responses": {
-      "no_fossils": "TODO: nothing-to-unearth response — user to write.",
-      "too_poor": "TODO: not-enough-valu response — user to write.",
-      "unearthed": "TODO: success line, may reference {fish} and {cost} — user to write."
+      "no_fossils": "TODO: nothing-to-unearth response; user to write.",
+      "too_poor": "TODO: not-enough-valu response; user to write.",
+      "unearthed": "TODO: success line, may reference {fish} and {cost}; user to write."
     }
   },
   {
@@ -198,7 +198,7 @@
     "color": "lightgreen",
     "dialogue": [
       "The Lumberjack leans on a long-handled axe.",
-      "\"See a tree, face it, type :chop. I'll show you the rhythm — F, G, H, J, in whatever order I shout 'em.\"",
+      "\"See a tree, face it, type :chop. I'll show you the rhythm; F, G, H, J, in whatever order I shout 'em.\"",
       "\"Get one wrong, hands lock up for three seconds. Get sloppy, the haul halves. Clean run, you walk away with logs.\"",
       "\"Shipwright wants wood for every hull tier. So.\""
     ]
@@ -212,8 +212,8 @@
     "color": "lightmagenta",
     "dialogue": [
       "The Chef wipes their hands on a stained apron.",
-      "\"You hauling fish, you should be cooking. Stand at my pot — the orange 'O' right next to me — and press f. Or :cook from inside the cookbook range.\"",
-      "\"Pot's mine. No pot, no kitchen. Every recipe gates on cooking level. Cook it more, master it — same dish at twenty cooks pays half-again.\"",
+      "\"You hauling fish, you should be cooking. Stand at my pot (the orange 'O' right next to me) and press f. Or :cook from inside the cookbook range.\"",
+      "\"Pot's mine. No pot, no kitchen. Every recipe gates on cooking level. Cook it more, master it; same dish at twenty cooks pays half-again.\"",
       "\"Master twenty different recipes, the world rewards you. Pantheon Palate. I'll explain when you're there.\""
     ]
   },
@@ -418,14 +418,14 @@
   },
   {
     "id": "tut-blacksmith",
-    "name": "TODO: tutorial blacksmith name — user to write.",
+    "name": "TODO: tutorial blacksmith name; user to write.",
     "x": -10,
     "y": 1,
     "glyph": "?",
     "color": "lightred",
     "dialogue": [
-      "TODO: blacksmithing tutorial intro — user to write.",
-      "TODO: explain :gear / Smelter (S) / Forge (F) / sell flow — user to write."
+      "TODO: blacksmithing tutorial intro; user to write.",
+      "TODO: explain :gear / Smelter (S) / Forge (F) / sell flow; user to write."
     ]
   },
   {
@@ -643,7 +643,7 @@
     "dialogue": [ "The guard's pitchfork drips.", "\"Move along.\"" ]
   },
 
-  { "_comment": "ATLANTIS satellite — coral-bound outpost south of the capital." },
+  { "_comment": "ATLANTIS satellite; coral-bound outpost south of the capital." },
 
   {
     "id": "atl-scout-1",
@@ -660,7 +660,7 @@
     "x": 24, "y": 16, "glyph": "m", "color": "yellow", "dim": "Atlantis",
     "dialogue": [
       "The merchant's tentacles roll a string of pearls.",
-      "\"Walker. I deal in things only the deep gives. We'll trade — when I'm wired up.\""
+      "\"Walker. I deal in things only the deep gives. We'll trade; when I'm wired up.\""
     ]
   },
   {
@@ -682,7 +682,7 @@
     ]
   },
 
-  { "_comment": "MINES extension — second crypt hall east of the central one, with more ghouls." },
+  { "_comment": "MINES extension; second crypt hall east of the central one, with more ghouls." },
 
   {
     "id": "ghoul-2",
@@ -721,7 +721,7 @@
     ]
   },
 
-  { "_comment": "INFERNO retinue — additional imps + a damned soul around the keep." },
+  { "_comment": "INFERNO retinue; additional imps + a damned soul around the keep." },
 
   {
     "id": "imp-3",
@@ -751,72 +751,105 @@
     ]
   },
 
-  { "_comment": "specialty-dim NPCs. One per dim, placed at (5,3) which sits on open floor in every procedural layout. Dialogue is intentionally short — REWRITE PROSE HERE." },
+  { "_comment": "specialty-dim NPCs. One per dim, placed at (5,3) which sits on open floor in every procedural layout. Dialogue is intentionally short; REWRITE PROSE HERE." },
 
   {
     "id": "sewer-vagabond",
     "name": "Sewer Vagabond",
     "x": 5, "y": 3, "glyph": "@", "color": "darkgray", "dim": "Sewer",
-    "dialogue": ["A figure crouched at the drain's edge."]
+    "dialogue": [
+      "the vagabond watches the drain. his eyes haven't moved since you arrived.",
+      "\"i've seen what gets dropped here. i wasn't initiated. just watched. that's worse, maybe.\""
+    ]
   },
   {
     "id": "hotspring-bather",
     "name": "Bather",
     "x": 5, "y": 3, "glyph": "@", "color": "lightred", "dim": "HotSpring",
-    "dialogue": ["A bather sits in the steam, eyes closed."]
+    "dialogue": [
+      "the bather doesn't open her eyes.",
+      "\"khei made the water first. the steam is her letting us leave it. don't waste your turn.\""
+    ]
   },
   {
     "id": "pyramid-priest",
     "name": "Sand Priest",
     "x": 5, "y": 3, "glyph": "@", "color": "yellow", "dim": "Pyramid",
-    "dialogue": ["The priest's robes are dry with millennia of dust."]
+    "dialogue": [
+      "the priest sifts the sand with bare fingers, slow.",
+      "\"ishtar is buried in a million tombs. i've found four pieces. i have time.\""
+    ]
   },
   {
     "id": "swampcave-witch",
     "name": "Bog Witch",
     "x": 5, "y": 3, "glyph": "@", "color": "green", "dim": "SwampCave",
-    "dialogue": ["She stirs a pot that does not exist."]
+    "dialogue": [
+      "she keeps stirring the pot that isn't there.",
+      "\"heard the catfish were saying things about the gar. you didn't hear it from me.\""
+    ]
   },
   {
     "id": "cathedral-monk",
     "name": "Silent Monk",
     "x": 5, "y": 3, "glyph": "@", "color": "lightmagenta", "dim": "BogCathedral",
-    "dialogue": ["The monk's mouth never opens but you hear him anyway."]
+    "dialogue": [
+      "the monk's mouth never opens. you hear him anyway.",
+      "\"i drowned when the cathedral flooded. my voice did not. it has been talking ever since.\""
+    ]
   },
   {
     "id": "mirror-twin",
     "name": "Your Reflection",
     "x": 5, "y": 3, "glyph": "@", "color": "lightcyan", "dim": "MirrorLake",
-    "dialogue": ["It moves a half-second after you do."]
+    "dialogue": [
+      "it moves a half-second after you do. it is older.",
+      "\"i tried to warn you. i can't get the words in the right order. don't.\""
+    ]
   },
   {
     "id": "iceshelf-trapper",
     "name": "Trapper",
     "x": 5, "y": 3, "glyph": "@", "color": "lightblue", "dim": "Iceshelf",
-    "dialogue": ["A bundled figure checks an ice-line."]
+    "dialogue": [
+      "the trapper checks an ice-line. doesn't look up.",
+      "\"walrus tusk's up. char's down. you bringing in, or just walking through.\""
+    ]
   },
   {
     "id": "wreckage-captain",
     "name": "Drowned Captain",
     "x": 5, "y": 3, "glyph": "@", "color": "blue", "dim": "Wreckage",
-    "dialogue": ["Salt water runs from the seam of his coat."]
+    "dialogue": [
+      "salt water runs from the seam of his coat.",
+      "\"atlantis sank me. you'll help me sack it back. don't decide now. but decide soon.\""
+    ]
   },
   {
     "id": "crater-pilgrim",
     "name": "Pilgrim",
     "x": 5, "y": 3, "glyph": "@", "color": "lightmagenta", "dim": "Crater",
-    "dialogue": ["The pilgrim watches the sky between glances."]
+    "dialogue": [
+      "the pilgrim watches the sky between glances. a drop of memory-crystal water on his tongue.",
+      "\"someone laughed in a kitchen, a long time ago. that's what this one was. the next one says my name.\""
+    ]
   },
   {
     "id": "colosseum-champion",
     "name": "Old Champion",
     "x": 5, "y": 3, "glyph": "@", "color": "lightyellow", "dim": "Colosseum",
-    "dialogue": ["He hasn't fought in years. He looks like he could."]
+    "dialogue": [
+      "the old champion hasn't fought in years. he looks like he could.",
+      "\"i brought the column down. the crowd it crushed didn't pick the seat. i can't pick a weapon up since.\""
+    ]
   },
   {
     "id": "allblue-fisherman",
     "name": "The Fisherman",
     "x": 5, "y": 3, "glyph": "@", "color": "white", "dim": "AllBlue",
-    "dialogue": ["The first fisherman, casting where every fish swims."]
+    "dialogue": [
+      "the first fisherman. he casts where every fish swims.",
+      "\"i came before the village. before the rod. fish learned the rules from watching me. so did you, eventually.\""
+    ]
   }
 ]
